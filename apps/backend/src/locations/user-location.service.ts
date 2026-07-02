@@ -1,0 +1,100 @@
+import {
+  ForbiddenException,
+  Injectable,
+  NotFoundException,
+} from '@nestjs/common';
+import { UnitOfWork } from '../db/db.module.js';
+import { RbacService } from '../common/rbac/rbac.service.js';
+import { AuditService } from '../auth/core/audit.service.js';
+import { LocationRepository } from './location.repository.js';
+import { UserLocationRepository, type LocationMember } from './user-location.repository.js';
+
+/**
+ * User↔location assignment (adoption §8.1). A store-scoped role says WHAT a user
+ * can do; this says WHERE. Assigning/revoking bumps the target's permissions
+ * version so their device re-bootstraps its location set (H-6). Owners are
+ * implicitly assigned to every location and cannot be revoked from one.
+ */
+@Injectable()
+export class UserLocationService {
+  constructor(
+    private readonly locationRepo: LocationRepository,
+    private readonly repo: UserLocationRepository,
+    private readonly rbac: RbacService,
+    private readonly audit: AuditService,
+    private readonly uow: UnitOfWork,
+  ) {}
+
+  async listMembers(storeId: string, locationId: string): Promise<LocationMember[]> {
+    const loc = await this.locationRepo.findInStore(locationId, storeId);
+    if (!loc) throw new NotFoundException('LOCATION_NOT_FOUND');
+    return this.repo.listMembers(locationId);
+  }
+
+  /** Assign users to a location. Each must be an active member of the store. */
+  async assignUsers(
+    storeId: string,
+    actorId: string,
+    locationId: string,
+    userIds: string[],
+  ): Promise<void> {
+    const loc = await this.locationRepo.findInStore(locationId, storeId);
+    if (!loc) throw new NotFoundException('LOCATION_NOT_FOUND');
+    if (!loc.enable) throw new ForbiddenException('LOCATION_DISABLED');
+
+    for (const userId of userIds) {
+      if (!(await this.repo.isStoreMember(userId, storeId))) {
+        throw new ForbiddenException('USER_NOT_STORE_MEMBER');
+      }
+    }
+
+    await this.uow.execute(async (tx) => {
+      for (const userId of userIds) {
+        await this.repo.assign(userId, locationId, actorId, tx);
+        await this.rbac.bumpPermissionsVersionForUser(userId, tx);
+      }
+    });
+
+    for (const userId of userIds) {
+      await this.rbac.invalidateUserStoreCache(userId, storeId);
+    }
+    await this.audit.log({
+      event: 'LOCATION_USERS_ASSIGNED', activityType: 'ROLE_ASSIGNMENT_CREATED',
+      prefix: 'Location', suffix: `assigned ${userIds.length} user(s)`,
+      userId: actorId, storeFk: storeId, isSuccess: true,
+      entityType: 'Location', entityId: locationId,
+      metadata: { userIds },
+    });
+  }
+
+  /** Revoke a user from a location. Owners cannot be removed (§8.1). */
+  async revokeUser(
+    storeId: string,
+    actorId: string,
+    locationId: string,
+    targetUserId: string,
+  ): Promise<void> {
+    const loc = await this.locationRepo.findInStore(locationId, storeId);
+    if (!loc) throw new NotFoundException('LOCATION_NOT_FOUND');
+
+    if (await this.repo.isStoreOwner(targetUserId, storeId)) {
+      throw new ForbiddenException('OWNER_LOCATION_CANNOT_REMOVE');
+    }
+
+    const revoked = await this.uow.execute(async (tx) => {
+      const n = await this.repo.revoke(targetUserId, locationId, tx);
+      if (n > 0) await this.rbac.bumpPermissionsVersionForUser(targetUserId, tx);
+      return n;
+    });
+    if (!revoked) throw new NotFoundException('LOCATION_ASSIGNMENT_NOT_FOUND');
+
+    await this.rbac.invalidateUserStoreCache(targetUserId, storeId);
+    await this.audit.log({
+      event: 'LOCATION_USER_REVOKED', activityType: 'ROLE_ASSIGNMENT_REVOKED',
+      prefix: 'Location', suffix: 'user revoked',
+      userId: actorId, storeFk: storeId, isSuccess: true,
+      entityType: 'Location', entityId: locationId,
+      metadata: { targetUserId },
+    });
+  }
+}

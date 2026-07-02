@@ -2,5 +2,27 @@
   "extends": "./tsconfig.base.json",
   "compileOnSave": false,
   "files": [],
-  "references": []
+  "references": [
+    {
+      "path": "./apps/backend"
+    },
+    {
+      "path": "./apps/mobile"
+    },
+    {
+      "path": "./libs-common/state-manager"
+    },
+    {
+      "path": "./libs-common/shared-types"
+    },
+    {
+      "path": "./libs-mobile/mobile-theme"
+    },
+    {
+      "path": "./libs-common/api-manager"
+    },
+    {
+      "path": "./libs-mobile/mobile-ui-components"
+    }
+  ]
 }

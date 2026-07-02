@@ -1,0 +1,27 @@
+{
+  "extends": "../../tsconfig.base.json",
+  "compilerOptions": {
+    "declarationMap": false,
+    "emitDeclarationOnly": false,
+    "jsx": "react-native",
+    "lib": ["esnext"],
+    "module": "esnext",
+    "moduleResolution": "bundler",
+    "target": "esnext",
+    "outDir": "./dist",
+    "allowSyntheticDefaultImports": true,
+    "paths": {
+      "@nks/mobile-theme": ["../mobile-theme/src"],
+      "@nks/mobile-theme/*": ["../mobile-theme/src/*"],
+      "@nks/mobile-utils": ["../mobile-utils/src"],
+      "@nks/mobile-utils/*": ["../mobile-utils/src/*"]
+    }
+  },
+  "include": ["src/**/*", "../mobile-theme/src/**/*"],
+  "exclude": ["node_modules", "dist"],
+  "references": [
+    {
+      "path": "../mobile-theme"
+    }
+  ]
+}

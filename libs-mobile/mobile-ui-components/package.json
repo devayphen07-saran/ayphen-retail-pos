@@ -1,0 +1,45 @@
+{
+  "name": "@nks/mobile-ui-components",
+  "private": true,
+  "version": "1.0.0",
+  "description": "Shared UI components for NKS mobile apps",
+  "main": "src/index.ts",
+  "types": "src/index.ts",
+  "sideEffects": false,
+  "nx": {
+    "tags": [
+      "scope:mobile",
+      "platform:mobile"
+    ]
+  },
+  "scripts": {
+    "lint": "tsc --noEmit"
+  },
+  "dependencies": {
+    "@nks/mobile-theme": "workspace:*",
+    "lucide-react-native": "^0.562.0",
+    "styled-components": "~6.3.11"
+  },
+  "peerDependencies": {
+    "react": "*",
+    "react-native": "*",
+    "react-hook-form": ">=7",
+    "expo-image": "*",
+    "@shopify/flash-list": "*",
+    "expo-haptics": "*",
+    "expo-av": "*"
+  },
+  "devDependencies": {
+    "@react-native-async-storage/async-storage": "*",
+    "@react-native-community/datetimepicker": "*",
+    "@shopify/flash-list": "*",
+    "expo-av": "*",
+    "expo-haptics": "*",
+    "expo-image": "*",
+    "react": "19.1.0",
+    "react-hook-form": "^7.0.0",
+    "react-native": "0.81.5",
+    "react-native-svg": "*",
+    "typescript": "~5.9.2"
+  }
+}

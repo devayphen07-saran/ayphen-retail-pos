@@ -24,6 +24,10 @@ node_modules
 !.vscode/launch.json
 !.vscode/extensions.json
 
+# env files with real secrets
+.env.local
+.env.*.local
+
 # misc
 /.sass-cache
 /connect.lock
@@ -48,3 +52,19 @@ Thumbs.db
 .nx/polygraph
 .nx/self-healing
 .nx/migrate-runs
+
+# Expo
+node_modules/
+.expo/
+.yarn/
+dist/
+npm-debug.*
+*.jks
+*.p8
+*.p12
+*.key
+*.mobileprovision
+*.orig.*
+web-build/
+cache/
+

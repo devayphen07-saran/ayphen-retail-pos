@@ -1,0 +1,31 @@
+{
+  "name": "@nks/mobile-theme",
+  "private": true,
+  "version": "1.0.0",
+  "description": "NKS mobile design system — token definitions, theme provider, and hooks",
+  "main": "src/index.ts",
+  "types": "src/index.ts",
+  "sideEffects": false,
+  "nx": {
+    "tags": ["scope:mobile", "platform:mobile"]
+  },
+  "scripts": {
+    "lint": "tsc --noEmit"
+  },
+  "peerDependencies": {
+    "react": "*",
+    "react-native": "*",
+    "styled-components": ">=6.0.0",
+    "@react-native-async-storage/async-storage": ">=1.17.0"
+  },
+
+  "devDependencies": {
+    "react": "19.1.0",
+    "react-native": "0.81.5",
+    "styled-components": "~6.3.11",
+    "@react-native-async-storage/async-storage": "2.2.0",
+    "typescript": "~5.9.2"
+  }
+}
+
+

@@ -1,0 +1,178 @@
+{
+  "name": "@ayphen/backend",
+  "version": "0.0.1",
+  "private": true,
+  "scripts": {
+    "start": "node dist/main.js",
+    "dev": "tsx watch src/main.ts",
+    "build": "webpack-cli build",
+    "db:generate": "drizzle-kit generate",
+    "db:migrate": "drizzle-kit migrate",
+    "db:push": "drizzle-kit push",
+    "db:studio": "drizzle-kit studio",
+    "db:seed": "tsx src/db/scripts/seed.ts",
+    "db:flush": "tsx src/db/scripts/flush.ts",
+    "db:reset": "pnpm db:flush && pnpm db:seed",
+    "test:unit": "jest test/unit",
+    "test:integration": "jest test/integration",
+    "test:e2e": "jest test/e2e --runInBand",
+    "test:watch": "jest --watch",
+    "test:ci": "jest --coverage --ci"
+  },
+  "nx": {
+    "targets": {
+      "db:generate": {
+        "executor": "nx:run-commands",
+        "options": {
+          "command": "pnpm db:generate",
+          "cwd": "apps/backend"
+        }
+      },
+      "db:migrate": {
+        "executor": "nx:run-commands",
+        "options": {
+          "command": "pnpm db:migrate",
+          "cwd": "apps/backend"
+        }
+      },
+      "db:seed": {
+        "executor": "nx:run-commands",
+        "options": {
+          "command": "pnpm db:seed",
+          "cwd": "apps/backend"
+        }
+      },
+      "db:flush": {
+        "executor": "nx:run-commands",
+        "options": {
+          "command": "pnpm db:flush",
+          "cwd": "apps/backend"
+        }
+      },
+      "db:reset": {
+        "executor": "nx:run-commands",
+        "options": {
+          "command": "pnpm db:reset",
+          "cwd": "apps/backend"
+        }
+      },
+      "db:studio": {
+        "continuous": true,
+        "executor": "nx:run-commands",
+        "options": {
+          "command": "pnpm db:studio",
+          "cwd": "apps/backend"
+        }
+      },
+      "build": {
+        "executor": "nx:run-commands",
+        "options": {
+          "command": "webpack-cli build",
+          "env": {
+            "NODE_ENV": "production"
+          },
+          "cwd": "apps/backend"
+        },
+        "configurations": {
+          "development": {
+            "env": {
+              "NODE_ENV": "development"
+            }
+          }
+        }
+      },
+      "prune-lockfile": {
+        "dependsOn": [
+          "build"
+        ],
+        "cache": true,
+        "executor": "@nx/js:prune-lockfile",
+        "outputs": [
+          "{workspaceRoot}/apps/backend/dist/package.json",
+          "{workspaceRoot}/apps/backend/dist/pnpm-lock.yaml"
+        ],
+        "options": {
+          "buildTarget": "build"
+        }
+      },
+      "copy-workspace-modules": {
+        "dependsOn": [
+          "build"
+        ],
+        "cache": true,
+        "outputs": [
+          "{workspaceRoot}/apps/backend/dist/workspace_modules"
+        ],
+        "executor": "@nx/js:copy-workspace-modules",
+        "options": {
+          "buildTarget": "build"
+        }
+      },
+      "prune": {
+        "dependsOn": [
+          "prune-lockfile",
+          "copy-workspace-modules"
+        ],
+        "executor": "nx:noop"
+      },
+      "serve": {
+        "continuous": true,
+        "executor": "@nx/js:node",
+        "defaultConfiguration": "development",
+        "dependsOn": [
+          "build"
+        ],
+        "options": {
+          "buildTarget": "@ayphen/backend:build",
+          "runBuildTargetDependencies": false
+        },
+        "configurations": {
+          "development": {
+            "buildTarget": "@ayphen/backend:build:development"
+          },
+          "production": {
+            "buildTarget": "@ayphen/backend:build:production"
+          }
+        }
+      }
+    }
+  },
+  "dependencies": {
+    "@nestjs/common": "^11.0.0",
+    "@nestjs/core": "^11.0.0",
+    "@nestjs/platform-express": "^11.0.0",
+    "@nestjs/schedule": "^6.1.3",
+    "@nestjs/swagger": "^11.4.5",
+    "@nestjs/terminus": "^11.1.1",
+    "@nestjs/throttler": "^6.5.0",
+    "argon2": "^0.44.0",
+    "class-transformer": "^0.5.1",
+    "class-validator": "^0.15.1",
+    "cron": "^4.4.0",
+    "dotenv": "^17.4.2",
+    "drizzle-orm": "^0.45.2",
+    "ioredis": "^5.11.1",
+    "jose": "^6.2.3",
+    "nestjs-pino": "^4.6.1",
+    "pino-http": "^11.0.0",
+    "pino-pretty": "^13.1.3",
+    "postgres": "^3.4.9",
+    "reflect-metadata": "^0.2.0",
+    "rxjs": "^7.8.0",
+    "tslib": "^2.3.0",
+    "zod": "^4.4.3"
+  },
+  "devDependencies": {
+    "@nestjs/testing": "^11.0.0",
+    "@testcontainers/postgresql": "^12.0.4",
+    "@testcontainers/redis": "^12.0.4",
+    "@types/jest": "^30.0.0",
+    "@types/supertest": "^7.2.0",
+    "date-fns": "^4.4.0",
+    "drizzle-kit": "^0.31.10",
+    "jest": "^30.4.2",
+    "supertest": "^7.2.2",
+    "ts-jest": "^29.4.11",
+    "tsx": "^4.22.4"
+  }
+}

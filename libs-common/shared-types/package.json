@@ -1,0 +1,15 @@
+{
+  "name": "@ayphen-retail/shared-types",
+  "private": true,
+  "version": "1.0.0",
+  "description": "Cross-platform DTO and wire-shape types shared between API and clients.",
+  "main": "src/index.ts",
+  "types": "src/index.ts",
+  "sideEffects": false,
+  "nx": {
+    "tags": ["scope:common", "platform:any"]
+  },
+  "devDependencies": {
+    "typescript": "^5.3.0"
+  }
+}
