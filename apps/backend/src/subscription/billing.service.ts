@@ -11,6 +11,7 @@ import { SubscriptionRepository } from './subscription.repository.js';
 import { SubscriptionService } from './subscription.service.js';
 import { PAYMENT_PROVIDER, type PaymentProvider, type PaymentEvent } from './payment/payment-provider.js';
 import { resolvePlanPrice } from './payment/plan-pricing.js';
+import type { CheckoutResponse, VerifyPaymentResponse } from './dto/checkout.response.js';
 
 /** Redis map: order id → the account+plan it was created for. Verify/webhook read it. */
 const orderKey = (orderId: string) => `pay:order:${orderId}`;
@@ -43,9 +44,9 @@ export class BillingService {
   async checkout(
     userId: string,
     planCode: string,
-    prefill: { name: string; contact: string },
-  ): Promise<Record<string, unknown>> {
+  ): Promise<CheckoutResponse> {
     const accountId = await this.requireOwnedAccount(userId);
+    const prefill = await this.repo.findBillingPrefill(userId);
 
     const price = resolvePlanPrice(planCode);
     if (!price) throw new UnprocessableEntityException('UNKNOWN_PLAN_CODE');
@@ -71,7 +72,7 @@ export class BillingService {
   async verify(
     userId: string,
     input: { orderId: string; paymentId: string; signature: string },
-  ): Promise<{ activated: boolean }> {
+  ): Promise<VerifyPaymentResponse> {
     await this.requireOwnedAccount(userId);
 
     const result = await this.payments.verifyPayment(input);

@@ -26,6 +26,8 @@ import {
   UpdatePermissionsDtoSchema,
   AssignRoleDtoSchema,
 } from './dto/role.dto.js';
+import { RoleResponseMapper } from './role.mapper.js';
+import type { RoleResponse, CreatedRoleResponse } from './dto/role.response.js';
 
 /**
  * Role management (rbac.md §21). Full guard chain: auth → tenant (resolves +
@@ -40,8 +42,9 @@ export class RoleController {
 
   @Get()
   @RequirePermissions({ entity: 'Role', action: 'view' })
-  async list(@Param('storeId') storeId: string) {
-    return this.roles.listRoles(storeId);
+  async list(@Param('storeId') storeId: string): Promise<RoleResponse[]> {
+    const roles = await this.roles.listRoles(storeId);
+    return RoleResponseMapper.toListResponse(roles);
   }
 
   @Post()
@@ -50,9 +53,10 @@ export class RoleController {
     @Param('storeId') storeId: string,
     @CurrentUser() user: MobilePrincipal,
     @Body() body: unknown,
-  ): Promise<{ id: string; name: string }> {
+  ): Promise<CreatedRoleResponse> {
     const dto = parse(body, CreateRoleDtoSchema);
-    return this.roles.createRole(storeId, user.userId, dto.name, dto.description ?? null);
+    const role = await this.roles.createRole(storeId, user.userId, dto.name, dto.description ?? null);
+    return RoleResponseMapper.toCreatedResponse(role);
   }
 
   @Patch(':roleId/permissions')

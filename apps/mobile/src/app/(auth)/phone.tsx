@@ -336,8 +336,8 @@ export default function PhoneScreen() {
                 activeOpacity={0.7}
                 accessibilityLabel={
                   mode === 'login'
-                    ? 'New here? Create an account'
-                    : 'Already have an account? Log in'
+                    ? 'New here? Create an account'
+                    : 'Already have an account? Log in'
                 }
               >
                 <Typography.Caption

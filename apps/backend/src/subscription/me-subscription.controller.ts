@@ -13,9 +13,9 @@ import { CurrentUser, StepUpAuth, StoreContext } from '#common/rbac/decorators/r
 import type { MobilePrincipal } from '#auth/mobile/types/mobile-principal.js';
 import { SubscriptionService } from './subscription.service.js';
 import { BillingService } from './billing.service.js';
-import { SubscriptionRepository } from './subscription.repository.js';
 import { SubscriptionResponseMapper } from './subscription.mapper.js';
 import type { SubscriptionResponse } from './dto/subscription.response.js';
+import type { CheckoutResponse, VerifyPaymentResponse } from './dto/checkout.response.js';
 import {
   CheckoutDtoSchema,
   VerifyPaymentDtoSchema,
@@ -33,7 +33,6 @@ export class MeSubscriptionController {
   constructor(
     private readonly subscriptions: SubscriptionService,
     private readonly billing: BillingService,
-    private readonly repo: SubscriptionRepository,
   ) {}
 
   /** Full subscription read model — the freshness re-fetch target (§19). */
@@ -50,10 +49,9 @@ export class MeSubscriptionController {
   async checkout(
     @CurrentUser() user: MobilePrincipal,
     @Body() body: unknown,
-  ): Promise<Record<string, unknown>> {
+  ): Promise<CheckoutResponse> {
     const dto = parse(body, CheckoutDtoSchema);
-    const prefill = await this.repo.findBillingPrefill(user.userId);
-    return this.billing.checkout(user.userId, dto.plan_code, prefill);
+    return this.billing.checkout(user.userId, dto.plan_code);
   }
 
   /** Verify a client-reported payment → activate (§9). Owner + step-up. */
@@ -62,7 +60,7 @@ export class MeSubscriptionController {
   async verify(
     @CurrentUser() user: MobilePrincipal,
     @Body() body: unknown,
-  ): Promise<{ activated: boolean }> {
+  ): Promise<VerifyPaymentResponse> {
     const dto = parse(body, VerifyPaymentDtoSchema);
     return this.billing.verify(user.userId, {
       orderId:   dto.order_id,

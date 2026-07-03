@@ -5,6 +5,8 @@ import { CurrentUser, StoreContext } from '#common/rbac/decorators/rbac.decorato
 import type { MobilePrincipal } from '#auth/mobile/types/mobile-principal.js';
 import { StoreService } from './store.service.js';
 import { CreateStoreDtoSchema } from './dto/create-store.dto.js';
+import { StoreResponseMapper } from './store.mapper.js';
+import type { StoreResponse } from './dto/store.response.js';
 
 @Controller('stores')
 @UseGuards(MobileJwtGuard)
@@ -21,14 +23,15 @@ export class StoreController {
   async create(
     @CurrentUser() user: MobilePrincipal,
     @Body() body: unknown,
-  ): Promise<{ id: string; name: string }> {
+  ): Promise<StoreResponse> {
     const dto = parse(body, CreateStoreDtoSchema);
-    return this.stores.createStore(user.userId, {
+    const store = await this.stores.createStore(user.userId, {
       name:      dto.name,
       gstNumber: dto.gst_number,
       address:   dto.address,
       phone:     dto.phone,
       email:     dto.email,
     });
+    return StoreResponseMapper.toResponse(store);
   }
 }

@@ -15,7 +15,6 @@ import * as schema from '#db/schema.js';
 import { accountSubscriptions } from '#db/schema.js';
 import { MOBILE_REDIS } from '../services/redis.provider.js';
 import type { ResolvedStoreContext } from '#common/rbac/resolved-store-context.js';
-import type { StoreContext } from '../types/store-context.js';
 import {
   subVersionPointerKey,
   subSnapshotKey,
@@ -67,8 +66,7 @@ declare global {
  * so downstream can surface freshness headers.
  *
  * Runs AFTER the tenant guard, which attaches the resolved store context
- * (`request.context` for TenantGuard, legacy `request.storeContext` for
- * StoreGuard). Reads (GET/HEAD/OPTIONS) and handlers decorated with
+ * (`request.context`). Reads (GET/HEAD/OPTIONS) and handlers decorated with
  * `@AllowExpiredSubscription()` skip the block — reads are never gated.
  *
  * The subscription snapshot is cached in Redis under `sub:{accountId}` (5-min
@@ -125,12 +123,9 @@ export class SubscriptionStatusGuard implements CanActivate {
     return true;
   }
 
-  /** Prefer TenantGuard's `request.context`; fall back to legacy StoreGuard. */
   private resolveAccountId(req: Request): string | undefined {
     const resolved = (req as Request & { context?: ResolvedStoreContext }).context;
-    if (resolved?.accountId) return resolved.accountId;
-    const legacy = (req as Request & { storeContext?: StoreContext }).storeContext;
-    return legacy?.accountId;
+    return resolved?.accountId;
   }
 
   /**
