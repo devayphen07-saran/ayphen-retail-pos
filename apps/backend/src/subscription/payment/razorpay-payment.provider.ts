@@ -1,6 +1,6 @@
 import { Injectable } from '@nestjs/common';
 import { createHmac, timingSafeEqual } from 'node:crypto';
-import { AppConfigService } from '../../config/app-config.service.js';
+import { AppConfigService } from '#config/app-config.service.js';
 import type {
   PaymentProvider,
   CreateOrderInput,

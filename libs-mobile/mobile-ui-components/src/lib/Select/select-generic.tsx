@@ -1,23 +1,20 @@
-import React, { ReactElement, useMemo } from "react";
-import { Modal, ViewStyle } from "react-native";
+import React, { ReactElement, useCallback, useEffect, useMemo, useRef } from "react";
+import { ViewStyle } from "react-native";
 
 import {
-  SelectAnimatedSheetContainer,
-  SelectBackdrop,
   SelectGenericContainer,
   SelectLabelText,
-  SelectSheetBar,
   SelectTouchable,
   Separator,
 } from "./styles";
-import { useSelectMobile } from "./hooks";
+import { useTheme } from "styled-components/native";
+import { useBreakpoint } from "@ayphen/mobile-theme";
 import { Typography } from "../typography";
 import { LucideIcon } from "../lucide-icon";
-import { useTheme } from "styled-components/native";
-import { useBreakpoint } from "@nks/mobile-theme";
 import { ThemedFlatList } from "../flat-list-scaffold/ThemedFlatList";
 import { NoDataContainer } from "../flat-list-scaffold/NoDataContainer";
-import { SkeletonLoader } from "../SkeletonLoader";
+import { SelectSkeleton } from "./select-skeleton";
+import { useBottomSheet } from "../BottomSheet";
 
 type valueType = string | number | undefined | null;
 
@@ -42,6 +39,62 @@ export interface SelectProps<T> {
   loading?: boolean;
 }
 
+interface SelectSheetContentProps<T> {
+  options: T[];
+  valueKey: keyof T;
+  selectedValue: T | undefined;
+  onSelect: (item: T) => void;
+  renderItem: SelectProps<T>["renderItem"];
+  keyExtractor?: SelectProps<T>["keyExtractor"];
+  loading: boolean;
+  loadingRender: React.ReactElement;
+  noDataMessage: string;
+  Header?: React.ReactNode;
+}
+
+/** Sheet content — a component reference, never a rendered element (modal-architecture-agent.md §9). */
+function SelectSheetContent<T>({
+  options,
+  valueKey,
+  selectedValue,
+  onSelect,
+  renderItem,
+  keyExtractor,
+  loading,
+  loadingRender,
+  noDataMessage,
+  Header,
+}: SelectSheetContentProps<T>) {
+  return (
+    <>
+      {Header}
+      {loading && loadingRender ? (
+        loadingRender
+      ) : !options || options.length === 0 ? (
+        <NoDataContainer message={noDataMessage} />
+      ) : (
+        <ThemedFlatList
+          data={options}
+          keyExtractor={keyExtractor}
+          scrollEnabled={true}
+          renderItem={({ item }) =>
+            renderItem(
+              item,
+              (i) => {
+                const _item = item as { disabled?: boolean; isHidden?: boolean };
+                if (!_item.disabled && !_item.isHidden) onSelect(i);
+              },
+              selectedValue?.[valueKey] === item?.[valueKey]
+            )
+          }
+          ItemSeparatorComponent={() => <Separator />}
+          loading={false}
+        />
+      )}
+    </>
+  );
+}
+
 export function SelectGeneric<T>({
   options,
   onChange,
@@ -58,17 +111,61 @@ export function SelectGeneric<T>({
   noDataMessage,
   loading = false,
   Header,
-  loadingRender = <SkeletonLoader />,
+  loadingRender = <SelectSkeleton />,
 }: SelectProps<T>) {
   const theme = useTheme();
   const { scale, fontScale } = useBreakpoint();
   const chevronSize = Math.round(22 * scale);
+  const sheet = useBottomSheet();
+  const isMineOpenRef = useRef(false);
 
   const selectedValue = useMemo(() => {
     return options.find((item) => item?.[valueKey] === value);
   }, [value, options, valueKey]);
 
-  const { translateY, showing, setVisible } = useSelectMobile();
+  const buildSheetProps = useCallback(
+    (): SelectSheetContentProps<T> => ({
+      options,
+      valueKey,
+      selectedValue,
+      onSelect: (item) => {
+        isMineOpenRef.current = false;
+        onChange(item);
+        sheet.close();
+      },
+      renderItem,
+      keyExtractor,
+      loading,
+      loadingRender,
+      noDataMessage,
+      Header,
+    }),
+    [options, valueKey, selectedValue, onChange, sheet, renderItem, keyExtractor, loading, loadingRender, noDataMessage, Header]
+  );
+
+  const openSheet = () => {
+    isMineOpenRef.current = true;
+    sheet.open<SelectSheetContentProps<T>>({
+      snapPoint: "md",
+      title: label,
+      closeOnBackdrop: true,
+      Component: SelectSheetContent,
+      props: buildSheetProps(),
+      onClose: () => {
+        isMineOpenRef.current = false;
+      },
+    });
+  };
+
+  // `sheet.open()` snapshots props once (modal-architecture-agent.md §9), but
+  // this select's options/loading come from an async query that can resolve
+  // *after* the sheet is already open — without this, an open sheet gets
+  // stuck showing the loading skeleton until closed and reopened.
+  useEffect(() => {
+    if (!isMineOpenRef.current) return;
+    sheet.updateConfig({ props: buildSheetProps() });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [options, loading, selectedValue, noDataMessage]);
 
   return (
     <SelectGenericContainer style={style}>
@@ -84,7 +181,7 @@ export function SelectGeneric<T>({
       )}
 
       <SelectTouchable
-        onPress={() => !disabled && setVisible(true)}
+        onPress={() => !disabled && openSheet()}
         activeOpacity={0.85}
         disabled={disabled}
         $hasError={!!errorMessage}
@@ -112,45 +209,6 @@ export function SelectGeneric<T>({
           * {errorMessage}
         </Typography.Caption>
       )}
-
-      <Modal
-        visible={showing}
-        transparent
-        animationType="none"
-        onRequestClose={() => setVisible(false)}
-      >
-        <SelectBackdrop onPress={() => setVisible(false)} />
-        <SelectAnimatedSheetContainer style={{ transform: [{ translateY }] }}>
-          <SelectSheetBar />
-          {Header}
-          {loading && loadingRender ? (
-            loadingRender
-          ) : !options || options.length === 0 ? (
-            <NoDataContainer message={noDataMessage} />
-          ) : (
-            <ThemedFlatList
-              data={options}
-              keyExtractor={keyExtractor}
-              scrollEnabled={true}
-              renderItem={({ item }) =>
-                renderItem(
-                  item,
-                  (i) => {
-                    const _item = item as { disabled?: boolean; isHidden?: boolean };
-                    if (!_item.disabled && !_item.isHidden) {
-                      onChange(i);
-                      setVisible(false);
-                    }
-                  },
-                  selectedValue?.[valueKey] === item?.[valueKey]
-                )
-              }
-              ItemSeparatorComponent={() => <Separator />}
-              loading={false}
-            />
-          )}
-        </SelectAnimatedSheetContainer>
-      </Modal>
     </SelectGenericContainer>
   );
 }

@@ -5,38 +5,45 @@ import styled from 'styled-components/native';
 import { useForm, FormProvider } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
 import { router, useLocalSearchParams } from 'expo-router';
-import { useMobileTheme } from '@nks/mobile-theme';
+import { useMobileTheme } from '@ayphen/mobile-theme';
 import {
   Column,
-  Input,
   LucideIcon,
   OtpInput,
-  CheckBox,
   Row,
   Typography,
-} from '@nks/mobile-ui-components';
+} from '@ayphen/mobile-ui-components';
 import {
   useVerifyLoginMutation,
   useVerifySignupMutation,
-} from '@ayphen-retail/api-manager';
+} from '@ayphen/api-manager';
 import {
   loginOtpSchema,
   signupOtpSchema,
   DEFAULT_OTP_VERIFY_VALUES,
   type OtpVerifyForm,
-} from '../../features/auth/schema';
-import { buildDeviceRequest } from '../../auth/deviceRequest';
-import { useAuth } from '../../providers/AuthProvider';
+} from '@features/auth/schema';
+import { normalizeName } from '@features/auth/transform';
+import { buildDeviceRequest } from '@core/auth/device-request';
+import { useAuth } from '@core/providers/AuthProvider';
 import { handleFormError } from '../../utils/handleFormError';
+import { onValidationError } from '../../utils/onValidationError';
 
-type Params = { phone: string; mode: 'login' | 'signup'; otpRequestId: string };
+type Params = {
+  phone: string;
+  mode: 'login' | 'signup';
+  otpRequestId: string;
+  /** Signup only — collected + validated on the phone screen, forwarded here. */
+  name?: string;
+};
 
 const TRUST_COLOR = '#4338CA';
 const W55 = 'rgba(255,255,255,0.55)';
 
-/** Step 2 — verify OTP (+ name/consent for signup), issue tokens, enter the app. */
+/** Step 2 — verify OTP, issue tokens, enter the app. Name + consent come from
+ *  step 1 (phone screen); signup sends them at verify time. */
 export default function OtpScreen() {
-  const { phone, mode, otpRequestId } = useLocalSearchParams<Params>();
+  const { phone, mode, otpRequestId, name } = useLocalSearchParams<Params>();
   const isSignup = mode === 'signup';
   const { login } = useAuth();
   const { theme } = useMobileTheme();
@@ -47,6 +54,8 @@ export default function OtpScreen() {
 
   const formData = useForm<OtpVerifyForm>({
     resolver: zodResolver(isSignup ? signupOtpSchema : loginOtpSchema),
+    // onBlur: a field validates when the user leaves it, so an untouched
+    // form never shows a red error on mount (forms-agent.md §4).
     mode: 'onBlur',
     reValidateMode: 'onChange',
     defaultValues: DEFAULT_OTP_VERIFY_VALUES,
@@ -55,10 +64,10 @@ export default function OtpScreen() {
     control,
     handleSubmit,
     setError,
-    formState: { isSubmitting, errors },
+    reset,
+    formState: { isSubmitting, dirtyFields },
   } = formData;
-  const serverError = (errors as typeof errors & { root?: { serverError?: { message: string } } })
-    .root?.serverError?.message;
+  const hasUnsavedChanges = Object.keys(dirtyFields).length > 0;
 
   const onSubmit = async (values: OtpVerifyForm) => {
     try {
@@ -69,7 +78,7 @@ export default function OtpScreen() {
               phone,
               otp_code: values.otp,
               otp_request_id: otpRequestId,
-              name: values.name,
+              name: normalizeName(name ?? ''),
               consent_given: true,
               device,
             },
@@ -84,6 +93,9 @@ export default function OtpScreen() {
           });
 
       await login(res);
+      // reset() before navigating away (forms-agent.md §6) — the OTP screen
+      // stays mounted underneath the replace target briefly during transition.
+      reset();
       router.replace('/(app)');
     } catch (err) {
       handleFormError(err, setError, 'Could not verify the code.');
@@ -112,7 +124,7 @@ export default function OtpScreen() {
 
         <KeyboardAvoidingView style={{ flex: 1 }} behavior={Platform.OS === 'ios' ? 'padding' : undefined}>
           <ScrollView
-            contentContainerStyle={{ flexGrow: 1 }}
+            contentContainerStyle={{ flexGrow: 1, paddingBottom: 80 }}
             keyboardShouldPersistTaps="handled"
             keyboardDismissMode="interactive"
             showsVerticalScrollIndicator={false}
@@ -140,7 +152,12 @@ export default function OtpScreen() {
             </Hero>
 
             <Card style={{ minHeight: SH * 0.5 }}>
-              <BackBtn onPress={() => router.back()} activeOpacity={0.7} disabled={isSubmitting}>
+              <BackBtn
+                onPress={() => router.back()}
+                activeOpacity={0.7}
+                disabled={isSubmitting}
+                accessibilityLabel="Change phone number"
+              >
                 <Row align="center" gap={4}>
                   <LucideIcon name="ChevronLeft" size={16} color={theme.colorPrimary} />
                   <Typography.Body color={theme.colorPrimary} weight="semiBold">
@@ -151,36 +168,26 @@ export default function OtpScreen() {
 
               <Gap $h={16} />
 
-              <OtpInput<OtpVerifyForm> name="otp" control={control} length={6} />
-
-              {serverError ? <ErrorText>{serverError}</ErrorText> : null}
-
-              {isSignup && (
-                <>
-                  <Gap $h={16} />
-                  <Input<OtpVerifyForm>
-                    name="name"
-                    control={control}
-                    label="Your name"
-                    required
-                    returnKeyType="done"
-                    onSubmitEditing={handleSubmit(onSubmit)}
-                    accessibilityLabel="Your name"
-                  />
-                  <Gap $h={12} />
-                  <CheckBox<OtpVerifyForm>
-                    name="consent"
-                    control={control}
-                    label="I agree to the Terms & Privacy Policy"
-                  />
-                </>
-              )}
+              <OtpInput<OtpVerifyForm>
+                name="otp"
+                control={control}
+                length={6}
+                disabled={isSubmitting}
+              />
 
               <Gap $h={20} />
 
-              <CtaBtn onPress={handleSubmit(onSubmit)} activeOpacity={0.88} disabled={isSubmitting}>
+              <CtaBtn
+                onPress={handleSubmit(onSubmit, onValidationError)}
+                activeOpacity={0.88}
+                disabled={!hasUnsavedChanges || isSubmitting}
+                accessibilityLabel={
+                  isSubmitting ? 'Verifying' : isSignup ? 'Create account' : 'Verify and sign in'
+                }
+                accessibilityState={{ disabled: !hasUnsavedChanges || isSubmitting, busy: isSubmitting }}
+              >
                 <LinearGradient
-                  colors={isSubmitting ? theme.gradient.ctaDisabled : theme.gradient.cta}
+                  colors={!hasUnsavedChanges || isSubmitting ? theme.gradient.ctaDisabled : theme.gradient.cta}
                   start={{ x: 0, y: 0 }}
                   end={{ x: 1, y: 0 }}
                   style={{
@@ -287,12 +294,6 @@ const BackBtn = styled.TouchableOpacity`
 const CtaBtn = styled.TouchableOpacity`
   border-radius: ${({ theme }) => theme.borderRadius.xxLarge}px;
   overflow: hidden;
-`;
-
-const ErrorText = styled.Text`
-  color: ${({ theme }) => theme.colorError};
-  font-size: ${({ theme }) => theme.fontSize.small}px;
-  margin-top: ${({ theme }) => theme.sizing.xxSmall}px;
 `;
 
 const OtpNote = styled.View`

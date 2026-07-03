@@ -2,9 +2,9 @@ import { Inject, Injectable } from '@nestjs/common';
 import { eq } from 'drizzle-orm';
 import type { PostgresJsDatabase } from 'drizzle-orm/postgres-js';
 import type Redis from 'ioredis';
-import { DRIZZLE } from '../../db/db.module.js';
-import * as schema from '../../db/schema.js';
-import { users } from '../../db/schema.js';
+import { DRIZZLE } from '#db/db.module.js';
+import * as schema from '#db/schema.js';
+import { users } from '#db/schema.js';
 import { CORE_REDIS } from './core.tokens.js';
 
 const TTL_SECONDS = 5;

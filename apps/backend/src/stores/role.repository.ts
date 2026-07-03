@@ -1,16 +1,16 @@
 import { Inject, Injectable } from '@nestjs/common';
 import { and, eq, isNull, sql } from 'drizzle-orm';
 import type { PostgresJsDatabase } from 'drizzle-orm/postgres-js';
-import { DRIZZLE, type DbExecutor } from '../db/db.module.js';
-import * as schema from '../db/schema.js';
+import { DRIZZLE, type DbExecutor } from '#db/db.module.js';
+import * as schema from '#db/schema.js';
 import {
   roles,
   rolePermissions,
   userRoleMappings,
   accountUsers,
   stores,
-} from '../db/schema.js';
-import type { CrudAction } from '../common/rbac/permission-matrix.constants.js';
+} from '#db/schema.js';
+import type { CrudAction } from '#common/rbac/permission-matrix.constants.js';
 
 export interface RoleRow {
   id:         string;

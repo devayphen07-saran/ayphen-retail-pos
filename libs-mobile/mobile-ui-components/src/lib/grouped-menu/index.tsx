@@ -5,7 +5,7 @@ import { Typography } from "../typography";
 import { LucideIcon, LucideIconNameType } from "../lucide-icon";
 import { Flex } from "../layout/Flex";
 import { Divider } from "../divider";
-import { useMobileTheme } from "@nks/mobile-theme";
+import { useMobileTheme } from "@ayphen/mobile-theme";
 
 interface MenuItem {
   icon: LucideIconNameType | string;

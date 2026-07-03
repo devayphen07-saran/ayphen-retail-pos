@@ -196,6 +196,27 @@ behavior the wrapper doesn't cover — and say why.
 
 ---
 
+## 11A. One form for BOTH create and edit (reusability — default)
+
+Write **one** `<Entity>Form.tsx` with an optional `record?` prop. **Create = edit with no record.**
+Do NOT ship separate `New<Entity>Form` + `Edit<Entity>Form` that duplicate the same fields — that's a review reject.
+
+- **Mode is derived, not passed:** `const isEdit = record != null`. Everything that differs comes from `record`/`isEdit` — nothing else changes (schema, validation, error map, loading, keyboard, a11y are all shared).
+- **The five (and only five) differences:**
+  1. `defaultValues` → `record ? recordToForm(record) : DEFAULT_*_VALUES`.
+  2. dispatch → `update…` vs `add…`.
+  3. payload → edit sends **only `dirtyFields`** (PATCH); create sends the full object.
+  4. title/label → "Edit …"/"Save Changes" vs "New …"/"Create".
+  5. post-success reset → `reset(data)` (edit) vs `reset()` (create).
+- **Add a pure inverse mapper `recordToForm` in `transform.ts`** (the inverse of `formToApiPayload`). It MUST return **every** schema field and normalize `null → ''` — `dirtyFields`, the unsaved guard, and the PATCH all depend on it.
+- **Edit submit:** if `dirtyFields` is empty → `onClose()` silently (no request); else PATCH only the changed keys, then `reset(data)`. **Create submit:** full payload, then `reset()`. `handleSubmitError` is shared verbatim.
+- **PATCH transform:** the transform takes the changed-keys so an edit never emits `null` for an untouched optional (which would clobber it server-side).
+- **Immutable-after-create fields** (GSTIN, SKU): keep them **in the one schema**; render `editable={!isEdit}` in edit mode and omit from the PATCH. Never delete a field from an "edit schema" — that desyncs form/record/API shapes.
+- **Prefer passing `record` into `FormScreen`** — it computes `isEdit`, seeds `defaultValues` from a `toForm` prop, picks the title/label, and decides `reset(data)` vs `reset()`. The feature form only says *what to dispatch*.
+- **Split into two components only** when create/edit diverge in **structure, not values** — different field sets, mutually-exclusive validation, or a create-wizard vs edit-single-screen. Even then, prefer one schema with `isEdit`-gated fields first; if you must split, both still use `FormScreen`, and state why in the PR.
+
+---
+
 ## 12. Offline-first submission
 
 Most Ayphen forms are offline-first. The submit dispatches an **offline-aware action** that
@@ -206,7 +227,147 @@ the dispatched action differs. Never block the form waiting on the network.
 
 ---
 
-## 13. FORBIDDEN patterns (reject in review, refuse to write)
+## 13. Real-time interaction timing (the exact state machine)
+
+This is the part that makes a form *feel* right. Every rule below is about **timing** — the
+precise moment a state changes. Implement all of them; a form that passes the checklist but gets
+the timing wrong still feels broken.
+
+### 13.1 Field error — when it appears, updates, and clears
+
+A field's error follows a strict lifecycle tied to `mode:'onBlur'` + `reValidateMode:'onChange'`:
+
+| Moment | What happens | Why |
+|---|---|---|
+| User is typing, field never blurred | **NO error shown** yet, even if invalid | Don't nag mid-typing; the user isn't done |
+| User leaves the field (blur), value invalid | **Error appears** under the field | Feedback exactly when they finish that field |
+| User leaves the field (blur), value valid | No error | — |
+| After first blur-error, user returns and types | Error **re-evaluates on every keystroke** and clears the instant the value becomes valid | `reValidateMode:'onChange'` — live correction |
+| User submits with an untouched invalid field | **All errors appear at once** + focus/scroll to the first | `handleSubmit` validates everything |
+| Server returns a `fieldError` after submit | Error appears under that field with the server message | `setError(field,{type:'server'})` |
+| User edits a field holding a server error | Server error **clears on the next keystroke** | `reValidateMode:'onChange'` re-runs client validation, replacing it |
+
+**Rule:** never show a field error while the user is still typing in a field they haven't left
+yet (unless it already errored once). First feedback is on blur; after that, live.
+
+### 13.2 Submit button — the exact enable/disable/loading transitions
+
+The submit button has three inputs: `hasUnsavedChanges`, `isSubmitting`, and (implicitly)
+validity. Its state at every moment:
+
+| Moment | Button state | Rule |
+|---|---|---|
+| Form just opened (create), nothing typed | **Disabled** | `!hasUnsavedChanges` |
+| Form just opened (edit), nothing changed | **Disabled** | `dirtyFields` empty |
+| User types the first real change | **Enables** immediately | `hasUnsavedChanges` becomes true |
+| User reverts all changes (type then erase) | **Disables again** | `dirtyFields` empties |
+| A cascading `setValue` marks a field dirty | **Enables** | only if `setValue` passed `shouldDirty:true` |
+| User taps Save | **Disables instantly + shows spinner** | `isSubmitting` flips true synchronously |
+| Submit in flight (slow network) | Stays **disabled + spinner**, form still scrollable | prevents double-submit |
+| Submit succeeds | Form closes (button state moot) | `reset()` + close |
+| Submit fails (field errors) | **Re-enables** (spinner off); user fixes + retries | `isSubmitting` back to false |
+| Submit fails (network/409) | **Re-enables**; toast shown; form stays open | user can retry |
+
+**The disable expression is exactly:** `disabled={!hasUnsavedChanges || isSubmitting}` and
+`loading={isSubmitting}`. Do NOT also gate on `isValid` — that would leave the button
+permanently disabled on a fresh form the user hasn't errored yet, and it hides *why* Save does
+nothing. Let the user tap Save on an invalid form; `handleSubmit` then surfaces the errors and
+focuses the first one (13.4). The only things that disable Save are "nothing to save" and
+"already saving."
+
+**Timing subtlety:** `isSubmitting` must flip true in the same tick the tap is handled, before
+any `await`. `handleSubmit(onSubmit)` does this for you — do not add your own `setLoading(true)`
+that races the async boundary.
+
+### 13.3 Loading state — what dims, what stays live
+
+| Element | During submit |
+|---|---|
+| Submit button | disabled + spinner (`accessibilityState.busy=true`) |
+| Form fields | stay **enabled and scrollable** — the user may review what they entered |
+| Close/X button | stays **enabled** — the user can still cancel a slow submit |
+| Background/overlay | optional subtle dim; never a full blocking spinner over the form |
+
+Never throw a full-screen blocking spinner over a form mid-submit. The user should still see and
+scroll their input. Only the Save action is locked.
+
+### 13.4 Focus — the exact moments focus moves
+
+| Moment | Focus behavior |
+|---|---|
+| Form opens | **Auto-focus the first field** (`autoFocus` on field 1), keyboard rises |
+| User presses keyboard "next" (return key) | Focus **advances to the next field's ref** (`onSubmitEditing` → `nextRef.current?.focus()`) |
+| User presses "done" on the last field | Focus leaves; `handleSubmit(onSubmit, onValidationError)` fires |
+| Client validation fails on submit | Focus + scroll to the **first errored field** (RHF's `shouldFocusError` default + your `scrollToFirstError`) |
+| Server returns field errors | Scroll to the **first server-errored field** (focus optional; scrolling is required so it's visible above the keyboard) |
+| A field auto-fills another (country→currency) | **Do NOT move focus** — the user stays where they are; only the value updates |
+
+**Rule:** focus moves on explicit user intent (return key) or to surface an error the user must
+fix. It never jumps unexpectedly during typing or on a background cascade.
+
+### 13.5 Keyboard — visibility and dismissal timing
+
+| Moment | Keyboard behavior |
+|---|---|
+| Form opens | Rises with the auto-focused first field |
+| User taps a button while keyboard is open | Keyboard dismisses AND the button's tap registers (`keyboardShouldPersistTaps="handled"`) — the first tap is NOT lost |
+| User drags the scroll view down (iOS) | Keyboard dismisses interactively (`keyboardDismissMode="interactive"`) |
+| Focused field near the bottom | `paddingBottom≥80` guarantees the field clears the keyboard so the user sees what they type |
+| Last field, "done" pressed | Keyboard dismisses, submit fires |
+
+### 13.6 Per-keystroke behavior (what runs on each character)
+
+- **Before a field's first blur:** typing updates the value only. No validation runs for that
+  field, no error renders. (Other already-errored fields still re-validate per their own state.)
+- **After a field has errored once:** every keystroke re-runs that field's validation
+  (`reValidateMode:'onChange'`) and clears the error the moment it's valid.
+- **`hasUnsavedChanges` recomputes every keystroke** — so the Save button can enable/disable in
+  real time as the user types and reverts.
+- **Never** run the *whole form's* validation on every keystroke (that's `watch()` + top-level
+  re-render — forbidden). Only the touched field re-validates; only components subscribed via
+  `useWatch` re-render.
+
+### 13.7 Unsaved-close — the exact prompt timing
+
+| Moment | Behavior |
+|---|---|
+| User taps X, `dirtyFields` empty | Close **immediately**, no prompt |
+| User taps X, `dirtyFields` non-empty | Show confirm modal: "Discard changes?" — Discard (destructive, right) / Keep editing (left) |
+| Hardware back (Android), unsaved | Same confirm modal; intercept via `beforeRemove` + `e.preventDefault()` |
+| User confirms Discard | `reset()` **then** close, in that order (clean form on reopen) |
+| User taps Keep editing | Modal dismisses, form intact, focus returns to where it was |
+
+### 13.8 The complete happy-path timeline (reference)
+
+```
+open form
+  → field 1 auto-focused, keyboard up, Save DISABLED
+user types name
+  → Save ENABLES (hasUnsavedChanges=true)
+presses "next"
+  → focus → email field
+types "john@", presses "next"
+  → focus → phone; leaving email blurred it INVALID → email error appears NOW under email
+returns to email, types the rest
+  → error clears live on the keystroke it becomes valid
+fills remaining, presses "done" on last field
+  → handleSubmit fires
+  → Save DISABLES + spinner (isSubmitting=true), fields stay live
+server 422 { email: "taken" }
+  → spinner off, Save RE-ENABLES, email shows "taken", scroll to email
+user edits email
+  → server error clears on first keystroke
+presses Save
+  → disable+spinner → success → reset() → toast "Saved" → form closes
+```
+
+Implement forms so this exact sequence holds. If any transition is off — Save enabled on an
+empty form, error shown mid-typing, focus jumping on a cascade, keyboard eating the last field,
+double-submit on a fast double-tap — the form is not done.
+
+---
+
+## 14. FORBIDDEN patterns (reject in review, refuse to write)
 
 | Forbidden | Required replacement |
 |---|---|
@@ -228,11 +389,13 @@ the dispatched action differs. Never block the form waiting on the network.
 | server error → toast only, no field map | `setError(field)` then toast fallback |
 | `handleSubmit(onSubmit)` (one arg) | `handleSubmit(onSubmit, onValidationError)` |
 | last input `returnKeyType="default"` | `"done"` + `onSubmitEditing={handleSubmit(...)}` |
+| separate `New…Form`+`Edit…Form` duplicating the same fields | ONE `<Entity>Form` with optional `record?` prop (§11A) |
+| edit form re-declaring a second schema | one schema; gate immutable fields with `editable={!isEdit}` |
 | Formik / final-form / Yux for new forms | react-hook-form + Zod |
 
 ---
 
-## 14. Definition of done (self-check before returning any form code)
+## 15. Definition of done (self-check before returning any form code)
 
 **Schema:** flat · Zod built-ins · user-facing messages · optional text uses
 `.optional().or(z.literal(''))` · primitives imported · cross-field `.refine()` has `path` ·
@@ -254,6 +417,13 @@ every input has `returnKeyType`+`onSubmitEditing` · last input submits · Scrol
 **Perf:** scoped `useWatch` · `useFieldArray` w/ `key={field.id}` · cascading `setValue` has
 options · nested-component callbacks memoized.
 
+**Timing (§13):** no field error shows mid-typing before first blur · error appears on blur,
+clears live after · Save disabled on fresh/reverted form, enables on first real change, disables
+on revert · Save disables + spinner synchronously on tap, re-enables on failure · fields stay
+live during submit · first field auto-focused on open · return-key advances focus, "done"
+submits · submit-fail focuses/scrolls to first error · cascade does NOT move focus · unsaved-X
+prompts, clean-X closes directly. Save is NOT gated on `isValid`.
+
 **Tests present:** schema unit tests · transform unit tests · integration tests · and the four
 manual scenarios below pass.
 
@@ -261,7 +431,7 @@ If any item fails, the form is not done.
 
 ---
 
-## 15. The four manual scenarios every form must pass
+## 16. The four manual scenarios every form must pass
 
 1. **Type a char, delete it, tap Close** → closes with NO "unsaved changes" prompt.
 2. **Fill all fields, airplane mode, Save** → "No internet connection…" toast; form stays open.
@@ -271,25 +441,26 @@ If any item fails, the form is not done.
 
 ---
 
-## 16. Required file layout per feature
+## 17. Required file layout per feature
 
 ```
 features/<entity>/
   schema.ts                 # Zod schema + DEFAULT_*_VALUES + type
-  transform.ts              # form ↔ API payload (pure)
-  New<Entity>Form.tsx       # uses FormScreen
-  Edit<Entity>Form.tsx      # uses FormScreen
+  transform.ts              # formToApiPayload + recordToForm (both pure, inverse of each other)
+  <Entity>Form.tsx          # ONE component, optional `record?` prop (create + edit); uses FormScreen
   <entity>Schema.test.ts    # schema unit tests
-  transform.test.ts         # transform unit tests
-  New<Entity>Form.test.tsx  # integration tests
+  transform.test.ts         # transform + recordToForm unit tests
+  <Entity>Form.test.tsx     # integration tests (both create and edit paths)
 ```
+
+One `<Entity>Form.tsx` serves create (`<Entity>Form onClose={…} />`) and edit (`<Entity>Form record={…} onClose={…} />`). Only split into `New<Entity>Form`/`Edit<Entity>Form` when the field set or validation genuinely differ (§11A) — not for value differences.
 
 When reviewing or generating a form, ensure the tests exist. A form without schema + transform +
 integration tests is incomplete.
 
 ---
 
-## 17. Things to refuse or flag
+## 18. Things to refuse or flag
 
 - Request to add a **new form library** (Formik/Yup/etc.) → refuse; use RHF + Zod.
 - Request for an **empty `.catch`** or to "just swallow the error" → refuse; every error gets a home.
@@ -305,7 +476,7 @@ short note — then implement the correct version unless explicitly overridden.
 
 ---
 
-## 18. FAQ answers to bake into decisions
+## 19. FAQ answers to bake into decisions
 
 - **Async field validation** ("is this email taken?") → `.refine(async …)` paired with
   `mode:'onBlur'` (runs on leave, not per keystroke) + a pending state on the field.

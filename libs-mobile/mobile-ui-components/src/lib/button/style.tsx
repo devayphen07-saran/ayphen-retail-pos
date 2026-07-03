@@ -1,4 +1,4 @@
-import { NKSTheme } from "@nks/mobile-theme";
+import { NKSTheme } from "@ayphen/mobile-theme";
 
 export type ButtonVariant = "primary" | "default" | "dashed" | "text";
 

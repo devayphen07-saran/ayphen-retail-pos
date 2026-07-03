@@ -1,0 +1,1 @@
+export { MoreDetailScreen as default } from '@features/store/screens/MoreDetailScreen';

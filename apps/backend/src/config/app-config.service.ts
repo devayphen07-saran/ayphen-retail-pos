@@ -16,7 +16,6 @@ export class AppConfigService {
   get smtpPort():          number  { return this.c.SMTP_PORT; }
   get smtpUser():          string  { return this.c.SMTP_USER ?? ''; }
   get smtpPass():          string  { return this.c.SMTP_PASS ?? ''; }
-  get corsOrigins():                    string[]  { return this.c.CORS_ORIGINS.split(',').map(o => o.trim()); }
   get isProduction():                   boolean   { return this.c.NODE_ENV === 'production'; }
   get nodeEnv():                        string    { return this.c.NODE_ENV; }
   get otpTtlSeconds():                  number    { return this.c.OTP_TTL_SECONDS; }

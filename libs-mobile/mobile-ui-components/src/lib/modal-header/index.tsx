@@ -1,4 +1,4 @@
-import { useMobileTheme } from "@nks/mobile-theme";
+import { useMobileTheme } from "@ayphen/mobile-theme";
 import { ActivityIndicator } from "react-native";
 import styled from "styled-components/native";
 import { Row } from "../layout";

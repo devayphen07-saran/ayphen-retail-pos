@@ -22,7 +22,7 @@ import {
 } from 'react-hook-form';
 
 import { Typography } from '../typography';
-import { useMobileTheme, useBreakpoint } from '@nks/mobile-theme';
+import { useMobileTheme, useBreakpoint } from '@ayphen/mobile-theme';
 
 const ANIMATION_DURATION_MS = 180;
 const BRAND_FALLBACK = '#2563eb';

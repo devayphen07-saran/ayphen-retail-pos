@@ -4,7 +4,7 @@ import type { StyleProp, ViewStyle } from "react-native";
 import styled, { useTheme, css } from "styled-components/native";
 import MaterialIcons from "@expo/vector-icons/MaterialIcons";
 import type { ComponentProps } from "react";
-import { ColorType, useColorVariant } from "@nks/mobile-theme";
+import { ColorType, useColorVariant } from "@ayphen/mobile-theme";
 import Avatar from "../avatar";
 import { LucideIcon } from "../lucide-icon";
 import { Typography } from "../typography";

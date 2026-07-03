@@ -1,0 +1,1 @@
+export { CreateStoreScreen as default } from '@features/onboarding/screens/CreateStoreScreen';

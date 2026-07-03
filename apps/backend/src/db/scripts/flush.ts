@@ -5,12 +5,12 @@
  * Usage:  pnpm db:flush
  */
 import 'dotenv/config';
-import postgres from 'postgres';
 import { drizzle } from 'drizzle-orm/postgres-js';
 import { migrate } from 'drizzle-orm/postgres-js/migrator';
 import fs from 'fs';
 import path from 'path';
 import { fileURLToPath } from 'url';
+import { createPgClient } from '../create-pg-client.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
@@ -39,7 +39,7 @@ if (!fs.existsSync(path.join(migrationsFolder, 'meta', '_journal.json'))) {
   process.exit(1);
 }
 
-const sql = postgres(url, { max: 1 });
+const sql = createPgClient(url, { max: 1 });
 const db  = drizzle(sql);
 
 async function flush() {

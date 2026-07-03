@@ -1,9 +1,9 @@
 import { Inject, Injectable } from '@nestjs/common';
-import { and, count, eq, gt, sql } from 'drizzle-orm';
+import { and, count, eq, gt, inArray, sql } from 'drizzle-orm';
 import type { PostgresJsDatabase } from 'drizzle-orm/postgres-js';
-import { DRIZZLE } from '../../db/db.module.js';
-import * as schema from '../../db/schema.js';
-import { loginAttempts } from '../../db/schema.js';
+import { DRIZZLE } from '#db/db.module.js';
+import * as schema from '#db/schema.js';
+import { loginAttempts } from '#db/schema.js';
 
 @Injectable()
 export class RateLimitRepository {
@@ -51,7 +51,7 @@ export class RateLimitRepository {
       .from(loginAttempts)
       .where(and(
         eq(loginAttempts.phone, phone),
-        eq(loginAttempts.purpose, 'otp'),
+        inArray(loginAttempts.purpose, ['login', 'signup', 'step_up']),
         gt(loginAttempts.createdAt, sql`NOW() - INTERVAL '5 minutes'`),
       ));
     return row?.cnt ?? 0;

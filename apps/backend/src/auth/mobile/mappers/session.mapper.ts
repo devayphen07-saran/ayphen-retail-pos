@@ -1,7 +1,7 @@
 import type { SessionWithDevice } from '../repositories/auth-session.repository.js';
 import type { StepUpResult } from '../services/step-up.service.js';
-import type { CursorPage } from '../../../common/pagination/paginate.js';
-import type { PaginatedResponse } from '../../../common/pagination/paginated-response.js';
+import type { CursorPage } from '#common/pagination/paginate.js';
+import type { PaginatedResponse } from '#common/pagination/paginated-response.js';
 import type {
   SessionResponse,
   StepUpResponse,

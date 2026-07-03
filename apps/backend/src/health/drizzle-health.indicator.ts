@@ -6,7 +6,7 @@ import {
 } from '@nestjs/terminus';
 import { sql } from 'drizzle-orm';
 import { PostgresJsDatabase } from 'drizzle-orm/postgres-js';
-import { DRIZZLE } from '../db/db.module';
+import { DRIZZLE } from '#db/db.module.js';
 
 @Injectable()
 export class DrizzleHealthIndicator extends HealthIndicator {

@@ -1,15 +1,15 @@
 import { Injectable } from '@nestjs/common';
 import { randomBytes } from 'crypto';
 import { eq } from 'drizzle-orm';
-import { type DbTransaction } from '../../../db/db.module.js';
+import { type DbTransaction } from '#db/db.module.js';
 import {
   accounts,
   accountUsers,
   accountSubscriptions,
   plans,
-} from '../../../db/schema.js';
-import { AppException } from '../../../common/exceptions/app.exception.js';
-import { ErrorCodes } from '../../../common/error-codes.js';
+} from '#db/schema.js';
+import { AppException } from '#common/exceptions/app.exception.js';
+import { ErrorCodes } from '#common/error-codes.js';
 
 /** Every new signup starts on this plan; the trial window opens at first store-create. */
 const TRIAL_PLAN_NAME = 'free';

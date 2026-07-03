@@ -1,4 +1,4 @@
-import type { RequestContextService } from '../auth/core/request-context.service.js';
+import type { RequestContextService } from '#auth/core/request-context.service.js';
 
 export function auditInsert(ctx: RequestContextService, fallbackUserId?: string) {
   const now    = new Date();

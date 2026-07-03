@@ -8,8 +8,8 @@ import {
   type OtpPurpose,
 } from '../repositories/otp-request.repository.js';
 import { OtpService } from './otp.service.js';
-import { AppException } from '../../../common/exceptions/app.exception.js';
-import { ErrorCodes } from '../../../common/error-codes.js';
+import { AppException } from '#common/exceptions/app.exception.js';
+import { ErrorCodes } from '#common/error-codes.js';
 
 export interface OtpRequestResult {
   otpRequestId: string;

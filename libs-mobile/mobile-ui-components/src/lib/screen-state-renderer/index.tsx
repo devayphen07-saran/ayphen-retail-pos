@@ -1,7 +1,7 @@
 import React from 'react';
 import { View } from 'react-native';
 import styled from 'styled-components/native';
-import { useMobileTheme } from '@nks/mobile-theme';
+import { useMobileTheme } from '@ayphen/mobile-theme';
 import { Typography } from '../typography';
 import { Button } from '../button';
 import { LucideIcon } from '../lucide-icon';

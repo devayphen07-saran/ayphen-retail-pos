@@ -1,7 +1,7 @@
 import { Module } from '@nestjs/common';
-import { AppConfigService } from '../config/app-config.service.js';
-import { AuthCoreModule } from '../auth/core/auth-core.module.js';
-import { MobileAuthModule } from '../auth/mobile/mobile-auth.module.js';
+import { AppConfigService } from '#config/app-config.service.js';
+import { AuthCoreModule } from '#auth/core/auth-core.module.js';
+import { MobileAuthModule } from '#auth/mobile/mobile-auth.module.js';
 import { EntitlementService } from './entitlement.service.js';
 import { SubscriptionRepository } from './subscription.repository.js';
 import { SubscriptionService } from './subscription.service.js';

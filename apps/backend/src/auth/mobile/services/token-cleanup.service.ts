@@ -3,10 +3,10 @@ import { SchedulerRegistry } from '@nestjs/schedule';
 import { CronJob } from 'cron';
 import { lt } from 'drizzle-orm';
 import type { PostgresJsDatabase } from 'drizzle-orm/postgres-js';
-import { DRIZZLE } from '../../../db/db.module.js';
-import * as schema from '../../../db/schema.js';
-import { revokedTokens } from '../../../db/schema.js';
-import { env } from '../../../config/env.js';
+import { DRIZZLE } from '#db/db.module.js';
+import * as schema from '#db/schema.js';
+import { revokedTokens } from '#db/schema.js';
+import { env } from '#config/env.js';
 
 export interface TokenCleanupStats {
   lastRunAt:      Date | null;

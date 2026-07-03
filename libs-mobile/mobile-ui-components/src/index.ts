@@ -56,3 +56,4 @@ export * from "./lib/sync";
 export * from "./lib/DateTimePicker";
 export * from "./lib/TimeField";
 export * from "./lib/use-scan-feedback";
+export * from "./lib/BottomSheet";

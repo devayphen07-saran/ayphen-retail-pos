@@ -40,7 +40,7 @@
 import React from 'react';
 import { StyleSheet, type StyleProp, type ViewStyle } from 'react-native';
 import styled from 'styled-components/native';
-import { useMobileTheme } from '@nks/mobile-theme';
+import { useMobileTheme } from '@ayphen/mobile-theme';
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 

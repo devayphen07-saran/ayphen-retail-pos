@@ -9,17 +9,17 @@ import {
   UseGuards,
 } from '@nestjs/common';
 import type { Request } from 'express';
-import { MobileJwtGuard } from '../auth/mobile/guards/mobile-jwt.guard.js';
-import { TenantGuard } from '../common/rbac/guards/tenant.guard.js';
-import { PermissionsGuard } from '../common/rbac/guards/permissions.guard.js';
-import { SubscriptionStatusGuard } from '../auth/mobile/guards/subscription-status.guard.js';
+import { MobileJwtGuard } from '#auth/mobile/guards/mobile-jwt.guard.js';
+import { TenantGuard } from '#common/rbac/guards/tenant.guard.js';
+import { PermissionsGuard } from '#common/rbac/guards/permissions.guard.js';
+import { SubscriptionStatusGuard } from '#auth/mobile/guards/subscription-status.guard.js';
 import {
   StoreContext,
   RequirePermissions,
   CurrentUser,
-} from '../common/rbac/decorators/rbac.decorators.js';
-import type { MobilePrincipal } from '../auth/mobile/types/mobile-principal.js';
-import type { ResolvedStoreContext } from '../common/rbac/resolved-store-context.js';
+} from '#common/rbac/decorators/rbac.decorators.js';
+import type { MobilePrincipal } from '#auth/mobile/types/mobile-principal.js';
+import type { ResolvedStoreContext } from '#common/rbac/resolved-store-context.js';
 import { DeviceAccessService } from './device-access.service.js';
 import { StoreDeviceMapper } from './device.mapper.js';
 

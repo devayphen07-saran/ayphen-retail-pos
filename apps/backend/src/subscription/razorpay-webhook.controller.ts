@@ -6,7 +6,7 @@ import {
   Req,
 } from '@nestjs/common';
 import type { Request } from 'express';
-import { Public } from '../common/rbac/decorators/rbac.decorators.js';
+import { Public } from '#common/rbac/decorators/rbac.decorators.js';
 import { BillingService } from './billing.service.js';
 
 /**

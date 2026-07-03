@@ -9,9 +9,9 @@ import { Inject } from '@nestjs/common';
 import { eq, and, isNull } from 'drizzle-orm';
 import type { PostgresJsDatabase } from 'drizzle-orm/postgres-js';
 import type { Request } from 'express';
-import { DRIZZLE } from '../../../db/db.module.js';
-import * as schema from '../../../db/schema.js';
-import { stores, accountUsers } from '../../../db/schema.js';
+import { DRIZZLE } from '#db/db.module.js';
+import * as schema from '#db/schema.js';
+import { stores, accountUsers } from '#db/schema.js';
 import type { MobilePrincipal } from '../types/mobile-principal.js';
 
 /**

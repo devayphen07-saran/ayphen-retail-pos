@@ -1,8 +1,8 @@
 import { Inject, Injectable } from '@nestjs/common';
 import { and, eq, isNull } from 'drizzle-orm';
 import type { PostgresJsDatabase } from 'drizzle-orm/postgres-js';
-import { DRIZZLE, type DbExecutor } from '../db/db.module.js';
-import * as schema from '../db/schema.js';
+import { DRIZZLE, type DbExecutor } from '#db/db.module.js';
+import * as schema from '#db/schema.js';
 import {
   userLocationMappings,
   locations,
@@ -11,7 +11,7 @@ import {
   userRoleMappings,
   roles,
   users,
-} from '../db/schema.js';
+} from '#db/schema.js';
 
 export interface LocationMember {
   userId:     string;

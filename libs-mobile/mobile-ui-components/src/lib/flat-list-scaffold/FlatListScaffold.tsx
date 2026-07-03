@@ -2,7 +2,7 @@ import { useEffect, useMemo, useState, type ReactNode } from 'react';
 import { RefreshControl, View, StyleSheet } from 'react-native';
 import { FlashList, FlashListProps } from '@shopify/flash-list';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
-import { useMobileTheme } from '@nks/mobile-theme';
+import { useMobileTheme } from '@ayphen/mobile-theme';
 
 import Divider from '../divider';
 import { LucideIconNameType } from '../lucide-icon';

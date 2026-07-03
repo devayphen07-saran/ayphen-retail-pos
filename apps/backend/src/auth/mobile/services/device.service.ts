@@ -1,6 +1,6 @@
 import { Injectable } from '@nestjs/common';
 import { createHash } from 'crypto';
-import type { DbExecutor } from '../../../db/db.module.js';
+import type { DbExecutor } from '#db/db.module.js';
 import {
   DeviceRepository,
   type Device,
@@ -21,6 +21,10 @@ export interface DeviceInfo {
 export class DeviceService {
   constructor(private readonly deviceRepo: DeviceRepository) {}
 
+  async findById(id: string): Promise<Device | null> {
+    return this.deviceRepo.findById(id);
+  }
+
   async upsertDevice(userFk: string, info: DeviceInfo, tx?: DbExecutor): Promise<Device> {
     const publicKeyHash = createHash('sha256')
       .update(info.publicKey)
@@ -28,6 +32,7 @@ export class DeviceService {
     const existing = await this.deviceRepo.findByUserAndKeyHash(
       userFk,
       publicKeyHash,
+      tx,
     );
 
     if (existing) {
@@ -68,6 +73,9 @@ export class DeviceService {
         pushToken:           info.pushToken,
         // Flag is stored for future enforcement; not blocked in Phase 1
         attestationVerified: !!info.attestation,
+        // Devices start untrusted. Refresh proves device possession via a signed
+        // challenge (see refresh-token.service.ts + the refresh/challenge
+        // endpoint); a trust path can later set is_trusted to skip that.
       },
       tx,
     );

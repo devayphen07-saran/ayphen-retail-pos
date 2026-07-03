@@ -1,6 +1,6 @@
 import type { UseFormSetError, FieldValues, Path } from 'react-hook-form';
-import { Alert } from '@nks/mobile-ui-components';
-import type { NormalizedError } from '@ayphen-retail/api-manager';
+import { Alert } from '@ayphen/mobile-ui-components';
+import type { NormalizedError } from '@ayphen/api-manager';
 
 /**
  * Canonical form-error handler (form-pattern.md §7.2 / Appendix C), adapted to
@@ -41,7 +41,26 @@ export function handleFormError<T extends FieldValues>(
 
   // 3–5. Auth / permission / conflict.
   if (error?.status === 401) {
-    Alert.info('Session expired', 'Please log in again.');
+    // A 401 is NOT always an expired session. Login/verify returns 401 for
+    // "user not found", "invalid otp", etc. — surface the real server message
+    // there. Only show the "session expired, log in again" copy for genuine
+    // token/session-expiry codes (the ones the JWT guard + refresh throw).
+    const code = (error?.code ?? '').toUpperCase();
+    const SESSION_CODES = new Set([
+      'TOKEN_EXPIRED',
+      'SESSION_EXPIRED',
+      'TOKEN_REVOKED',
+      'SESSION_REVOKED',
+      'SESSION_NOT_FOUND',
+      'MISSING_TOKEN',
+      'INVALID_TOKEN_TYPE',
+    ]);
+    if (SESSION_CODES.has(code)) {
+      Alert.info('Session expired', 'Please log in again.');
+    } else {
+      // e.g. USER_NOT_FOUND, INVALID_OTP, USER_SUSPENDED — show the actual reason.
+      Alert.info('Error', error?.message ?? 'Please try again.');
+    }
     return;
   }
   if (error?.status === 403) {
@@ -53,7 +72,10 @@ export function handleFormError<T extends FieldValues>(
     return;
   }
 
-  // 6–7. Message, then fallback.
-  Alert.info('Error', error?.message ?? fallbackMessage);
+  // 6–7. Message, then fallback. Shown as an Alert only — no inline error under
+  // the fields (the Alert carries the backend message; a duplicate below the
+  // inputs is noise).
+  const message = error?.message ?? fallbackMessage;
+  Alert.info('Error', message);
   if (!error?.message) console.error('[handleFormError] Unknown error:', err);
 }

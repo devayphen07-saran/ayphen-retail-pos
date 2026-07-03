@@ -1175,6 +1175,278 @@ Small but important. "Create" implies a new record; "Save Changes" implies modif
 
 ---
 
+## 11A. One Form for Both Create and Edit (reusability)
+
+> **This is the default.** Do **not** ship `NewCustomerForm` and `EditCustomerForm` as two components. Write **one** `CustomerForm` that takes an optional `record` prop. **Create is just edit with no record.** The five differences below all derive from that one prop — everything else (schema, validation, error mapping, loading, keyboard, a11y) is shared.
+
+### 11A.1 The single-component shape
+
+```tsx
+interface CustomerFormProps {
+  /** undefined = CREATE mode · a record = EDIT mode */
+  record?: Customer;
+  onClose: () => void;
+  onSuccess?: (result: Customer) => void;
+}
+
+function CustomerForm({ record, onClose, onSuccess }: CustomerFormProps) {
+  const isEdit = record !== undefined;
+  // ...everything below branches on `isEdit` / `record`
+}
+```
+
+Callers pick the mode by passing (or omitting) `record`:
+
+```tsx
+<CustomerForm onClose={close} />                 // CREATE
+<CustomerForm record={selected} onClose={close} /> // EDIT
+```
+
+### 11A.2 The five (and only five) differences
+
+| Concern | Create | Edit | Derived from |
+|---|---|---|---|
+| `defaultValues` | `DEFAULT_CUSTOMER_VALUES` | `customerRecordToForm(record)` | `record` |
+| Submit action | `addCustomer(...)` | `updateCustomer(...)` | `isEdit` |
+| Payload | full object | **only `dirtyFields`** (PATCH) | `isEdit` + `dirtyFields` |
+| Header title / button | "New Customer" / "Create" | "Edit Customer" / "Save Changes" | `isEdit` |
+| Post-success reset | `reset()` | `reset(data)` | `isEdit` |
+
+If a form needs a **sixth** difference (a field only edit shows, a rule only create enforces), see §11A.6 — you may still share, but read that first.
+
+### 11A.3 The record → form mapper (inverse of `transform`)
+
+`transform.ts` already has `customerFormToApiPayload` (form → API). For the shared component you also need its **inverse**, `customerRecordToForm` (record → form), to seed `defaultValues` in edit mode. Keep it pure, in the same file, unit-tested.
+
+```ts
+// features/customers/transform.ts
+export function customerRecordToForm(c: Customer): CustomerForm {
+  return {
+    displayName: c.displayName,
+    email:       c.email    ?? '',   // null → '' at the boundary
+    phoneNo:     c.phoneNo  ?? '',
+    countryId:   c.countryId,
+    currencyId:  c.currencyId,
+    gstin:       c.gstin    ?? '',
+    notes:       c.notes    ?? '',
+  };
+}
+```
+
+**Two rules for the mapper:**
+1. It MUST return a value for **every** schema field — `dirtyFields` is computed by comparing current values to these defaults; a missing field makes the dirty tracking (and the unsaved-changes guard, and the PATCH) wrong.
+2. Normalize `null → ''` at this boundary — the API sends `null` for empty optionals, but RN text inputs need `''`.
+
+`defaultValues` then becomes a one-liner that works for both modes:
+
+```ts
+const defaultValues = record ? customerRecordToForm(record) : DEFAULT_CUSTOMER_VALUES;
+```
+
+### 11A.4 The unified submit handler
+
+One handler, one `if (isEdit)`. Create sends everything; edit sends only what changed and closes silently if nothing did.
+
+```tsx
+const onSubmit = async (data: CustomerForm) => {
+  try {
+    if (isEdit) {
+      // ── EDIT: PATCH only dirty fields ──
+      const changed = Object.keys(dirtyFields) as (keyof CustomerForm)[];
+      if (changed.length === 0) {
+        onClose();                       // nothing changed → close silently, no request
+        return;
+      }
+      const patch = Object.fromEntries(
+        changed.map((k) => [k, data[k]]),
+      ) as Partial<CustomerForm>;
+
+      const result = await dispatch(
+        updateCustomer({
+          pathParam: { tenantId, customerId: record!.id },
+          bodyParam: customerFormToApiPayload(data, changed),  // transform maps only changed keys
+        }),
+      ).unwrap();
+
+      reset(data);                       // bake saved values in as the new default → dirtyFields empties
+      onClose();
+      ShowToast.success('Customer updated');
+      onSuccess?.(result);
+    } else {
+      // ── CREATE: full payload ──
+      const result = await dispatch(
+        addCustomer({
+          pathParam: { tenantId },
+          bodyParam: customerFormToApiPayload(data),
+        }),
+      ).unwrap();
+
+      reset();                           // clear for the next create
+      onClose();
+      ShowToast.success('Customer added');
+      onSuccess?.(result);
+    }
+  } catch (err) {
+    handleSubmitError(err);              // shared — identical for both modes
+  }
+};
+```
+
+The deltas are exactly three: **which dispatch**, **`reset(data)` vs `reset()`**, and **the toast text**. The transform, the error handler (§7.2), the validation-error handler, and every JSX rule are shared verbatim.
+
+**PATCH-aware transform** (optional overload): let the pure transform take the changed-keys so it only emits the fields being sent, so an edit never sends `null` for an untouched optional and clobbers it:
+
+```ts
+export function customerFormToApiPayload(
+  form: CustomerForm,
+  onlyKeys?: (keyof CustomerForm)[],   // undefined = full payload (create)
+): Partial<CustomerApiPayload> {
+  const full: CustomerApiPayload = {
+    display_name: form.displayName.trim(),
+    email:        form.email?.trim()  || null,
+    phone:        form.phoneNo?.trim() || null,
+    country_fk:   form.countryId,
+    currency_fk:  form.currencyId,
+    gstin:        form.gstin?.trim().toUpperCase() || null,
+    notes:        form.notes?.trim()  || null,
+  };
+  if (!onlyKeys) return full;
+  const map: Record<keyof CustomerForm, keyof CustomerApiPayload> = {
+    displayName: 'display_name', email: 'email', phoneNo: 'phone',
+    countryId: 'country_fk', currencyId: 'currency_fk', gstin: 'gstin', notes: 'notes',
+  };
+  return Object.fromEntries(onlyKeys.map((k) => [map[k], full[map[k]]]));
+}
+```
+
+### 11A.5 `FormScreen` that drives both modes
+
+Extend the wrapper (§12) so **it** does the mode plumbing — callers pass `record`, `toForm`, `emptyValues`, and mode-aware labels; the wrapper computes `isEdit`, seeds defaults, picks the title/label, and hands the submit handler the mode context.
+
+```tsx
+interface FormScreenProps<TSchema extends z.ZodTypeAny> {
+  schema: TSchema;
+  /** presence = EDIT; absence = CREATE */
+  record?: unknown;
+  /** record → form values (edit); ignored in create */
+  toForm?: (record: any) => z.infer<TSchema>;
+  /** create defaults */
+  emptyValues: DefaultValues<z.infer<TSchema>>;
+  onSubmit: (
+    data: z.infer<TSchema>,
+    ctx: { isEdit: boolean; dirtyFields: Partial<Record<string, unknown>> },
+  ) => Promise<void>;
+  createTitle: string;  editTitle: string;
+  createLabel?: string; editLabel?: string;
+  onClose: () => void;
+  children: ReactNode;
+}
+
+export function FormScreen<TSchema extends z.ZodTypeAny>({
+  schema, record, toForm, emptyValues, onSubmit,
+  createTitle, editTitle, createLabel = 'Create', editLabel = 'Save Changes',
+  onClose, children,
+}: FormScreenProps<TSchema>) {
+  const isEdit = record != null;
+  const defaultValues = isEdit && toForm ? toForm(record) : emptyValues;
+
+  const formData = useForm<z.infer<TSchema>>({
+    resolver: zodResolver(schema),
+    mode: 'onBlur',
+    reValidateMode: 'onChange',
+    defaultValues,
+  });
+  const { handleSubmit, reset, setError,
+          formState: { dirtyFields, isSubmitting } } = formData;
+  const hasUnsavedChanges = Object.keys(dirtyFields).length > 0;
+
+  const submit = async (data: z.infer<TSchema>) => {
+    try {
+      await onSubmit(data, { isEdit, dirtyFields });
+      reset(isEdit ? data : undefined);   // reset(data) for edit, reset() for create
+    } catch (err) {
+      handleSubmitError(err, setError);
+    }
+  };
+
+  // close guard (§6), header, ScrollView … as in §12, with:
+  //   title={isEdit ? editTitle : createTitle}
+  //   rightLabel={isEdit ? editLabel : createLabel}
+  //   onPressRight={handleSubmit(submit, onValidationError)}
+  //   rightDisabled={!hasUnsavedChanges || isSubmitting}
+  //   rightLoading={isSubmitting}
+  // ...
+}
+```
+
+**Usage — one component, both modes, zero duplication:**
+
+```tsx
+function CustomerForm({ record, onClose }: { record?: Customer; onClose: () => void }) {
+  return (
+    <FormScreen
+      schema={customerSchema}
+      record={record}
+      toForm={customerRecordToForm}
+      emptyValues={DEFAULT_CUSTOMER_VALUES}
+      createTitle="New Customer" editTitle="Edit Customer"
+      createLabel="Create"      editLabel="Save Changes"
+      onClose={onClose}
+      onSubmit={async (data, { isEdit, dirtyFields }) => {
+        if (isEdit) {
+          const changed = Object.keys(dirtyFields) as (keyof CustomerForm)[];
+          if (!changed.length) { onClose(); return; }
+          await dispatch(updateCustomer({
+            pathParam: { tenantId, customerId: record!.id },
+            bodyParam: customerFormToApiPayload(data, changed),
+          })).unwrap();
+          onClose(); ShowToast.success('Customer updated');
+        } else {
+          await dispatch(addCustomer({
+            pathParam: { tenantId },
+            bodyParam: customerFormToApiPayload(data),
+          })).unwrap();
+          onClose(); ShowToast.success('Customer added');
+        }
+      }}
+    >
+      <Input name="displayName" label="Display Name" required />
+      <Input name="email"       label="Email" keyboardType="email-address" />
+      <Input name="phoneNo"     label="Phone" keyboardType="phone-pad" maxLength={10} />
+    </FormScreen>
+  );
+}
+```
+
+The wrapper owns the `reset(data)` vs `reset()` decision, the label switch, and the mode context — the feature form only says *what to dispatch*.
+
+### 11A.6 Immutable-after-create fields
+
+Some fields can be set at creation but never changed (e.g. a store's GSTIN once verified, an SKU after first sale). **Do not fork the component for this** — keep one schema and gate the field:
+
+```tsx
+<Input
+  name="gstin"
+  label="GSTIN"
+  editable={!isEdit}          // read-only in edit mode
+  accessibilityState={{ disabled: isEdit }}
+/>
+```
+
+Keep the field **in the schema** (consistent shape, consistent `dirtyFields`), render it disabled in edit, and either omit it from the PATCH (it can't be in `dirtyFields` if it's not editable) or let the server reject a change. Never delete the field from the edit schema — that desyncs form/record/API shapes.
+
+### 11A.7 When to actually split into two components
+
+Share by default. Split only when create and edit diverge in **structure, not values** — i.e. more than the five differences in §11A.2:
+
+- **Different field sets** — edit surfaces read-only audit fields, a status-transition control, or hides fields that only make sense at creation.
+- **Different validation** — a rule create requires that edit forbids (or vice-versa) and it can't be expressed as `isEdit`-gated.
+- **Different flow** — create is a multi-step wizard with draft persistence; edit is a single screen.
+
+Even then, prefer **one schema + `isEdit`-gated fields** first; split into `New<Entity>Form` / `Edit<Entity>Form` (each still using `FormScreen`) only as a last resort, and note why in the PR. Two components duplicating the *same* fields is a code-review reject — collapse them into one with a `record` prop.
+
+---
+
 ## 12. The FormScreen Wrapper
 
 The boilerplate in every form is identical: provider, header, scroll view, close handler, error mapping. Encapsulate it.

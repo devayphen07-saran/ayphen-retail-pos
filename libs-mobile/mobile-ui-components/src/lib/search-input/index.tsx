@@ -2,7 +2,7 @@ import React from "react";
 import { TextInput, TextInputProps, TouchableOpacity, View } from "react-native";
 import styled from "styled-components/native";
 import { LucideIcon } from "../lucide-icon";
-import { useMobileTheme, useBreakpoint } from "@nks/mobile-theme";
+import { useMobileTheme, useBreakpoint } from "@ayphen/mobile-theme";
 
 interface SearchInputProps extends Omit<TextInputProps, "onChange" | "value"> {
   value?: string;

@@ -4,9 +4,9 @@ import {
   NotFoundException,
 } from '@nestjs/common';
 import postgres from 'postgres';
-import { UnitOfWork } from '../db/db.module.js';
+import { UnitOfWork } from '#db/db.module.js';
 import { EntitlementService } from '../subscription/entitlement.service.js';
-import { AuditService } from '../auth/core/audit.service.js';
+import { AuditService } from '#auth/core/audit.service.js';
 import { DeviceAccessRepository, type StoreDeviceRow } from './device-access.repository.js';
 
 export interface SlotClaimResult {

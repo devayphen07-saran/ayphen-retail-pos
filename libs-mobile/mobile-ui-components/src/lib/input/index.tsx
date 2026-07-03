@@ -52,7 +52,7 @@ import {
   PathValue,
   RegisterOptions,
 } from 'react-hook-form';
-import { useMobileTheme, useBreakpoint } from '@nks/mobile-theme';
+import { useMobileTheme, useBreakpoint } from '@ayphen/mobile-theme';
 
 import { FormFieldWrapper } from '../form/FormFieldWrapper';
 import { StyledFormInput, StyledFormFieldFrame } from '../form/StyledFormInput';
@@ -517,8 +517,12 @@ export default Input;
  * The original only received $fontScale, which caused text misalignment on
  * tablets because the frame padding scaled but the text line height did not.
  */
-const FrameInput = styled.TextInput<{ $fontScale: number; $scale: number }>`
+const FrameInput = styled.TextInput.attrs({
+  textAlignVertical: 'center',
+  style: { includeFontPadding: false },
+})<{ $fontScale: number; $scale: number }>`
   flex: 1;
+  padding: 0px;
   font-family: ${({ theme }) => theme.fontFamily.poppinsRegular};
   font-size: ${({ theme, $fontScale }) => theme.fontSize.small * $fontScale}px;
   line-height: ${({ theme, $fontScale, $scale }) =>

@@ -1,16 +1,6 @@
 import { Injectable } from '@nestjs/common';
 import { AsyncLocalStorage } from 'async_hooks';
-
-export interface MobilePrincipal {
-  userId:             string;  // users.id (internal UUID)
-  userGuuid:          string;  // users.guuid (public-facing UUID)
-  deviceSessionId:    string;  // device_sessions.id
-  deviceId:           string;  // devices.id
-  devicePlatform:     string;  // 'ios' | 'android'
-  permissionsVersion: number;
-  stepUpAt?:          Date;
-  stepUpMethod?:      string;
-}
+import type { MobilePrincipal } from '../mobile/types/mobile-principal.js';
 
 export interface RequestContext {
   user:        MobilePrincipal;

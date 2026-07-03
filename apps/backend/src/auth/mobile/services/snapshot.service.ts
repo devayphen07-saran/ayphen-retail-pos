@@ -1,9 +1,9 @@
 import { Inject, Injectable } from '@nestjs/common';
 import Redis from 'ioredis';
-import { eq, and, isNull } from 'drizzle-orm';
+import { eq, and, isNull, inArray } from 'drizzle-orm';
 import type { PostgresJsDatabase } from 'drizzle-orm/postgres-js';
-import { DRIZZLE } from '../../../db/db.module.js';
-import * as schema from '../../../db/schema.js';
+import { DRIZZLE } from '#db/db.module.js';
+import * as schema from '#db/schema.js';
 import {
   users,
   roles,
@@ -11,7 +11,8 @@ import {
   userRoleMappings,
   locations,
   userLocationMappings,
-} from '../../../db/schema.js';
+  stores,
+} from '#db/schema.js';
 import { CryptoService } from '../../core/crypto.service.js';
 import { AuthConstantsService } from '../../core/auth-constants.service.js';
 import { MOBILE_REDIS } from './redis.provider.js';
@@ -30,6 +31,7 @@ export interface LocationSnapshotEntry {
 /** Per-store location access, so an offline device can pick a startup location. */
 export interface StoreLocationsEntry {
   store_id:            string;
+  name:                string;
   default_location_id: string | null;
   locations:           LocationSnapshotEntry[];
 }
@@ -75,7 +77,7 @@ export class SnapshotService {
 
   private async build(userId: string): Promise<SnapshotResult> {
     const [user] = await this.db
-      .select({ permissionsVersion: users.permissionsVersion })
+      .select({ guuid: users.guuid, permissionsVersion: users.permissionsVersion })
       .from(users)
       .where(eq(users.id, userId));
 
@@ -99,7 +101,10 @@ export class SnapshotService {
       );
 
     const snapshot: PermissionSnapshot = {
-      userId,
+      // Wire-facing id must be the public guuid, matching every other
+      // user-facing response field (AuthMapper always emits user.guuid as
+      // `id`) — never the internal PK, which `userId` is here.
+      userId: user?.guuid ?? userId,
       permissionsVersion: user?.permissionsVersion ?? 1,
       generatedAt:        new Date().toISOString(),
       globalPermissions:  userRoleRows.map(r => `${r.entityCode}:${r.action}`),
@@ -142,6 +147,12 @@ export class SnapshotService {
     }
     if (storeIds.size === 0) return [];
 
+    const storeRows = await this.db
+      .select({ id: stores.id, name: stores.name })
+      .from(stores)
+      .where(inArray(stores.id, [...storeIds]));
+    const storeNames = new Map(storeRows.map((s) => [s.id, s.name]));
+
     // All active locations across those stores.
     const allLocations = await this.db
       .select({
@@ -164,7 +175,12 @@ export class SnapshotService {
 
     const byStore = new Map<string, StoreLocationsEntry>();
     for (const storeId of storeIds) {
-      byStore.set(storeId, { store_id: storeId, default_location_id: null, locations: [] });
+      byStore.set(storeId, {
+        store_id: storeId,
+        name: storeNames.get(storeId) ?? '',
+        default_location_id: null,
+        locations: [],
+      });
     }
 
     for (const loc of allLocations) {

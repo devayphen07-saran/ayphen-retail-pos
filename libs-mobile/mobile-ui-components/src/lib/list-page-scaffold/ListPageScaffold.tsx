@@ -4,7 +4,7 @@ import { useSafeAreaInsets } from "react-native-safe-area-context";
 import styled from "styled-components/native";
 import { ListPageHeader } from "./ListPageHeader";
 import { LucideIcon, LucideIconNameType } from "../lucide-icon";
-import { useMobileTheme } from "@nks/mobile-theme";
+import { useMobileTheme } from "@ayphen/mobile-theme";
 
 interface ListScaffoldProps {
   onPressLeft: () => void;

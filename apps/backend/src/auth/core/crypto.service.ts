@@ -1,7 +1,7 @@
 import { Injectable, OnModuleInit } from '@nestjs/common';
 import { createHash, createHmac, timingSafeEqual, randomUUID } from 'crypto';
 import { SignJWT, jwtVerify } from 'jose';
-import { AppConfigService } from '../../config/app-config.service.js';
+import { AppConfigService } from '#config/app-config.service.js';
 
 export interface AccessTokenPayload {
   sub: string;

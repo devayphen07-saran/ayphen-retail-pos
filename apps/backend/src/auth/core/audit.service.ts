@@ -1,8 +1,8 @@
 import { Inject, Injectable } from '@nestjs/common';
 import type { PostgresJsDatabase } from 'drizzle-orm/postgres-js';
-import { DRIZZLE } from '../../db/db.module.js';
-import * as schema from '../../db/schema.js';
-import { auditLogs } from '../../db/schema.js';
+import { DRIZZLE } from '#db/db.module.js';
+import * as schema from '#db/schema.js';
+import { auditLogs } from '#db/schema.js';
 
 export type ActivityType =
   | 'AUTH_LOGIN'

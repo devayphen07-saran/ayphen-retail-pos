@@ -1,40 +1,53 @@
-import { Inject, Injectable } from '@nestjs/common';
+import { Inject, Injectable, Logger } from '@nestjs/common';
 import { eq } from 'drizzle-orm';
 import { LRUCache } from 'lru-cache';
 import Redis from 'ioredis';
 import type { PostgresJsDatabase } from 'drizzle-orm/postgres-js';
-import { DRIZZLE } from '../../../db/db.module.js';
-import * as schema from '../../../db/schema.js';
-import { revokedTokens } from '../../../db/schema.js';
+import { DRIZZLE } from '#db/db.module.js';
+import * as schema from '#db/schema.js';
+import { revokedTokens } from '#db/schema.js';
 import { MOBILE_REDIS } from './redis.provider.js';
 
 const jtiKey = (jti: string) => `jti:${jti}`;
 
 @Injectable()
 export class BlacklistCacheService {
+  private readonly logger = new Logger(BlacklistCacheService.name);
   private readonly lru = new LRUCache<string, boolean>({ max: 10_000 });
 
   constructor(
     @Inject(MOBILE_REDIS) private readonly redis: Redis,
-    @Inject(DRIZZLE)      private readonly db:    PostgresJsDatabase<typeof schema>,
+    @Inject(DRIZZLE) private readonly db: PostgresJsDatabase<typeof schema>,
   ) {}
 
   async addToBlacklist(jti: string, exp: Date): Promise<void> {
-    const ttl = Math.max(0, Math.floor((exp.getTime() - Date.now()) / 1000));
-    this.lru.set(jti, true, { ttl: ttl * 1000 });
-    await this.redis.setex(jtiKey(jti), ttl, '1');
+    const ttl = this.secondsUntil(exp);
+
+    // Durable record first. Redis is only an acceleration layer.
     await this.db
       .insert(revokedTokens)
       .values({ jti, expiresAt: exp })
       .onConflictDoNothing();
+
+    // Expired tokens are already invalid by JWT verification. Do not write
+    // them to Redis because SETEX rejects ttl <= 0.
+    if (ttl <= 0) return;
+
+    this.lru.set(jti, true, { ttl: ttl * 1000 });
+
+    try {
+      await this.redis.setex(jtiKey(jti), ttl, '1');
+    } catch (err) {
+      this.logger.warn(`Failed to cache blacklisted JTI in Redis: ${this.errorMessage(err)}`);
+    }
   }
 
   async isBlacklisted(jti: string): Promise<boolean> {
     if (this.lru.has(jti)) return true;
 
-    const cached = await this.redis.get(jtiKey(jti));
-    if (cached !== null) {
-      this.lru.set(jti, true);
+    const redisTtl = await this.getRedisTtlSeconds(jti);
+    if (redisTtl > 0) {
+      this.lru.set(jti, true, { ttl: redisTtl * 1000 });
       return true;
     }
 
@@ -43,12 +56,49 @@ export class BlacklistCacheService {
       .from(revokedTokens)
       .where(eq(revokedTokens.jti, jti));
 
-    if (row) {
-      const ttl = Math.max(0, Math.floor((row.expiresAt.getTime() - Date.now()) / 1000));
+    if (!row) return false;
+
+    const ttl = this.secondsUntil(row.expiresAt);
+
+    // Historical expired revocation rows should not blacklist future checks.
+    // JWT expiration itself is responsible for rejecting expired tokens.
+    if (ttl <= 0) return false;
+
+    this.lru.set(jti, true, { ttl: ttl * 1000 });
+
+    try {
       await this.redis.setex(jtiKey(jti), ttl, '1');
-      this.lru.set(jti, true, { ttl: ttl * 1000 });
-      return true;
+    } catch (err) {
+      this.logger.warn(`Failed to warm blacklisted JTI Redis cache: ${this.errorMessage(err)}`);
     }
-    return false;
+
+    return true;
+  }
+
+  private async getRedisTtlSeconds(jti: string): Promise<number> {
+    try {
+      const key = jtiKey(jti);
+      const cached = await this.redis.get(key);
+      if (cached === null) return 0;
+
+      const ttl = await this.redis.ttl(key);
+
+      // ttl === -2: key no longer exists
+      // ttl === -1: key exists but has no expiry; do not trust it forever
+      if (ttl <= 0) return 0;
+
+      return ttl;
+    } catch (err) {
+      this.logger.warn(`Failed to read blacklisted JTI from Redis: ${this.errorMessage(err)}`);
+      return 0;
+    }
+  }
+
+  private secondsUntil(date: Date): number {
+    return Math.floor((date.getTime() - Date.now()) / 1000);
+  }
+
+  private errorMessage(err: unknown): string {
+    return err instanceof Error ? err.message : String(err);
   }
 }

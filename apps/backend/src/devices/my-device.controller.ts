@@ -7,9 +7,9 @@ import {
   ParseUUIDPipe,
   UseGuards,
 } from '@nestjs/common';
-import { MobileJwtGuard } from '../auth/mobile/guards/mobile-jwt.guard.js';
-import { CurrentUser } from '../common/rbac/decorators/rbac.decorators.js';
-import type { MobilePrincipal } from '../auth/mobile/types/mobile-principal.js';
+import { MobileJwtGuard } from '#auth/mobile/guards/mobile-jwt.guard.js';
+import { CurrentUser } from '#common/rbac/decorators/rbac.decorators.js';
+import type { MobilePrincipal } from '#auth/mobile/types/mobile-principal.js';
 import { DeviceAccessService } from './device-access.service.js';
 import { StoreDeviceMapper } from './device.mapper.js';
 

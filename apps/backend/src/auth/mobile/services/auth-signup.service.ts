@@ -1,11 +1,11 @@
 import { Inject, Injectable } from '@nestjs/common';
 import { eq } from 'drizzle-orm';
 import type { PostgresJsDatabase } from 'drizzle-orm/postgres-js';
-import { DRIZZLE, UnitOfWork } from '../../../db/db.module.js';
-import * as schema from '../../../db/schema.js';
-import { users } from '../../../db/schema.js';
-import { AppException } from '../../../common/exceptions/app.exception.js';
-import { ErrorCodes } from '../../../common/error-codes.js';
+import { DRIZZLE, UnitOfWork } from '#db/db.module.js';
+import * as schema from '#db/schema.js';
+import { users } from '#db/schema.js';
+import { AppException } from '#common/exceptions/app.exception.js';
+import { ErrorCodes } from '#common/error-codes.js';
 import { AuditService } from '../../core/audit.service.js';
 import { AuthConstantsService } from '../../core/auth-constants.service.js';
 import { CryptoService } from '../../core/crypto.service.js';
@@ -147,9 +147,9 @@ export class AuthSignupService {
       refreshToken,
       user: { id: user.guuid, permissionsVersion: user.permissionsVersion },
       isNewUser: true,
-      deviceGuuid: device.id,
-      deviceSessionGuuid: session.id,
-      isTrusted: false,
+      deviceId: device.id,
+      deviceSessionId: session.id,
+      isTrusted: device.isTrusted,
     };
   }
 }

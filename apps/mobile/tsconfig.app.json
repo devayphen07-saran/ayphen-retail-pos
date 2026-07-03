@@ -8,7 +8,12 @@
     "module": "esnext",
     "moduleResolution": "bundler",
     "noUnusedLocals": false,
-    "tsBuildInfoFile": "dist/tsconfig.app.tsbuildinfo"
+    "tsBuildInfoFile": "dist/tsconfig.app.tsbuildinfo",
+    "paths": {
+      "@core/*": ["./src/core/*"],
+      "@features/*": ["./src/features/*"],
+      "@ui/*": ["./src/components/*"]
+    }
   },
   "files": ["../../node_modules/@nx/expo/typings/svg.d.ts"],
   "exclude": [

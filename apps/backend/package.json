@@ -2,6 +2,12 @@
   "name": "@ayphen/backend",
   "version": "0.0.1",
   "private": true,
+  "imports": {
+    "#db/*": "./src/db/*",
+    "#common/*": "./src/common/*",
+    "#config/*": "./src/config/*",
+    "#auth/*": "./src/auth/*"
+  },
   "scripts": {
     "start": "node dist/main.js",
     "dev": "tsx watch src/main.ts",
@@ -17,7 +23,9 @@
     "test:integration": "jest test/integration",
     "test:e2e": "jest test/e2e --runInBand",
     "test:watch": "jest --watch",
-    "test:ci": "jest --coverage --ci"
+    "test:ci": "jest --coverage --ci",
+    "android": "expo run:android",
+    "ios": "expo run:ios"
   },
   "nx": {
     "targets": {
@@ -160,7 +168,10 @@
     "reflect-metadata": "^0.2.0",
     "rxjs": "^7.8.0",
     "tslib": "^2.3.0",
-    "zod": "^4.4.3"
+    "zod": "^4.4.3",
+    "expo": "~54.0.35",
+    "react": "19.1.0",
+    "react-native": "0.81.5"
   },
   "devDependencies": {
     "@nestjs/testing": "^11.0.0",

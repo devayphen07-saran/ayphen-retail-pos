@@ -1,19 +1,42 @@
-import { useState } from 'react';
-import { ActivityIndicator, KeyboardAvoidingView, Linking, Platform, ScrollView, Text, TouchableOpacity, useWindowDimensions } from 'react-native';
+import { useEffect, useState } from 'react';
+import {
+  ActivityIndicator,
+  KeyboardAvoidingView,
+  Linking,
+  Platform,
+  ScrollView,
+  Text,
+  TouchableOpacity,
+  useWindowDimensions,
+} from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { LinearGradient } from 'expo-linear-gradient';
 import styled from 'styled-components/native';
 import { useForm, FormProvider } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
 import { router } from 'expo-router';
-import { useMobileTheme } from '@nks/mobile-theme';
-import { Column, Input, LucideIcon, Row, Typography } from '@nks/mobile-ui-components';
+import { useMobileTheme } from '@ayphen/mobile-theme';
+import {
+  CheckBox,
+  Column,
+  Input,
+  LucideIcon,
+  Row,
+  Typography,
+} from '@ayphen/mobile-ui-components';
 import {
   useRequestLoginOtpMutation,
   useRequestSignupOtpMutation,
-} from '@ayphen-retail/api-manager';
-import { phoneSchema, DEFAULT_PHONE_VALUES, type PhoneForm } from '../../features/auth/schema';
+} from '@ayphen/api-manager';
+import {
+  loginPhoneSchema,
+  signupPhoneSchema,
+  DEFAULT_PHONE_VALUES,
+  type PhoneForm,
+} from '@features/auth/schema';
+import { normalizePhone, normalizeName } from '@features/auth/transform';
 import { handleFormError } from '../../utils/handleFormError';
+import { onValidationError } from '../../utils/onValidationError';
 
 type Mode = 'login' | 'signup';
 
@@ -25,11 +48,14 @@ const W55 = 'rgba(255,255,255,0.55)';
 /** Step 1 — enter phone, request an OTP for login or signup. */
 export default function PhoneScreen() {
   const [mode, setMode] = useState<Mode>('login');
+  const isSignup = mode === 'signup';
   const { theme } = useMobileTheme();
   const { width: SW, height: SH } = useWindowDimensions();
 
   const formData = useForm<PhoneForm>({
-    resolver: zodResolver(phoneSchema),
+    resolver: zodResolver(isSignup ? signupPhoneSchema : loginPhoneSchema),
+    // onBlur: a field validates when the user leaves it, so an untouched
+    // empty form never shows a red error on mount (forms-agent.md §4).
     mode: 'onBlur',
     reValidateMode: 'onChange',
     defaultValues: DEFAULT_PHONE_VALUES,
@@ -38,24 +64,68 @@ export default function PhoneScreen() {
     control,
     handleSubmit,
     setError,
-    formState: { isSubmitting, errors },
+    clearErrors,
+    setFocus,
+    reset,
+    formState: { isSubmitting, dirtyFields },
   } = formData;
-  const serverError = (errors as typeof errors & { root?: { serverError?: { message: string } } })
-    .root?.serverError?.message;
+  const hasUnsavedChanges = Object.keys(dirtyFields).length > 0;
 
   const loginOtp = useRequestLoginOtpMutation();
   const signupOtp = useRequestSignupOtpMutation();
 
-  const onSubmit = async ({ phone }: PhoneForm) => {
-    const trimmed = phone.trim();
+  // Login and signup are treated as separate forms — switching mode clears
+  // every value and error (not just the phone field) so nothing typed or
+  // errored in one mode leaks into the other.
+  const switchMode = () => {
+    reset(DEFAULT_PHONE_VALUES);
+    setMode((m) => (m === 'login' ? 'signup' : 'login'));
+  };
+
+  // The mode switch mounts a newly-autoFocused field (name for signup, phone
+  // for login), which steals native focus from whatever was previously
+  // focused and fires a blur on it. With mode:'onTouched' that incidental
+  // blur — not real user interaction — validates the just-reset empty field
+  // and shows a premature error. Clear it once the switch has settled.
+  useEffect(() => {
+    clearErrors();
+  }, [mode, clearErrors]);
+
+  const onSubmit = async ({ phone, name, marketingOptIn }: PhoneForm) => {
+    const trimmed = normalizePhone(phone);
     try {
-      const mut = mode === 'login' ? loginOtp : signupOtp;
+      const mut = isSignup ? signupOtp : loginOtp;
       const res = await mut.mutateAsync({ bodyParam: { phone: trimmed } });
       router.push({
         pathname: '/(auth)/otp',
-        params: { phone: trimmed, mode, otpRequestId: res.otp_request_id },
+        params: {
+          phone: trimmed,
+          mode,
+          otpRequestId: res.otp_request_id,
+          ...(isSignup
+            ? {
+                name: normalizeName(name),
+                marketingOptIn: String(marketingOptIn),
+              }
+            : {}),
+        },
       });
+      // The phone screen stays mounted underneath (router.push, not replace) —
+      // reset so backing out from the OTP screen shows a clean form (forms-agent.md §6).
+      reset();
     } catch (err) {
+      // Phone-scoped server errors (e.g. "User not found" on login, "already
+      // registered" on signup) belong under the phone field, not in a popup —
+      // set them on the field so RHF renders them inline via <Input>'s error.
+      const e = err as { status?: number; message?: string } | undefined;
+      if (e?.status === 400 || e?.status === 401 || e?.status === 409) {
+        setError('phone', {
+          type: 'server',
+          message: e?.message ?? 'Could not send the code.',
+        });
+        return;
+      }
+      // Everything else (offline, 5xx, unknown) → the shared handler's alert.
       handleFormError(err, setError, 'Could not send the code.');
     }
   };
@@ -73,16 +143,31 @@ export default function PhoneScreen() {
         />
         <Orb1
           pointerEvents="none"
-          style={{ top: SH * 0.05, right: -SW * 0.25, width: SW * 0.65, height: SW * 0.65, borderRadius: SW * 0.325 }}
+          style={{
+            top: SH * 0.05,
+            right: -SW * 0.25,
+            width: SW * 0.65,
+            height: SW * 0.65,
+            borderRadius: SW * 0.325,
+          }}
         />
         <Orb2
           pointerEvents="none"
-          style={{ top: SH * 0.12, left: -SW * 0.3, width: SW * 0.7, height: SW * 0.7, borderRadius: SW * 0.35 }}
+          style={{
+            top: SH * 0.12,
+            left: -SW * 0.3,
+            width: SW * 0.7,
+            height: SW * 0.7,
+            borderRadius: SW * 0.35,
+          }}
         />
 
-        <KeyboardAvoidingView style={{ flex: 1 }} behavior={Platform.OS === 'ios' ? 'padding' : undefined}>
+        <KeyboardAvoidingView
+          style={{ flex: 1 }}
+          behavior={Platform.OS === 'ios' ? 'padding' : undefined}
+        >
           <ScrollView
-            contentContainerStyle={{ flexGrow: 1 }}
+            contentContainerStyle={{ flexGrow: 1, paddingBottom: 80 }}
             keyboardShouldPersistTaps="handled"
             keyboardDismissMode="interactive"
             showsVerticalScrollIndicator={false}
@@ -95,12 +180,16 @@ export default function PhoneScreen() {
                 <Typography.Body weight="semiBold" color={theme.colorWhite}>
                   Ayphen Retail
                 </Typography.Body>
-                <Typography.Caption color={W50}>Enterprise POS Platform</Typography.Caption>
+                <Typography.Caption color={W50}>
+                  Enterprise POS Platform
+                </Typography.Caption>
               </Column>
             </Header>
 
             <Hero>
-              <Typography.Overline color={theme.colorAccentLavender}>SIGN IN</Typography.Overline>
+              <Typography.Overline color={theme.colorAccentLavender}>
+                SIGN IN
+              </Typography.Overline>
               <Gap $h={6} />
               <Typography.H1 color={theme.colorWhite}>
                 {mode === 'login' ? 'Welcome\nback.' : 'Create your\naccount.'}
@@ -114,19 +203,41 @@ export default function PhoneScreen() {
             </Hero>
 
             <Card style={{ minHeight: SH * 0.5 }}>
+              {isSignup && (
+                <>
+                  <Input<PhoneForm>
+                    name="name"
+                    control={control}
+                    label="Your name"
+                    required
+                    autoFocus
+                    disabled={isSubmitting}
+                    returnKeyType="next"
+                    onSubmitEditing={() => setFocus('phone')}
+                    accessibilityLabel="Your name"
+                  />
+                </>
+              )}
+
               <Input<PhoneForm>
                 name="phone"
                 control={control}
                 label="Phone number"
+                required
                 inputDataType="phoneNumber"
                 placeholder="98765 43210"
-                autoFocus
+                autoFocus={!isSignup}
+                disabled={isSubmitting}
                 returnKeyType="done"
-                onSubmitEditing={handleSubmit(onSubmit)}
+                onSubmitEditing={handleSubmit(onSubmit, onValidationError)}
                 accessibilityLabel="Phone number"
                 prefix={
                   <CountryPrefix>
-                    <Text style={{ fontSize: theme.fontSize.large, lineHeight: 22 }}>🇮🇳</Text>
+                    <Text
+                      style={{ fontSize: theme.fontSize.large, lineHeight: 22 }}
+                    >
+                      🇮🇳
+                    </Text>
                     <PrefixDivider />
                     <Text
                       style={{
@@ -142,13 +253,50 @@ export default function PhoneScreen() {
                 }
               />
 
-              {serverError ? <ErrorText>{serverError}</ErrorText> : null}
+              {isSignup && (
+                <>
+                  <Gap $h={20} />
+                  <CheckBox<PhoneForm>
+                    name="marketingOptIn"
+                    control={control}
+                    size={20}
+                    containerStyle={{ alignItems: 'flex-start' }}
+                    checkboxStyle={{ marginTop: 1 }}
+                    label="I agree to receive marketing emails from Ayphen Retail. You can unsubscribe anytime."
+                    labelStyle={{
+                      fontSize: theme.fontSize.small,
+                      color: theme.colorTextSecondary,
+                      lineHeight: 20,
+                    }}
+                    accessibilityHint="Optional. You can change this anytime in settings."
+                  />
+                </>
+              )}
 
               <Gap $h={20} />
 
-              <CtaBtn onPress={handleSubmit(onSubmit)} activeOpacity={0.88} disabled={isSubmitting}>
+              <CtaBtn
+                onPress={handleSubmit(onSubmit, onValidationError)}
+                activeOpacity={0.88}
+                disabled={!hasUnsavedChanges || isSubmitting}
+                accessibilityLabel={
+                  isSubmitting
+                    ? 'Sending'
+                    : mode === 'login'
+                      ? 'Login'
+                      : 'Register'
+                }
+                accessibilityState={{
+                  disabled: !hasUnsavedChanges || isSubmitting,
+                  busy: isSubmitting,
+                }}
+              >
                 <LinearGradient
-                  colors={isSubmitting ? theme.gradient.ctaDisabled : theme.gradient.cta}
+                  colors={
+                    !hasUnsavedChanges || isSubmitting
+                      ? theme.gradient.ctaDisabled
+                      : theme.gradient.cta
+                  }
                   start={{ x: 0, y: 0 }}
                   end={{ x: 1, y: 0 }}
                   style={{
@@ -160,37 +308,77 @@ export default function PhoneScreen() {
                 >
                   <Row gap={10} align="center" justify="center">
                     {isSubmitting ? (
-                      <ActivityIndicator color={theme.colorWhite} size="small" />
+                      <ActivityIndicator
+                        color={theme.colorWhite}
+                        size="small"
+                      />
                     ) : (
-                      <LucideIcon name="Send" size={18} color={theme.colorWhite} />
+                      <LucideIcon
+                        name="Send"
+                        size={18}
+                        color={theme.colorWhite}
+                      />
                     )}
                     <Typography.Body weight="semiBold" color={theme.colorWhite}>
-                      {isSubmitting ? 'Sending…' : 'Send verification code'}
+                      {isSubmitting
+                        ? 'Sending…'
+                        : mode === 'login'
+                          ? 'Login'
+                          : 'Register'}
                     </Typography.Body>
                   </Row>
                 </LinearGradient>
               </CtaBtn>
 
               <SwitchModeBtn
-                onPress={() => setMode(mode === 'login' ? 'signup' : 'login')}
+                onPress={switchMode}
                 disabled={isSubmitting}
                 activeOpacity={0.7}
+                accessibilityLabel={
+                  mode === 'login'
+                    ? 'New here? Create an account'
+                    : 'Already have an account? Log in'
+                }
               >
-                <Typography.Caption color={theme.colorPrimary} weight="semiBold">
-                  {mode === 'login' ? 'New here? Create an account' : 'Already have an account? Log in'}
+                <Typography.Caption
+                  color={theme.colorPrimary}
+                  weight="semiBold"
+                >
+                  {mode === 'login'
+                    ? 'New here? Create an account'
+                    : 'Already have an account? Log in'}
                 </Typography.Caption>
               </SwitchModeBtn>
 
               <Disclaimer>
-                <Typography.Caption color={theme.colorTextSecondary}>By continuing you agree to our </Typography.Caption>
-                <TouchableOpacity onPress={() => void Linking.openURL(TERMS_URL)} activeOpacity={0.7}>
-                  <Typography.Caption color={theme.colorPrimary} weight="semiBold">
+                <Typography.Caption color={theme.colorTextSecondary}>
+                  By continuing you agree to our{' '}
+                </Typography.Caption>
+                <TouchableOpacity
+                  onPress={() => void Linking.openURL(TERMS_URL)}
+                  activeOpacity={0.7}
+                  accessibilityLabel="Open Terms of Service"
+                >
+                  <Typography.Caption
+                    color={theme.colorPrimary}
+                    weight="semiBold"
+                  >
                     Terms
                   </Typography.Caption>
                 </TouchableOpacity>
-                <Typography.Caption color={theme.colorTextSecondary}> and </Typography.Caption>
-                <TouchableOpacity onPress={() => void Linking.openURL(PRIVACY_URL)} activeOpacity={0.7}>
-                  <Typography.Caption color={theme.colorPrimary} weight="semiBold">
+                <Typography.Caption color={theme.colorTextSecondary}>
+                  {' '}
+                  and{' '}
+                </Typography.Caption>
+                <TouchableOpacity
+                  onPress={() => void Linking.openURL(PRIVACY_URL)}
+                  activeOpacity={0.7}
+                  accessibilityLabel="Open Privacy Policy"
+                >
+                  <Typography.Caption
+                    color={theme.colorPrimary}
+                    weight="semiBold"
+                  >
                     Privacy Policy
                   </Typography.Caption>
                 </TouchableOpacity>
@@ -279,12 +467,6 @@ const PrefixDivider = styled.View`
 const CtaBtn = styled.TouchableOpacity`
   border-radius: ${({ theme }) => theme.borderRadius.xxLarge}px;
   overflow: hidden;
-`;
-
-const ErrorText = styled.Text`
-  color: ${({ theme }) => theme.colorError};
-  font-size: ${({ theme }) => theme.fontSize.small}px;
-  margin-top: ${({ theme }) => theme.sizing.xxSmall}px;
 `;
 
 const SwitchModeBtn = styled.TouchableOpacity`

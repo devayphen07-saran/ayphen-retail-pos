@@ -1,6 +1,6 @@
 import { Injectable } from '@nestjs/common';
-import { AppException } from '../../common/exceptions/app.exception.js';
-import { ErrorCodes } from '../../common/error-codes.js';
+import { AppException } from '#common/exceptions/app.exception.js';
+import { ErrorCodes } from '#common/error-codes.js';
 import { RateLimitRepository } from './rate-limit.repository.js';
 import { AuthConstantsService } from './auth-constants.service.js';
 

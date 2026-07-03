@@ -1,7 +1,7 @@
 import { SetMetadata, createParamDecorator, type ExecutionContext } from '@nestjs/common';
 import type { Request } from 'express';
 import type { CrudAction, EntityCode } from '../permission-matrix.constants.js';
-import type { MobilePrincipal } from '../../../auth/mobile/types/mobile-principal.js';
+import type { MobilePrincipal } from '#auth/mobile/types/mobile-principal.js';
 import type { ResolvedStoreContext } from '../resolved-store-context.js';
 
 // ─── Metadata keys ──────────────────────────────────────────────────────────

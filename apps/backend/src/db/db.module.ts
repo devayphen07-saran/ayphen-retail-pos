@@ -1,8 +1,8 @@
 import { Module, Global, Injectable, Inject } from '@nestjs/common';
 import { drizzle, type PostgresJsDatabase } from 'drizzle-orm/postgres-js';
-import postgres from 'postgres';
 import * as schema from './schema';
-import { env } from '../config/env';
+import { env } from '#config/env.js';
+import { createPgClient } from './create-pg-client.js';
 
 export const DRIZZLE = Symbol('DRIZZLE');
 
@@ -39,7 +39,7 @@ export class UnitOfWork {
     {
       provide: DRIZZLE,
       useFactory: () => {
-        const client = postgres(env.DATABASE_URL);
+        const client = createPgClient(env.DATABASE_URL);
         return drizzle(client, { schema });
       },
     },

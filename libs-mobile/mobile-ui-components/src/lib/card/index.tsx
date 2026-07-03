@@ -1,7 +1,7 @@
 import React from "react";
 import { TouchableOpacity, ViewStyle, Platform } from "react-native";
 import styled, { css } from "styled-components/native";
-import { useBreakpoint } from "@nks/mobile-theme";
+import { useBreakpoint } from "@ayphen/mobile-theme";
 
 // ─── Types ──────────────────────────────────────────────────────────────
 

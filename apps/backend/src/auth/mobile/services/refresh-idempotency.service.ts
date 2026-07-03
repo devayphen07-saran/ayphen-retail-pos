@@ -17,27 +17,27 @@ export class RefreshIdempotencyService {
   constructor(@Inject(MOBILE_REDIS) private readonly redis: Redis) {}
 
   async claim(key: string): Promise<unknown | null> {
+    // Claim atomically first — SET NX is a single round-trip, so only one
+    // racing caller can ever win it. Losers fall through to poll.
+    const claimed = await this.redis.set(KEY(key), JSON.stringify({ status: 'pending' }), 'EX', TTL, 'NX');
+    if (claimed === 'OK') return null; // we hold the claim — proceed with rotation
+
     const raw = await this.redis.get(KEY(key));
+    if (!raw) return null; // claim already released/expired — proceed
 
-    if (raw) {
-      const rec = JSON.parse(raw) as IdempotencyRecord;
-      if (rec.status === 'done') return rec.response!;
+    const rec = JSON.parse(raw) as IdempotencyRecord;
+    if (rec.status === 'done') return rec.response!;
 
-      // Pending — poll up to 3s for another server to finish
-      const deadline = Date.now() + POLL_TIMEOUT_MS;
-      while (Date.now() < deadline) {
-        await sleep(POLL_INTERVAL_MS);
-        const polled = await this.redis.get(KEY(key));
-        if (!polled) break;
-        const p = JSON.parse(polled) as IdempotencyRecord;
-        if (p.status === 'done') return p.response!;
-      }
-      return null; // timed out — let this request proceed
+    // Pending — poll up to 3s for another server to finish
+    const deadline = Date.now() + POLL_TIMEOUT_MS;
+    while (Date.now() < deadline) {
+      await sleep(POLL_INTERVAL_MS);
+      const polled = await this.redis.get(KEY(key));
+      if (!polled) break;
+      const p = JSON.parse(polled) as IdempotencyRecord;
+      if (p.status === 'done') return p.response!;
     }
-
-    // Claim key as pending
-    await this.redis.set(KEY(key), JSON.stringify({ status: 'pending' }), 'EX', TTL, 'NX');
-    return null; // proceed with rotation
+    return null; // timed out — let this request proceed
   }
 
   async complete(key: string, response: unknown): Promise<void> {

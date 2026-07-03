@@ -4,9 +4,9 @@ import {
   Injectable,
   NotFoundException,
 } from '@nestjs/common';
-import { UnitOfWork } from '../db/db.module.js';
+import { UnitOfWork } from '#db/db.module.js';
 import { EntitlementService } from '../subscription/entitlement.service.js';
-import { AuditService } from '../auth/core/audit.service.js';
+import { AuditService } from '#auth/core/audit.service.js';
 import { LocationRepository, type Location } from './location.repository.js';
 
 export interface CreateLocationInput {

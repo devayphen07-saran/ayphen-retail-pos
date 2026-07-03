@@ -10,6 +10,7 @@ import {
   LOGOUT_ALL,
   STEP_UP_OTP,
   STEP_UP_VERIFY,
+  ACCOUNT_MODE,
 } from './api-data';
 import type {
   OtpChallengeResponse,
@@ -20,6 +21,7 @@ import type {
   SessionResponse,
   StepUpVerifyRequest,
   StepUpResponse,
+  AccountModeRequest,
 } from './types';
 
 /**
@@ -106,6 +108,12 @@ export const useLogoutAllMutation = () => {
  */
 export const useLogoutMutation = () =>
   useMutation(LOGOUT.mutationOptions<void>());
+
+// ── Account mode ─────────────────────────────────────────────────────────────
+
+/** Set business/personal workspace mode (mobile-03 §3c/3d). */
+export const useUpdateAccountModeMutation = () =>
+  useMutation(ACCOUNT_MODE.mutationOptions<void, AccountModeRequest>());
 
 // ── Step-up ──────────────────────────────────────────────────────────────────
 

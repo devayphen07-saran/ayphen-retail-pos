@@ -1,5 +1,5 @@
 import { TextStyle } from "react-native";
-import { NKSTheme } from "@nks/mobile-theme";
+import { NKSTheme } from "@ayphen/mobile-theme";
 
 /* ---------------- Label ---------------- */
 

@@ -1,5 +1,5 @@
 {
-  "name": "@ayphen-retail/shared-types",
+  "name": "@ayphen/shared-types",
   "private": true,
   "version": "1.0.0",
   "description": "Cross-platform DTO and wire-shape types shared between API and clients.",

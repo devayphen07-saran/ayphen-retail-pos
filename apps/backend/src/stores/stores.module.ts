@@ -8,12 +8,13 @@ import { RoleRepository } from './role.repository.js';
 import {
   StoreInvitationController,
   InvitationController,
+  MeInvitationsController,
 } from './invitation.controller.js';
 import { InvitationService } from './invitation.service.js';
 import { InvitationRepository } from './invitation.repository.js';
 import { EntitlementService } from '../subscription/entitlement.service.js';
-import { SubscriptionStatusGuard } from '../auth/mobile/guards/subscription-status.guard.js';
-import { MobileAuthModule } from '../auth/mobile/mobile-auth.module.js';
+import { SubscriptionStatusGuard } from '#auth/mobile/guards/subscription-status.guard.js';
+import { MobileAuthModule } from '#auth/mobile/mobile-auth.module.js';
 
 /**
  * Store lifecycle + role/invitation management (Phase 4.5). RbacService,
@@ -27,6 +28,7 @@ import { MobileAuthModule } from '../auth/mobile/mobile-auth.module.js';
     RoleController,
     StoreInvitationController,
     InvitationController,
+    MeInvitationsController,
   ],
   providers: [
     StoreService,

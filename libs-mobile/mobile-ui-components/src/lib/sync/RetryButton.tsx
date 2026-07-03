@@ -1,7 +1,7 @@
 import React, { useEffect, useState } from "react";
 import { ActivityIndicator, Pressable, StyleProp, ViewStyle } from "react-native";
 import styled from "styled-components/native";
-import { useMobileTheme } from "@nks/mobile-theme";
+import { useMobileTheme } from "@ayphen/mobile-theme";
 
 import { LucideIcon } from "../lucide-icon";
 import { Typography } from "../typography";

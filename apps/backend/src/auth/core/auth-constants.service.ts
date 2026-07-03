@@ -1,5 +1,5 @@
 import { Injectable } from '@nestjs/common';
-import { AppConfigService } from '../../config/app-config.service.js';
+import { AppConfigService } from '#config/app-config.service.js';
 
 @Injectable()
 export class AuthConstantsService {

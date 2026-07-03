@@ -1,5 +1,5 @@
 {
-  "name": "@ayphen-retail/api-manager",
+  "name": "@ayphen/api-manager",
   "private": true,
   "version": "1.0.0",
   "description": "Shared API manager — Axios instance, APIData class, and per-domain endpoint definitions",

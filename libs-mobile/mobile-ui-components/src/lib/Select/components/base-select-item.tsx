@@ -4,7 +4,7 @@ import Avatar from "../../avatar";
 import { TouchableOpacity, TouchableOpacityProps } from "react-native";
 
 import styled from "styled-components/native";
-import { useMobileTheme } from "@nks/mobile-theme";
+import { useMobileTheme } from "@ayphen/mobile-theme";
 import { CheckIcon } from "lucide-react-native";
 import { LucideIconNameType } from "../../lucide-icon";
 

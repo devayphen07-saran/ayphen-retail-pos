@@ -1,5 +1,5 @@
 {
-  "name": "@ayphen-retail/state-manager",
+  "name": "@ayphen/state-manager",
   "private": true,
   "version": "1.0.0",
   "description": "Shared Redux slices: auth, company, etc.",

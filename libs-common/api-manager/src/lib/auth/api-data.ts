@@ -52,6 +52,18 @@ export const REFRESH = new APIData('auth/mobile/refresh', APIMethod.POST, {
   public: true,
 });
 
+/**
+ * Device-binding challenge for refresh. Public — it runs after the access token
+ * has expired, so it can't require one; the `refresh_token` in the body
+ * identifies the device to challenge. Body: `RefreshChallengeRequest`.
+ * Returns `{ challenge_id }` to sign with the device key, then pass to REFRESH.
+ */
+export const REFRESH_CHALLENGE = new APIData(
+  'auth/mobile/refresh/challenge',
+  APIMethod.POST,
+  { public: true },
+);
+
 /** Revoke the current session (blacklists the current JTI). Auth required. */
 export const LOGOUT = new APIData('auth/mobile/logout', APIMethod.POST);
 
@@ -66,6 +78,18 @@ export const REVOKE_SESSION = new APIData(
   'auth/mobile/sessions/:id',
   APIMethod.DELETE,
 );
+
+/**
+ * Full session snapshot (user + device/session identifiers) for an already
+ * authenticated principal. Auth required. Called from AuthProvider's
+ * launch-time restore, right after `runRefresh()` succeeds — refresh returns
+ * tokens only, so this fills in the `user` that a fresh login gets for free
+ * from `LOGIN_VERIFY`/`SIGNUP_VERIFY`.
+ */
+export const BOOTSTRAP = new APIData('me/bootstrap', APIMethod.GET);
+
+/** Set business/personal workspace mode. Body: `{ mode }`. Auth required. */
+export const ACCOUNT_MODE = new APIData('me/account-mode', APIMethod.PATCH);
 
 // ── Device challenge / step-up ───────────────────────────────────────────────
 

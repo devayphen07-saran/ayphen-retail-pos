@@ -2,9 +2,9 @@ import { Inject, Injectable, Logger, OnModuleInit } from '@nestjs/common';
 import { SchedulerRegistry } from '@nestjs/schedule';
 import { CronJob } from 'cron';
 import type { Redis } from 'ioredis';
-import { env } from '../config/env.js';
-import { MOBILE_REDIS } from '../auth/mobile/services/redis.provider.js';
-import { AuditService } from '../auth/core/audit.service.js';
+import { env } from '#config/env.js';
+import { MOBILE_REDIS } from '#auth/mobile/services/redis.provider.js';
+import { AuditService } from '#auth/core/audit.service.js';
 import { SubscriptionRepository } from './subscription.repository.js';
 import { SubscriptionService } from './subscription.service.js';
 

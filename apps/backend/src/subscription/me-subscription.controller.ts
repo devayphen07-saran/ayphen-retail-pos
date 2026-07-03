@@ -6,11 +6,11 @@ import {
   Post,
   UseGuards,
 } from '@nestjs/common';
-import { parse } from '../common/validation/parse.js';
-import { MobileJwtGuard } from '../auth/mobile/guards/mobile-jwt.guard.js';
-import { StepUpAuthGuard } from '../common/rbac/guards/step-up-auth.guard.js';
-import { CurrentUser, StepUpAuth, StoreContext } from '../common/rbac/decorators/rbac.decorators.js';
-import type { MobilePrincipal } from '../auth/mobile/types/mobile-principal.js';
+import { parse } from '#common/validation/parse.js';
+import { MobileJwtGuard } from '#auth/mobile/guards/mobile-jwt.guard.js';
+import { StepUpAuthGuard } from '#common/rbac/guards/step-up-auth.guard.js';
+import { CurrentUser, StepUpAuth, StoreContext } from '#common/rbac/decorators/rbac.decorators.js';
+import type { MobilePrincipal } from '#auth/mobile/types/mobile-principal.js';
 import { SubscriptionService } from './subscription.service.js';
 import { BillingService } from './billing.service.js';
 import { SubscriptionRepository } from './subscription.repository.js';

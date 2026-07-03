@@ -1,9 +1,9 @@
 import { Inject, Injectable } from '@nestjs/common';
 import { and, eq, isNull } from 'drizzle-orm';
 import type { PostgresJsDatabase } from 'drizzle-orm/postgres-js';
-import { DRIZZLE, type DbExecutor } from '../../../db/db.module.js';
-import * as schema from '../../../db/schema.js';
-import { refreshTokens, deviceSessions, users } from '../../../db/schema.js';
+import { DRIZZLE, type DbExecutor } from '#db/db.module.js';
+import * as schema from '#db/schema.js';
+import { refreshTokens, deviceSessions, users } from '#db/schema.js';
 
 export type RefreshToken = typeof refreshTokens.$inferSelect;
 
@@ -37,22 +37,22 @@ export class RefreshTokenRepository {
     return { ...row.refresh_tokens, session: row.device_sessions, user: row.users };
   }
 
-  async markUsed(id: string): Promise<void> {
-    await this.db
+  async markUsed(id: string, tx?: DbExecutor): Promise<void> {
+    await (tx ?? this.db)
       .update(refreshTokens)
       .set({ usedAt: new Date() })
       .where(eq(refreshTokens.id, id));
   }
 
-  async revokeFamily(familyId: string, reason: string): Promise<void> {
-    await this.db
+  async revokeFamily(familyId: string, reason: string, tx?: DbExecutor): Promise<void> {
+    await (tx ?? this.db)
       .update(refreshTokens)
       .set({ revokedAt: new Date(), revokedReason: reason })
       .where(and(eq(refreshTokens.familyId, familyId), isNull(refreshTokens.revokedAt)));
   }
 
-  async revokeBySession(deviceSessionFk: string, reason: string): Promise<void> {
-    await this.db
+  async revokeBySession(deviceSessionFk: string, reason: string, tx?: DbExecutor): Promise<void> {
+    await (tx ?? this.db)
       .update(refreshTokens)
       .set({ revokedAt: new Date(), revokedReason: reason })
       .where(and(

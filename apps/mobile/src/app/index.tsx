@@ -1,5 +1,5 @@
 import { Redirect } from 'expo-router';
-import { useAuthStore } from '../auth/authStore';
+import { useAuthStore } from '@features/auth/authStore';
 
 /** Entry gate — routes to the app or the auth stack once the session resolves. */
 export default function Index() {
@@ -9,3 +9,4 @@ export default function Index() {
   if (!isAuthReady) return null; // splash still visible
   return <Redirect href={isAuthenticated ? '/(app)' : '/(auth)/phone'} />;
 }
+ 

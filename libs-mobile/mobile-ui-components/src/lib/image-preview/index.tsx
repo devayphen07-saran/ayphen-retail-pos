@@ -8,7 +8,7 @@ import {
 import styled from 'styled-components/native';
 import { Image as ExpoImage } from 'expo-image';
 import { X } from 'lucide-react-native';
-import { useMobileTheme } from '@nks/mobile-theme';
+import { useMobileTheme } from '@ayphen/mobile-theme';
 import { InitialsTile } from '../initials-tile';
 import { LucideIcon, LucideIconNameType } from '../lucide-icon';
 

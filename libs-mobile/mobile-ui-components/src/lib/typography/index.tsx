@@ -1,7 +1,7 @@
 import React from "react";
 import { Platform, StyleProp, TextProps, TextStyle, Text } from "react-native";
 import styled, { css } from "styled-components/native";
-import { ColorType, useBreakpoint } from "@nks/mobile-theme";
+import { ColorType, useBreakpoint } from "@ayphen/mobile-theme";
 
 import {
   variantTypography,

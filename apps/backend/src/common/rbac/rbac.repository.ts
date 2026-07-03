@@ -2,8 +2,8 @@ import { Inject, Injectable } from '@nestjs/common';
 import { and, eq, gt, inArray, isNull, lte, or, sql } from 'drizzle-orm';
 import type { PostgresJsDatabase } from 'drizzle-orm/postgres-js';
 
-import { DRIZZLE, type DbExecutor } from '../../db/db.module.js';
-import * as schema from '../../db/schema.js';
+import { DRIZZLE, type DbExecutor } from '#db/db.module.js';
+import * as schema from '#db/schema.js';
 import {
   accountUsers,
   rolePermissions,
@@ -11,7 +11,7 @@ import {
   roles,
   stores,
   userRoleMappings,
-} from '../../db/schema.js';
+} from '#db/schema.js';
 
 import type { CrudAction } from './permission-matrix.constants.js';
 

@@ -8,3 +8,12 @@ export const RefreshDtoSchema = z.object({
   snapshot_version: z.number().int().optional(),
 });
 export type RefreshDto = z.infer<typeof RefreshDtoSchema>;
+
+/**
+ * Request for a device-binding challenge used by refresh. Public (no access
+ * token): the refresh token itself identifies the device to challenge.
+ */
+export const RefreshChallengeDtoSchema = z.object({
+  refresh_token: z.string().min(1),
+});
+export type RefreshChallengeDto = z.infer<typeof RefreshChallengeDtoSchema>;

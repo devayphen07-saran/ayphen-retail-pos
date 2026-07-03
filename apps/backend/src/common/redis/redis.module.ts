@@ -1,5 +1,5 @@
 import { Global, Module } from '@nestjs/common';
-import { MobileRedisProvider } from '../../auth/mobile/services/redis.provider.js';
+import { MobileRedisProvider } from '#auth/mobile/services/redis.provider.js';
 
 /**
  * Single shared ioredis connection (token: MOBILE_REDIS), exposed app-wide.

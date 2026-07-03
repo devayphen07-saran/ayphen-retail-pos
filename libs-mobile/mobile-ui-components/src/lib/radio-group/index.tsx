@@ -32,7 +32,7 @@ import {
   type Path,
   type PathValue,
 } from 'react-hook-form';
-import { useBreakpoint } from '@nks/mobile-theme';
+import { useBreakpoint } from '@ayphen/mobile-theme';
 import { Typography } from '../typography';
 
 // ─── Types ────────────────────────────────────────────────────────────────────

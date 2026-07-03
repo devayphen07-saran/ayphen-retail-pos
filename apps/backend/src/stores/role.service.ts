@@ -4,14 +4,14 @@ import {
   Injectable,
   NotFoundException,
 } from '@nestjs/common';
-import { UnitOfWork } from '../db/db.module.js';
+import { UnitOfWork } from '#db/db.module.js';
 import { RoleRepository } from './role.repository.js';
-import { RbacService } from '../common/rbac/rbac.service.js';
-import { AuditService } from '../auth/core/audit.service.js';
+import { RbacService } from '#common/rbac/rbac.service.js';
+import { AuditService } from '#auth/core/audit.service.js';
 import {
   isEntityCode,
   type CrudAction,
-} from '../common/rbac/permission-matrix.constants.js';
+} from '#common/rbac/permission-matrix.constants.js';
 
 const SYSTEM_ROLE_CODES = new Set(['USER', 'STORE_OWNER', 'SUPER_ADMIN']);
 

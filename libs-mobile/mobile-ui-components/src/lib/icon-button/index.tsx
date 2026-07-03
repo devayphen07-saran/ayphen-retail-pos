@@ -3,7 +3,7 @@ import { TouchableOpacityProps } from "react-native";
 import styled from "styled-components/native";
 import { iconButtonVariant, IconButtonVariant } from "./style";
 import { LucideIcon, LucideIconNameType } from "../lucide-icon";
-import { useMobileTheme, useBreakpoint } from "@nks/mobile-theme";
+import { useMobileTheme, useBreakpoint } from "@ayphen/mobile-theme";
 
 export interface IconButtonProps extends TouchableOpacityProps {
   iconName?: LucideIconNameType;

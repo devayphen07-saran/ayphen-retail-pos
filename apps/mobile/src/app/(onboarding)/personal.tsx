@@ -1,0 +1,1 @@
+export { PersonalWorkspaceScreen as default } from '@features/onboarding/screens/PersonalWorkspaceScreen';

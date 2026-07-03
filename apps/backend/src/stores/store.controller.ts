@@ -1,8 +1,8 @@
 import { Body, Controller, Post, UseGuards } from '@nestjs/common';
-import { parse } from '../common/validation/parse.js';
-import { MobileJwtGuard } from '../auth/mobile/guards/mobile-jwt.guard.js';
-import { CurrentUser, StoreContext } from '../common/rbac/decorators/rbac.decorators.js';
-import type { MobilePrincipal } from '../auth/mobile/types/mobile-principal.js';
+import { parse } from '#common/validation/parse.js';
+import { MobileJwtGuard } from '#auth/mobile/guards/mobile-jwt.guard.js';
+import { CurrentUser, StoreContext } from '#common/rbac/decorators/rbac.decorators.js';
+import type { MobilePrincipal } from '#auth/mobile/types/mobile-principal.js';
 import { StoreService } from './store.service.js';
 import { CreateStoreDtoSchema } from './dto/create-store.dto.js';
 

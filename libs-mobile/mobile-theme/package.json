@@ -1,5 +1,5 @@
 {
-  "name": "@nks/mobile-theme",
+  "name": "@ayphen/mobile-theme",
   "private": true,
   "version": "1.0.0",
   "description": "NKS mobile design system — token definitions, theme provider, and hooks",

@@ -1,6 +1,6 @@
 import { Module } from '@nestjs/common';
-import { AuthCoreModule } from '../auth/core/auth-core.module.js';
-import { MobileAuthModule } from '../auth/mobile/mobile-auth.module.js';
+import { AuthCoreModule } from '#auth/core/auth-core.module.js';
+import { MobileAuthModule } from '#auth/mobile/mobile-auth.module.js';
 import { SubscriptionModule } from '../subscription/subscription.module.js';
 import { LocationRepository } from './location.repository.js';
 import { LocationService } from './location.service.js';

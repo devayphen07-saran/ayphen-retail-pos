@@ -2,9 +2,9 @@ import { Inject, Injectable } from '@nestjs/common';
 import Redis from 'ioredis';
 import { eq } from 'drizzle-orm';
 import type { PostgresJsDatabase } from 'drizzle-orm/postgres-js';
-import { DRIZZLE } from '../../../db/db.module.js';
-import * as schema from '../../../db/schema.js';
-import { deviceSessions } from '../../../db/schema.js';
+import { DRIZZLE } from '#db/db.module.js';
+import * as schema from '#db/schema.js';
+import { deviceSessions } from '#db/schema.js';
 import { MOBILE_REDIS } from './redis.provider.js';
 
 const sessionKey = (id: string) => `session:${id}`;

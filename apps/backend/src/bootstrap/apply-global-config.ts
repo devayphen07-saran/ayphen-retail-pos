@@ -2,16 +2,16 @@ import type { NestExpressApplication } from '@nestjs/platform-express';
 import { ValidationPipe, RequestMethod } from '@nestjs/common';
 import { Reflector } from '@nestjs/core';
 import { SwaggerModule } from '@nestjs/swagger';
-import { env } from '../config/env.js';
-import { corsConfig } from '../config/cors.config.js';
-import { swaggerDocConfig, swaggerUiOptions } from '../config/swagger.config.js';
-import { AppException } from '../common/exceptions/app.exception.js';
-import { ErrorCodes } from '../common/error-codes.js';
-import { AllExceptionsFilter } from '../common/filters/http-exception.filter.js';
-import { ResponseInterceptor } from '../common/interceptors/response.interceptor.js';
-import { RequestContextInterceptor } from '../common/interceptors/request-context.interceptor.js';
-import { SubscriptionHeadersInterceptor } from '../common/interceptors/subscription-headers.interceptor.js';
-import { TrimStringPipe } from '../common/pipes/trim-string.pipe.js';
+import { env } from '#config/env.js';
+import { corsConfig } from '#config/cors.config.js';
+import { swaggerDocConfig, swaggerUiOptions } from '#config/swagger.config.js';
+import { AppException } from '#common/exceptions/app.exception.js';
+import { ErrorCodes } from '#common/error-codes.js';
+import { AllExceptionsFilter } from '#common/filters/http-exception.filter.js';
+import { ResponseInterceptor } from '#common/interceptors/response.interceptor.js';
+import { RequestContextInterceptor } from '#common/interceptors/request-context.interceptor.js';
+import { SubscriptionHeadersInterceptor } from '#common/interceptors/subscription-headers.interceptor.js';
+import { TrimStringPipe } from '#common/pipes/trim-string.pipe.js';
 
 /**
  * Same pipes/filters/interceptors as production, applied identically in

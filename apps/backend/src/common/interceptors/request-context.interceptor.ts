@@ -6,8 +6,10 @@ import {
 } from '@nestjs/common';
 import { Observable } from 'rxjs';
 import type { Request } from 'express';
-import { RequestContextService } from '../../auth/core/request-context.service.js';
-import type { MobilePrincipal } from '../../auth/mobile/types/mobile-principal.js';
+import { RequestContextService } from '#auth/core/request-context.service.js';
+import type { MobilePrincipal } from '#auth/mobile/types/mobile-principal.js';
+import '../../auth/mobile/types/store-context.js';
+import '../rbac/resolved-store-context.js';
 
 /**
  * Wraps every authenticated request in an AsyncLocalStorage context so that
@@ -27,9 +29,8 @@ export class RequestContextInterceptor implements NestInterceptor {
 
     if (!principal) return next.handle();
 
-    const storeContext = (
-      req as Request & { storeContext?: { storeId?: string; accountId?: string } }
-    ).storeContext;
+    // TenantGuard writes req.context; legacy StoreGuard writes req.storeContext.
+    const storeContext = req.context ?? req.storeContext;
 
     return new Observable((subscriber) => {
       RequestContextService.run(
@@ -40,9 +41,9 @@ export class RequestContextInterceptor implements NestInterceptor {
                        ?? req.socket?.remoteAddress
                        ?? '',
           userAgent: (req.headers['user-agent'] as string) ?? '',
-          // storeId and accountId are attached by StoreGuard (runs before this
-          // interceptor). Both must be forwarded, else getAccountId() is always
-          // undefined.
+          // storeId and accountId are attached by TenantGuard (or legacy
+          // StoreGuard), both of which run before this interceptor. Must be
+          // forwarded, else getAccountId() is always undefined.
           storeId:   storeContext?.storeId,
           accountId: storeContext?.accountId,
         },

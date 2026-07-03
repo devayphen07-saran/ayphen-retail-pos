@@ -1,8 +1,8 @@
 import { Inject, Injectable } from '@nestjs/common';
 import { and, eq, lt, sql } from 'drizzle-orm';
 import type { PostgresJsDatabase } from 'drizzle-orm/postgres-js';
-import { DRIZZLE, type DbExecutor } from '../db/db.module.js';
-import * as schema from '../db/schema.js';
+import { DRIZZLE, type DbExecutor } from '#db/db.module.js';
+import * as schema from '#db/schema.js';
 import {
   accountSubscriptions,
   accounts,
@@ -11,7 +11,7 @@ import {
   planEntitlements,
   planFeatures,
   subscriptionAuditOutbox,
-} from '../db/schema.js';
+} from '#db/schema.js';
 
 export type AccountSubscription = typeof accountSubscriptions.$inferSelect;
 

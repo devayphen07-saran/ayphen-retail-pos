@@ -11,14 +11,14 @@ import { Reflector } from '@nestjs/core';
 import { and, eq, isNull } from 'drizzle-orm';
 import type { PostgresJsDatabase } from 'drizzle-orm/postgres-js';
 import type { Request } from 'express';
-import { DRIZZLE } from '../../../db/db.module.js';
-import * as schema from '../../../db/schema.js';
+import { DRIZZLE } from '#db/db.module.js';
+import * as schema from '#db/schema.js';
 import {
   locations,
   userLocationMappings,
   userRoleMappings,
   roles,
-} from '../../../db/schema.js';
+} from '#db/schema.js';
 import {
   IS_PUBLIC_KEY,
   LOCATION_CONTEXT_KEY,

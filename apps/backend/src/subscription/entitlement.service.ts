@@ -1,13 +1,13 @@
 import { Inject, Injectable } from '@nestjs/common';
 import { and, eq } from 'drizzle-orm';
 import type { PostgresJsDatabase } from 'drizzle-orm/postgres-js';
-import { DRIZZLE, type DbExecutor } from '../db/db.module.js';
-import * as schema from '../db/schema.js';
+import { DRIZZLE, type DbExecutor } from '#db/db.module.js';
+import * as schema from '#db/schema.js';
 import {
   accountSubscriptions,
   planEntitlements,
   planFeatures,
-} from '../db/schema.js';
+} from '#db/schema.js';
 
 /** Known entitlement keys (plan_entitlements.key). Integer value; null = unlimited. */
 export type EntitlementKey =

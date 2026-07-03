@@ -3,7 +3,7 @@ import { TouchableOpacity, ViewStyle } from "react-native";
 import styled from "styled-components/native";
 import { Row } from "../layout";
 import { Typography } from "../typography";
-import { useMobileTheme } from "@nks/mobile-theme";
+import { useMobileTheme } from "@ayphen/mobile-theme";
 import { LucideIcon } from "../lucide-icon";
 
 export interface SectionHeaderProps {

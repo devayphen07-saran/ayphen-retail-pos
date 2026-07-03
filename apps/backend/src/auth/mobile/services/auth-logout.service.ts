@@ -1,26 +1,29 @@
 import { Injectable } from '@nestjs/common';
-import { AppException } from '../../../common/exceptions/app.exception.js';
-import { ErrorCodes } from '../../../common/error-codes.js';
+import { AppException } from '#common/exceptions/app.exception.js';
+import { ErrorCodes } from '#common/error-codes.js';
 import { AuditService } from '../../core/audit.service.js';
 import { AuthSessionRepository } from '../repositories/auth-session.repository.js';
+import { RefreshTokenRepository } from '../repositories/refresh-token.repository.js';
 import { BlacklistCacheService } from './blacklist-cache.service.js';
 import { SessionCacheInvalidatorService } from './session-cache-invalidator.service.js';
-import type { CursorPage } from '../../../common/pagination/paginate.js';
+import type { CursorPage } from '#common/pagination/paginate.js';
 import type { SessionWithDevice } from '../repositories/auth-session.repository.js';
 
 @Injectable()
 export class AuthLogoutService {
   constructor(
     private readonly sessionRepo:      AuthSessionRepository,
+    private readonly refreshTokenRepo: RefreshTokenRepository,
     private readonly blacklist:        BlacklistCacheService,
     private readonly cacheInvalidator: SessionCacheInvalidatorService,
     private readonly audit:            AuditService,
   ) {}
 
-  /** Log out the current session — blacklist its JWT, revoke it, drop its cache. */
+  /** Log out the current session — blacklist its JWT, revoke it + its refresh tokens, drop its cache. */
   async logout(userId: string, deviceSessionId: string, currentJti: string, jtiExp: Date): Promise<void> {
     await this.blacklist.addToBlacklist(currentJti, jtiExp);
     await this.sessionRepo.revokeSession(deviceSessionId, 'user_logout');
+    await this.refreshTokenRepo.revokeBySession(deviceSessionId, 'user_logout');
     await this.cacheInvalidator.invalidate(deviceSessionId);
     await this.audit.log({
       event: 'LOGOUT', activityType: 'AUTH_LOGOUT',
@@ -36,6 +39,7 @@ export class AuthLogoutService {
       if (s.currentJti && s.currentJtiExp) {
         await this.blacklist.addToBlacklist(s.currentJti, s.currentJtiExp);
       }
+      await this.refreshTokenRepo.revokeBySession(s.id, 'user_logout_all');
     }
     await this.sessionRepo.revokeAllUserSessions(userId, 'user_logout_all');
     await this.cacheInvalidator.invalidateAllForUser(userId);
@@ -73,6 +77,7 @@ export class AuthLogoutService {
       await this.blacklist.addToBlacklist(target.currentJti, target.currentJtiExp);
     }
     await this.sessionRepo.revokeSession(sessionId, 'user_revoked');
+    await this.refreshTokenRepo.revokeBySession(sessionId, 'user_revoked');
     await this.cacheInvalidator.invalidate(sessionId);
     await this.audit.log({
       event: 'SESSION_REVOKED', activityType: 'AUTH_LOGOUT',

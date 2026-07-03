@@ -2,7 +2,7 @@ import React, { FC } from "react";
 import * as icons from "lucide-react-native";
 import { Pressable } from "react-native";
 import { SvgProps } from "react-native-svg";
-import { ColorType, useMobileTheme } from "@nks/mobile-theme";
+import { ColorType, useMobileTheme } from "@ayphen/mobile-theme";
 
 type LucideIconComponent = FC<SvgProps & { size?: number }>;
 

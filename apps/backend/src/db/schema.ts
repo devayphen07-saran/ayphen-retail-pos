@@ -1,12 +1,15 @@
 import {
   pgTable,
   text,
+  varchar,
   uuid,
   integer,
+  bigint,
   boolean,
   timestamp,
   jsonb,
   uniqueIndex,
+  unique,
   index,
   check,
 } from 'drizzle-orm/pg-core';
@@ -71,20 +74,26 @@ export const planFeatures = pgTable(
 
 // ─── Stores ──────────────────────────────────────────────────────────────────
 
-export const stores = pgTable('stores', {
-  id:             uuid('id').primaryKey().defaultRandom(),
-  accountFk:      uuid('account_fk').notNull().references(() => accounts.id),
-  name:           text('name').notNull(),
-  gstNumber:      text('gst_number'),
-  address:        text('address'),
-  phone:          text('phone'),
-  email:          text('email'),
-  invoicePrefix:  text('invoice_prefix').notNull().default('INV'),
-  invoiceCounter: integer('invoice_counter').notNull().default(0),
-  isActive:       boolean('is_active').notNull().default(true),
-  locked:         boolean('locked').notNull().default(false),
-  ...auditColumns,
-});
+export const stores = pgTable(
+  'stores',
+  {
+    id:             uuid('id').primaryKey().defaultRandom(),
+    accountFk:      uuid('account_fk').notNull().references(() => accounts.id),
+    name:           text('name').notNull(),
+    gstNumber:      text('gst_number'),
+    address:        text('address'),
+    phone:          text('phone'),
+    email:          text('email'),
+    invoicePrefix:  text('invoice_prefix').notNull().default('INV'),
+    invoiceCounter: integer('invoice_counter').notNull().default(0),
+    isActive:       boolean('is_active').notNull().default(true),
+    locked:         boolean('locked').notNull().default(false),
+    ...auditColumns,
+  },
+  (t) => [
+    index('idx_stores_account').on(t.accountFk),
+  ],
+);
 
 // ─── Locations (rbac.md §26.1) ────────────────────────────────────────────────
 // A physical place where POS runs, under a store. Head Office (is_primary=true)
@@ -158,6 +167,10 @@ export const users = pgTable('users', {
   status:              text('status', {
     enum: ['active', 'suspended', 'locked'],
   }).notNull().default('active'),
+  // null until the user picks one on the mode-chooser screen (mobile-03 §3c/3d).
+  lastAccountMode:     text('last_account_mode', {
+    enum: ['business', 'personal'],
+  }),
   isBlocked:           boolean('is_blocked').notNull().default(false),
   blockedReason:       text('blocked_reason'),
   failedLoginAttempts: integer('failed_login_attempts').notNull().default(0),
@@ -202,7 +215,6 @@ export const roles = pgTable(
   'roles',
   {
     id:          uuid('id').primaryKey().defaultRandom(),
-    guuid:       uuid('guuid').notNull().defaultRandom().unique(),
     storeFk:     uuid('store_fk').references(() => stores.id),  // NULL for system roles
     code:        text('code').notNull(),                        // 'STORE_OWNER', 'CASHIER', …
     name:        text('name').notNull(),                        // human label ("Head Cashier")
@@ -407,29 +419,36 @@ export const devices = pgTable(
 
 // ─── Device Sessions ──────────────────────────────────────────────────────────
 
-export const deviceSessions = pgTable('device_sessions', {
-  id:               uuid('id').primaryKey().defaultRandom(),
-  userFk:           uuid('user_fk').notNull().references(() => users.id),
-  deviceFk:         uuid('device_fk').notNull().references(() => devices.id),
-  expiresAt:        timestamp('expires_at',         { withTimezone: true }).notNull(),
-  lastUsedAt:       timestamp('last_used_at',       { withTimezone: true }).notNull().defaultNow(),
-  lastStepUpAt:     timestamp('last_step_up_at',    { withTimezone: true }),
-  lastStepUpMethod: text('last_step_up_method', { enum: ['otp', 'password', 'biometric'] }),
-  stepUpLockedUntil: timestamp('step_up_locked_until', { withTimezone: true }),
-  revokedAt:        timestamp('revoked_at',         { withTimezone: true }),
-  revokedReason:    text('revoked_reason'),
-  currentJti:       text('current_jti'),
-  currentJtiExp:    timestamp('current_jti_exp',    { withTimezone: true }),
-  ipAtCreation:     text('ip_at_creation'),
-  geoAtCreation:    text('geo_at_creation'),
-  deviceName:       text('device_name'),
-  os:               text('os'),
-  appVersion:       text('app_version'),
-  platform:         text('platform'),
-  lastAppVersion:   text('last_app_version'),
-  pushToken:        text('push_token'),
-  createdAt:        timestamp('created_at',         { withTimezone: true }).notNull().defaultNow(),
-});
+export const deviceSessions = pgTable(
+  'device_sessions',
+  {
+    id:               uuid('id').primaryKey().defaultRandom(),
+    userFk:           uuid('user_fk').notNull().references(() => users.id),
+    deviceFk:         uuid('device_fk').notNull().references(() => devices.id),
+    expiresAt:        timestamp('expires_at',         { withTimezone: true }).notNull(),
+    lastUsedAt:       timestamp('last_used_at',       { withTimezone: true }).notNull().defaultNow(),
+    lastStepUpAt:     timestamp('last_step_up_at',    { withTimezone: true }),
+    lastStepUpMethod: text('last_step_up_method', { enum: ['otp', 'password', 'biometric'] }),
+    stepUpLockedUntil: timestamp('step_up_locked_until', { withTimezone: true }),
+    revokedAt:        timestamp('revoked_at',         { withTimezone: true }),
+    revokedReason:    text('revoked_reason'),
+    currentJti:       text('current_jti'),
+    currentJtiExp:    timestamp('current_jti_exp',    { withTimezone: true }),
+    ipAtCreation:     text('ip_at_creation'),
+    geoAtCreation:    text('geo_at_creation'),
+    deviceName:       text('device_name'),
+    os:               text('os'),
+    appVersion:       text('app_version'),
+    platform:         text('platform'),
+    lastAppVersion:   text('last_app_version'),
+    pushToken:        text('push_token'),
+    createdAt:        timestamp('created_at',         { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [
+    index('idx_device_sessions_user').on(t.userFk),
+    index('idx_device_sessions_device').on(t.deviceFk),
+  ],
+);
 
 // ─── Store Device Access (device-management §3.3) ─────────────────────────────
 // The device↔store link that enforces max_devices_per_store. A "slot" is claimed
@@ -488,16 +507,22 @@ export const refreshTokens = pgTable(
 
 // ─── OTP Requests ─────────────────────────────────────────────────────────────
 
-export const otpRequests = pgTable('otp_requests', {
-  id:          uuid('id').primaryKey().defaultRandom(),
-  phone:       text('phone').notNull(),
-  purpose:     text('purpose', { enum: ['login', 'signup', 'step_up'] }).notNull(),
-  attempts:    integer('attempts').notNull().default(0),
-  maxAttempts: integer('max_attempts').notNull().default(5),
-  consumedAt:  timestamp('consumed_at', { withTimezone: true }),
-  expiresAt:   timestamp('expires_at',  { withTimezone: true }).notNull(),
-  createdAt:   timestamp('created_at',  { withTimezone: true }).notNull().defaultNow(),
-});
+export const otpRequests = pgTable(
+  'otp_requests',
+  {
+    id:          uuid('id').primaryKey().defaultRandom(),
+    phone:       text('phone').notNull(),
+    purpose:     text('purpose', { enum: ['login', 'signup', 'step_up'] }).notNull(),
+    attempts:    integer('attempts').notNull().default(0),
+    maxAttempts: integer('max_attempts').notNull().default(5),
+    consumedAt:  timestamp('consumed_at', { withTimezone: true }),
+    expiresAt:   timestamp('expires_at',  { withTimezone: true }).notNull(),
+    createdAt:   timestamp('created_at',  { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [
+    index('idx_otp_requests_phone').on(t.phone),
+  ],
+);
 
 // ─── Revoked Tokens (JWT blacklist — persistent fallback behind Redis) ─────────
 
@@ -519,36 +544,309 @@ export const sequences = pgTable('sequences', {
 
 // ─── Login Attempts (rate limiting — IP / account / email / phone) ────────────
 
-export const loginAttempts = pgTable('login_attempts', {
-  id:        uuid('id').primaryKey().defaultRandom(),
-  ip:        text('ip').notNull(),
-  userId:    uuid('user_id'),
-  email:     text('email'),
-  phone:     text('phone'),
-  purpose:   text('purpose').notNull(),   // 'login' | 'otp' | 'signup'
-  success:   boolean('success').notNull().default(false),
-  createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
-});
+export const loginAttempts = pgTable(
+  'login_attempts',
+  {
+    id:        uuid('id').primaryKey().defaultRandom(),
+    ip:        text('ip').notNull(),
+    userId:    uuid('user_id'),
+    email:     text('email'),
+    phone:     text('phone'),
+    purpose:   text('purpose').notNull(),   // 'login' | 'otp' | 'signup'
+    success:   boolean('success').notNull().default(false),
+    createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [
+    // Rate-limit lookups (rate-limit.repository.ts) — every one filters by a
+    // key column plus a createdAt window, so createdAt trails each index.
+    index('idx_login_attempts_ip_created').on(t.ip, t.createdAt),
+    index('idx_login_attempts_phone_purpose_created').on(t.phone, t.purpose, t.createdAt),
+    index('idx_login_attempts_email_created').on(t.email, t.createdAt),
+    index('idx_login_attempts_user_created').on(t.userId, t.createdAt),
+  ],
+);
 
 // ─── Auth Audit Logs (append-only — INSERT only, no UPDATE/DELETE) ───────────
 // prefix + suffix + activityType allow UI to render human-readable sentences
 // without knowing the event schema
 
-export const auditLogs = pgTable('audit_logs', {
-  id:           uuid('id').primaryKey().defaultRandom(),
-  event:        text('event').notNull(),
-  activityType: text('activity_type').notNull(),
-  prefix:       text('prefix').notNull(),
-  suffix:       text('suffix').notNull(),
-  userId:       uuid('user_id').notNull(),
-  actorId:      uuid('actor_id'),
-  storeFk:      uuid('store_fk'),                 // §20 — store scope for RBAC denials
-  isSuccess:    boolean('is_success').notNull().default(true), // false = denial (SOC2 CC6.3)
-  entityType:   text('entity_type'),
-  entityId:     text('entity_id'),
-  metadata:     jsonb('metadata'),
-  ipAddress:    text('ip_address'),
-  userAgent:    text('user_agent'),
-  createdAt:    timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+export const auditLogs = pgTable(
+  'audit_logs',
+  {
+    id:           uuid('id').primaryKey().defaultRandom(),
+    event:        text('event').notNull(),
+    activityType: text('activity_type').notNull(),
+    prefix:       text('prefix').notNull(),
+    suffix:       text('suffix').notNull(),
+    userId:       uuid('user_id').notNull(),
+    actorId:      uuid('actor_id'),
+    storeFk:      uuid('store_fk'),                 // §20 — store scope for RBAC denials
+    isSuccess:    boolean('is_success').notNull().default(true), // false = denial (SOC2 CC6.3)
+    entityType:   text('entity_type'),
+    entityId:     text('entity_id'),
+    metadata:     jsonb('metadata'),
+    ipAddress:    text('ip_address'),
+    userAgent:    text('user_agent'),
+    createdAt:    timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [
+    // Covers per-user and per-store audit history lookups, newest first.
+    index('idx_audit_logs_user_created').on(t.userId, t.createdAt),
+    index('idx_audit_logs_store_created').on(t.storeFk, t.createdAt),
+  ],
+);
+
+// ─── Invitation Locations (table-architecture.md §13) ─────────────────────────
+// Which branches an invitation grants access to. locationFk NULL = all locations.
+// On accept, one user_location_mappings row is created per branch.
+
+export const invitationLocations = pgTable(
+  'invitation_locations',
+  {
+    id:           uuid('id').primaryKey().defaultRandom(),
+    invitationFk: uuid('invitation_fk').notNull().references(() => invitations.id, { onDelete: 'cascade' }),
+    locationFk:   uuid('location_fk').references(() => locations.id, { onDelete: 'cascade' }), // null = all locations
+    createdAt:    timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [
+    uniqueIndex('uk_invitation_locations').on(t.invitationFk, t.locationFk),
+    index('idx_invitation_locations_invitation').on(t.invitationFk),
+  ],
+);
+
+// ─── Reference Data — Country / Currency ───────────────────────────────────────
+// Small, mostly-static master tables. Not lookup_type material (D1) — they
+// carry extra structured columns (calling_code, symbol) beyond code/label —
+// so they get real tables with a real DB FK, unlike lookup's polymorphic
+// app-enforced pattern. Fills the country table table-architecture.md §34.2
+// flagged as not yet existing (address.country_fk was a bare uuid until now).
+
+export const country = pgTable('country', {
+  id:          uuid('id').primaryKey().defaultRandom(),
+  code:        varchar('code', { length: 2 }).notNull().unique(),   // ISO 3166-1 alpha-2
+  name:        varchar('name', { length: 100 }).notNull(),
+  callingCode: varchar('calling_code', { length: 10 }),
+  isActive:    boolean('is_active').notNull().default(true),
+  createdAt:   timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+  updatedAt:   timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
 });
+
+export const currency = pgTable('currency', {
+  id:        uuid('id').primaryKey().defaultRandom(),
+  code:      varchar('code', { length: 3 }).notNull().unique(),     // ISO 4217
+  name:      varchar('name', { length: 60 }).notNull(),
+  symbol:    varchar('symbol', { length: 10 }).notNull(),
+  isActive:  boolean('is_active').notNull().default(true),
+  createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+  updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
+});
+
+// ─── Lookup Type / Lookup (lookup-entity-prd.md §3, D1–D5) ────────────────────
+// Generic reference data for user-extensible, store-specific dropdown lists
+// (PAYMENT_TERMS, CUSTOMER_TYPE, REASONS, …). NOT for logic-bearing states
+// (order/payment status, supply_type, tracking_type, movement_type) — those
+// stay `text` enums (D1: hybrid enum-vs-lookup — see the PRD's decision rule).
+//
+// No has_table/is_custom_table (D8) — we skip the dynamic-table engine;
+// categories that need real columns become real tables directly (unit,
+// tax_rate). guuid is the sync key (D5) — no separate numeric `key` column.
+
+export const lookupType = pgTable('lookup_type', {
+  id:          uuid('id').primaryKey().defaultRandom(),
+  code:        varchar('code', { length: 40 }).notNull().unique(),   // 'PAYMENT_TERMS', 'REASONS', …
+  title:       varchar('title', { length: 80 }).notNull(),
+  description: varchar('description', { length: 200 }),
+  isActive:    boolean('is_active').notNull().default(true),
+  createdAt:   timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+  updatedAt:   timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
+});
+
+export const lookup = pgTable(
+  'lookup',
+  {
+    id:           uuid('id').primaryKey().defaultRandom(),
+    guuid:        uuid('guuid').notNull().defaultRandom().unique(),   // sync key (D5)
+    lookupTypeFk: uuid('lookup_type_fk').notNull().references(() => lookupType.id),
+    storeFk:      uuid('store_fk').references(() => stores.id),      // null = global; set = store-custom (D4)
+    code:         varchar('code', { length: 40 }).notNull(),
+    label:        varchar('label', { length: 80 }).notNull(),
+    description:  varchar('description', { length: 200 }),
+    sortOrder:    integer('sort_order').notNull().default(0),
+    isHidden:     boolean('is_hidden').notNull().default(false),
+    isSystem:     boolean('is_system').notNull().default(false),      // protected — reject edit/delete (BR-1)
+    isActive:     boolean('is_active').notNull().default(true),
+    createdBy:    uuid('created_by'),
+    updatedBy:    uuid('updated_by'),
+    createdAt:    timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+    updatedAt:    timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [
+    // Per-type, not global (D3) — different lookup types may reuse the same code.
+    uniqueIndex('uk_lookup_type_code').on(t.lookupTypeFk, t.code),
+    index('idx_lookup_type').on(t.lookupTypeFk),
+    index('idx_lookup_store').on(t.storeFk),
+    // Composite-FK target (D2, PRD §3.4/§11): a real UNIQUE CONSTRAINT (not
+    // just an index) on (lookup_type_fk, id) so future referencing tables can
+    // declare foreignKey({ columns: [xTypeFk, xFk], foreignColumns: [lookup.lookupTypeFk, lookup.id] })
+    // — the DB then guarantees a value belongs to its expected type, which is
+    // required since offline mutations sync in after an app-only guard could run.
+    unique('uk_lookup_type_id').on(t.lookupTypeFk, t.id),
+  ],
+);
+
+// ─── Files & Attachments — two-phase upload (table-architecture.md §33) ───────
+// The client uploads to temporary_files (staging); on save the row is
+// committed into files and linked to its parent entity. files_config sets
+// per-entity limits enforced at upload time. Committed rows are polymorphic
+// via entityTypeFk + recordGuuid (sync-safe) — recordId has no DB FK.
+
+export const temporaryFiles = pgTable('temporary_files', {
+  id:         uuid('id').primaryKey().defaultRandom(),
+  guuid:      uuid('guuid').notNull().defaultRandom().unique(),
+  fileName:   varchar('file_name', { length: 255 }).notNull(),   // original filename
+  storageKey: varchar('storage_key', { length: 1000 }).notNull(), // object-store key/path
+  storageUrl: text('storage_url'),
+  sizeBytes:  bigint('size_bytes', { mode: 'number' }).notNull(),
+  mimeType:   varchar('mime_type', { length: 100 }).notNull(),
+  sha256:     varchar('sha256', { length: 64 }),                 // integrity / dedup
+  uploadedBy: uuid('uploaded_by').references(() => users.id),
+  expiresAt:  timestamp('expires_at', { withTimezone: true }).notNull(), // staging TTL — sweeper deletes uncommitted temps
+  createdAt:  timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+  // Ephemeral — no soft-delete; unclaimed rows are purged after expiresAt.
+});
+
+export const files = pgTable(
+  'files',
+  {
+    id:               uuid('id').primaryKey().defaultRandom(),
+    guuid:            uuid('guuid').notNull().defaultRandom().unique(),
+    entityTypeFk:     uuid('entity_type_fk').notNull().references(() => entityTypes.id), // which entity (Product/Customer/Order…)
+    recordId:         uuid('record_id'),               // parent internal id — no DB FK (polymorphic)
+    recordGuuid:      uuid('record_guuid').notNull(),   // sync-safe parent ref — client tracks by this
+    storeFk:          uuid('store_fk').references(() => stores.id), // null = user-level
+    kind:             varchar('kind', { length: 50 }).notNull(),    // 'image' | 'document' | 'receipt' | 'logo' …
+    storageKey:       varchar('storage_key', { length: 1000 }).notNull(),
+    storageUrl:       text('storage_url'),
+    thumbnailUrl:     text('thumbnail_url'),
+    mimeType:         varchar('mime_type', { length: 100 }).notNull(),
+    sizeBytes:        bigint('size_bytes', { mode: 'number' }).notNull(),
+    sha256:           varchar('sha256', { length: 64 }),
+    originalFilename: varchar('original_filename', { length: 255 }),
+    isPrivate:        boolean('is_private').notNull().default(true),
+    description:      varchar('description', { length: 255 }),
+    ...auditColumns,
+  },
+  (t) => [
+    // No DB FK on recordId/recordGuuid (polymorphic) — enforce in app + orphan-cleanup job.
+    index('idx_files_entity_record').on(t.entityTypeFk, t.recordGuuid),
+    index('idx_files_store').on(t.storeFk),
+  ],
+);
+
+export const filesConfig = pgTable(
+  'files_config',
+  {
+    id:                       uuid('id').primaryKey().defaultRandom(),
+    entityTypeFk:             uuid('entity_type_fk').notNull().references(() => entityTypes.id),
+    fileKind:                 varchar('file_kind', { length: 50 }), // scope a rule to one kind
+    maxFileSizeBytes:         bigint('max_file_size_bytes', { mode: 'number' }).notNull(),        // per-file cap
+    maxConsolidatedSizeBytes: bigint('max_consolidated_size_bytes', { mode: 'number' }).notNull(), // total per (entity, record) cap
+    validExtensions:          varchar('valid_extensions', { length: 1000 }).notNull(), // comma list ('jpg,png,pdf')
+    maxAttachmentsAllowed:    integer('max_attachments_allowed').notNull(),            // count cap per record
+    isActive:                 boolean('is_active').notNull().default(true),
+    createdAt:                timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+    updatedAt:                timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [uniqueIndex('uk_files_config_entity_kind').on(t.entityTypeFk, t.fileKind)],
+);
+
+// ─── Polymorphic Common — notes / address / communication / contact_person
+// (table-architecture.md §34) ───────────────────────────────────────────────
+// entityTypeFk + recordGuuid attaches any of these to any entity. recordId has
+// no DB FK (polymorphic) — enforce in app.
+
+export const notes = pgTable(
+  'notes',
+  {
+    id:           uuid('id').primaryKey().defaultRandom(),
+    guuid:        uuid('guuid').notNull().defaultRandom().unique(),
+    entityTypeFk: uuid('entity_type_fk').notNull().references(() => entityTypes.id),
+    recordId:     uuid('record_id'),
+    recordGuuid:  uuid('record_guuid').notNull(),
+    storeFk:      uuid('store_fk').notNull().references(() => stores.id),
+    body:         text('body').notNull(),
+    isPinned:     boolean('is_pinned').notNull().default(false),
+    ...auditColumns,
+  },
+  (t) => [index('idx_notes_entity_record').on(t.entityTypeFk, t.recordGuuid)],
+);
+
+export const address = pgTable(
+  'address',
+  {
+    id:            uuid('id').primaryKey().defaultRandom(),
+    guuid:         uuid('guuid').notNull().defaultRandom().unique(),
+    entityTypeFk:  uuid('entity_type_fk').notNull().references(() => entityTypes.id),
+    recordId:      uuid('record_id'),
+    recordGuuid:   uuid('record_guuid').notNull(),
+    // lookup type ADDRESS_TYPE — billing/shipping/registered
+    addressTypeLookupFk: uuid('address_type_lookup_fk').references(() => lookup.id),
+    line1:         varchar('line1', { length: 200 }).notNull(),
+    line2:         varchar('line2', { length: 200 }),
+    city:          varchar('city', { length: 100 }),
+    stateCode:     varchar('state_code', { length: 2 }),  // GST state code
+    pincode:       varchar('pincode', { length: 6 }),
+    countryFk:     uuid('country_fk').references(() => country.id),
+    isPrimary:     boolean('is_primary').notNull().default(false),
+    isBilling:     boolean('is_billing').notNull().default(false),
+    ...auditColumns,
+  },
+  (t) => [index('idx_address_entity_record').on(t.entityTypeFk, t.recordGuuid)],
+);
+
+export const communication = pgTable(
+  'communication',
+  {
+    id:           uuid('id').primaryKey().defaultRandom(),
+    guuid:        uuid('guuid').notNull().defaultRandom().unique(),
+    entityTypeFk: uuid('entity_type_fk').notNull().references(() => entityTypes.id),
+    recordId:     uuid('record_id'),
+    recordGuuid:  uuid('record_guuid').notNull(),
+    // lookup type COMMUNICATION_TYPE
+    communicationTypeLookupFk: uuid('communication_type_lookup_fk').references(() => lookup.id),
+    email:        varchar('email', { length: 255 }),
+    phone:        varchar('phone', { length: 20 }),
+    fax:          varchar('fax', { length: 20 }),
+    website:      varchar('website', { length: 255 }),
+    callingCode:  varchar('calling_code', { length: 10 }),
+    isVerified:   boolean('is_verified').notNull().default(false),
+    isPrimary:    boolean('is_primary').notNull().default(false),
+    ...auditColumns,
+  },
+  (t) => [index('idx_communication_entity_record').on(t.entityTypeFk, t.recordGuuid)],
+);
+
+export const contactPerson = pgTable(
+  'contact_person',
+  {
+    id:           uuid('id').primaryKey().defaultRandom(),
+    guuid:        uuid('guuid').notNull().defaultRandom().unique(),
+    entityTypeFk: uuid('entity_type_fk').notNull().references(() => entityTypes.id),
+    recordId:     uuid('record_id'),
+    recordGuuid:  uuid('record_guuid').notNull(),
+    // lookup type CONTACT_PERSON_TYPE
+    contactTypeLookupFk: uuid('contact_type_lookup_fk').references(() => lookup.id),
+    // lookup type TITLE
+    salutationLookupFk:  uuid('salutation_lookup_fk').references(() => lookup.id),
+    firstName:    varchar('first_name', { length: 50 }),
+    lastName:     varchar('last_name', { length: 50 }),
+    designation:  varchar('designation', { length: 50 }),
+    email:        varchar('email', { length: 255 }),
+    officeNumber: varchar('office_number', { length: 20 }),
+    mobileNumber: varchar('mobile_number', { length: 20 }),
+    isPrimary:    boolean('is_primary').notNull().default(false),
+    ...auditColumns,
+  },
+  (t) => [index('idx_contact_person_entity_record').on(t.entityTypeFk, t.recordGuuid)],
+);
 

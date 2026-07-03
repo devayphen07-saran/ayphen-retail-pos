@@ -1,8 +1,8 @@
 import { Injectable } from '@nestjs/common';
 import axios from 'axios';
-import { AppConfigService } from '../../config/app-config.service.js';
-import { AppException } from '../../common/exceptions/app.exception.js';
-import { ErrorCodes } from '../../common/error-codes.js';
+import { AppConfigService } from '#config/app-config.service.js';
+import { AppException } from '#common/exceptions/app.exception.js';
+import { ErrorCodes } from '#common/error-codes.js';
 
 const MSG91_API = 'https://control.msg91.com/api/v5/otp';
 const TIMEOUT_MS = 10_000;

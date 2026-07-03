@@ -9,17 +9,17 @@ import {
   Post,
   UseGuards,
 } from '@nestjs/common';
-import { parse } from '../common/validation/parse.js';
-import { MobileJwtGuard } from '../auth/mobile/guards/mobile-jwt.guard.js';
-import { TenantGuard } from '../common/rbac/guards/tenant.guard.js';
-import { PermissionsGuard } from '../common/rbac/guards/permissions.guard.js';
-import { SubscriptionStatusGuard } from '../auth/mobile/guards/subscription-status.guard.js';
+import { parse } from '#common/validation/parse.js';
+import { MobileJwtGuard } from '#auth/mobile/guards/mobile-jwt.guard.js';
+import { TenantGuard } from '#common/rbac/guards/tenant.guard.js';
+import { PermissionsGuard } from '#common/rbac/guards/permissions.guard.js';
+import { SubscriptionStatusGuard } from '#auth/mobile/guards/subscription-status.guard.js';
 import {
   StoreContext,
   RequirePermissions,
   CurrentUser,
-} from '../common/rbac/decorators/rbac.decorators.js';
-import type { MobilePrincipal } from '../auth/mobile/types/mobile-principal.js';
+} from '#common/rbac/decorators/rbac.decorators.js';
+import type { MobilePrincipal } from '#auth/mobile/types/mobile-principal.js';
 import { RoleService } from './role.service.js';
 import {
   CreateRoleDtoSchema,

@@ -1,6 +1,6 @@
 # NKS Mobile Libraries — Developer Guide
 
-> **Scope**: This document governs all code written inside `libs-mobile/theme` and `libs-mobile/mobile-ui-components`.
+> **Scope**: This document governs all code written inside `libs-mobile/mobile-theme` and `libs-mobile/mobile-ui-components`.
 > Read it before creating any component, token, or folder inside this library.
 
 ---
@@ -14,8 +14,9 @@
    - [Color Tokens](#32-color-tokens)
    - [Typography Tokens](#33-typography-tokens)
    - [Spacing & Border Tokens](#34-spacing--border-tokens)
+   - [Effects Tokens (shadow / overlay / gradient)](#34a-effects-tokens-shadow-overlay-gradient)
    - [ThemeProvider & Hooks](#35-themeprovider--hooks)
-4. [@nks/mobile-ui-components — UI Component Library](#4-nksmobile-ui--ui-component-library)
+4. [@nks/mobile-ui-components — UI Component Library](#4-nksmobile-ui-components--ui-component-library)
    - [Component Catalogue](#41-component-catalogue)
    - [Typography Component](#42-typography-component)
    - [Form Components](#43-form-components)
@@ -35,30 +36,37 @@ The NKS mobile design system is split into two focused workspace packages:
 
 | Package                     | Path                               | Role                                    |
 | --------------------------- | ---------------------------------- | --------------------------------------- |
-| `@nks/mobile-theme`         | `libs-mobile/theme`                | Design tokens, ThemeProvider, and hooks |
+| `@nks/mobile-theme`         | `libs-mobile/mobile-theme`         | Design tokens, ThemeProvider, and hooks |
 | `@nks/mobile-ui-components` | `libs-mobile/mobile-ui-components` | All shared UI components                |
 
-Every app in the monorepo (`apps/nks-mobile`, etc.) imports **only** from these two packages. Styling logic must never live in the app layer.
+Every mobile app in the monorepo imports **only** from these two packages. Styling logic must never live in the app layer.
 
 ---
 
 ## 2. Monorepo Structure
 
 ```
-nks/
-├── apps/
-│   └── nks-mobile/          ← Expo app (consumers only)
+ayphen-retail-pos/
+├── apps/                          ← Consumer apps (import only from libs-mobile/*)
 └── libs-mobile/
-    ├── theme/               ← @nks/mobile-theme
+    ├── mobile-theme/              ← @nks/mobile-theme
     │   └── src/
-    │       ├── tokens/      ← Pure data: colors, typography, spacing
-    │       ├── types/       ← styled.d.ts type augmentation
-    │       ├── ThemeProvider.tsx
-    │       └── index.ts     ← Public API
-    └── ui/                  ← @nks/mobile-ui-components
+    │       ├── tokens/            ← Pure data: colors, typography, spacing, effects, breakpoints
+    │       │   ├── colors/        ← types.ts, light.ts, dark.ts
+    │       │   ├── typography.ts
+    │       │   ├── spacing.ts
+    │       │   ├── effects.ts     ← shadow, overlay, gradient, brandColorTokens, componentSizing
+    │       │   ├── breakpoints.ts
+    │       │   └── index.ts       ← Assembles lightTheme / darkTheme + NKSTheme type
+    │       ├── types/
+    │       │   └── styled.d.ts    ← Augments styled-components DefaultTheme with NKSTheme
+    │       ├── ThemeProvider.tsx  ← MobileThemeProvider, useMobileTheme, useColorVariant
+    │       ├── useBreakpoint.ts   ← Responsive hooks (useBreakpoint, useScaledSize, …)
+    │       └── index.ts           ← Public API
+    └── mobile-ui-components/       ← @nks/mobile-ui-components
         └── src/
-            ├── lib/         ← One folder per component
-            └── index.ts     ← Public barrel export
+            ├── lib/               ← One folder per component
+            └── index.ts           ← Public barrel export
 ```
 
 > **Rule**: Apps must **never** import from a sub-path like `@nks/mobile-theme/src/tokens`.  
@@ -75,11 +83,13 @@ Tokens are organized in three layers:
 ```
 tokens/
 ├── colors/
-│   ├── types.ts      ← ColorValueType, ColorVariantKey, ColorType
-│   ├── light.ts      ← Light mode semantic colors + flat tokens
-│   └── dark.ts       ← Dark mode semantic colors + flat tokens
-├── typography.ts     ← FontSize, FontFamily, FontWeight, LineHeight
-├── spacing.ts        ← Sizing, Spacing (margin/padding), BorderRadius, BorderWidth
+│   ├── types.ts      ← ColorValueType, ColorVariantKey, ColorType, SemanticColorMap
+│   ├── light.ts      ← Light mode semantic colors + flat tokens + extended palette
+│   └── dark.ts       ← Dark mode semantic colors + flat tokens + extended palette
+├── typography.ts     ← fontSize, fontFamily, fontWeight, lineHeight, typographyTokens
+├── spacing.ts        ← sizing, spacing (margin/padding), borderRadius, borderWidth
+├── effects.ts        ← shadow, overlay, gradient, brandColorTokens, componentSizing
+├── breakpoints.ts    ← breakpoints, deviceScale, fontScale, resolveBreakpoint
 └── index.ts          ← Assembles lightTheme / darkTheme + exports NKSTheme type
 ```
 
@@ -109,20 +119,22 @@ interface ColorValueType {
 
 **Available semantic color keys** (`ColorVariantKey`):
 
-| Key         | Usage                                 |
-| ----------- | ------------------------------------- |
-| `primary`   | Brand color — `#df005c`               |
-| `secondary` | Neutral slate                         |
-| `success`   | Green — confirmations, success states |
-| `danger`    | Red — errors, destructive actions     |
-| `warning`   | Amber — warnings, caution             |
-| `blue`      | Info, links                           |
-| `orange`    | Extended palette                      |
-| `violet`    | Extended palette                      |
-| `green`     | Extended palette                      |
-| `red`       | Extended palette                      |
-| `grey`      | Disabled, placeholder                 |
-| `default`   | General text, neutral elements        |
+| Key         | Usage                                                             |
+| ----------- | ---------------------------------------------------------------- |
+| `primary`   | Brand color — navy `#1E3A8A` (`main`)                             |
+| `secondary` | Neutral slate                                                    |
+| `success`   | Success states — **alias of `green`** (`#16A34A`)                |
+| `danger`    | Errors, destructive actions — **alias of `red`** (`#DC2626`-fam) |
+| `warning`   | Amber — trial expiry, low stock, pending sync                    |
+| `blue`      | Info, links                                                      |
+| `orange`    | Domain accent — purchase icon bg, supplier card                  |
+| `violet`    | Extended palette                                                 |
+| `green`     | Extended palette (also backs `success`)                          |
+| `red`       | Extended palette (also backs `danger`)                           |
+| `grey`      | Disabled, placeholder                                            |
+| `default`   | General text, neutral elements                                   |
+
+> **Note**: `danger` and `success` are **aliases** — in `light.ts`/`dark.ts` they are assigned the same objects as `red` and `green` respectively (`danger: red`, `success: green`). Use `danger`/`success` for semantic intent and `red`/`green` for palette decoration.
 
 **`ColorType` runtime object** (use for `variant` props):
 
@@ -141,33 +153,39 @@ import { ColorType } from "@nks/mobile-theme";
 These live directly on `theme.*` and map to semantic intentions:
 
 ```typescript
-theme.colorPrimary; // Brand primary color
+theme.colorPrimary; // #1E3A8A — THE brand color (buttons, active tab, focus ring)
+theme.colorPrimaryText; // #1E40AF — primary-colored text
+theme.colorPrimaryBg; // #EFF6FF — lightest navy tint (chips, icon containers)
+theme.onColorPrimary; // #ffffff — text/icon on a primary surface
 theme.colorBgContainer; // Card / surface background
 theme.colorBgLayout; // Page / screen background
 theme.colorText; // Primary body text
 theme.colorTextSecondary; // Muted / secondary text
 theme.colorBorder; // Default border
 theme.colorBorderSecondary; // Dividers, subtle borders
-theme.colorSuccess; // #00a86b
-theme.colorWarning; // #f59e0b
-theme.colorError; // #fb2c36
+theme.colorSuccess; // Success green
+theme.colorWarning; // Warning amber
+theme.colorError; // Error red
 theme.colorWhite; // #ffffff
-theme.onColorPrimary; // Text on primary button (white in light mode)
 ```
+
+> The full flat-token set lives in `tokens/colors/light.ts` (and `dark.ts`). The primary
+> family also exposes `colorPrimaryHover`, `colorPrimaryActive`, `colorPrimaryBorder`,
+> `colorPrimaryBorderHover`, `colorPrimaryBgHover`, and `colorPrimaryTextHover`.
 
 #### Accessing Semantic Colors in Components
 
 ```typescript
 // Via the theme.color map:
-theme.color.primary.bg; // Light pink background
-theme.color.primary.main; // #df005c
+theme.color.primary.bg; // #EFF6FF — lightest navy tint background
+theme.color.primary.main; // #1E3A8A — brand navy
 theme.color.danger.border; // Red border
 theme.color.success.onMain; // White (text on green button)
 
-// Via the useColorVariant hook:
+// Via the useColorVariant hook (place ∈ "main" | "background" | "border"):
 const mainColors = useColorVariant({ place: 'main' });
-mainColors.primary; // → "#df005c"
-mainColors.success; // → "#00a86b"
+mainColors.primary; // → "#1E3A8A"
+mainColors.success; // → "#16A34A"
 ```
 
 ### 3.3 Typography Tokens
@@ -185,6 +203,10 @@ theme.fontSize.xxLarge; // 24 — h3
 theme.fontSize.h1; // 32
 theme.fontSize.h2; // 28
 
+// Font sizes also expose h1–h5 aliases and zero/step:
+theme.fontSize.h3; // 24   theme.fontSize.h4; // 20   theme.fontSize.h5; // 18
+theme.fontSize.zero; // 0    theme.fontSize.step; // 2
+
 // Font families (all Poppins variants)
 theme.fontFamily.poppinsRegular;
 theme.fontFamily.poppinsSemiBold;
@@ -193,12 +215,27 @@ theme.fontFamily.poppinsMedium;
 theme.fontFamily.poppinsLight;
 theme.fontFamily.poppinsThin;
 theme.fontFamily.poppinsItalic;
+
+// Font weights (numeric 100–900)
+theme.fontWeight['400']; // 400   theme.fontWeight['600']; // 600
+
+// Line heights — the theme exposes FLAT aliases (not a nested object):
+theme.lineHeight; // 1.571… (base body)
+theme.lineHeightSM; // 1.666…
+theme.lineHeightLG; // 1.5
+theme.lineHeightHeading1; // 1.210…  (…Heading2 … Heading5)
 ```
+
+> **Note**: `theme.lineHeight` is a **flat number**, not a map — `theme.lineHeight.base` does
+> not exist on the theme. The nested `lineHeight` object (with `.base`, `.sm`, `.heading1`…)
+> is exported separately from `@nks/mobile-theme` for direct import if needed.
 
 ### 3.4 Spacing & Border Tokens
 
 ```typescript
-// Sizing — same scale for margin, padding, gap
+// Sizing — same scale for margin, padding, gap.
+// Also aliased as theme.padding.* and theme.margin.* (both point at this scale).
+theme.sizing.zero; // 0
 theme.sizing.xxSmall; // 4
 theme.sizing.xSmall; // 8
 theme.sizing.small; // 12
@@ -207,16 +244,23 @@ theme.sizing.regular; // 20
 theme.sizing.large; // 24
 theme.sizing.xLarge; // 32
 theme.sizing.xxLarge; // 48
+theme.sizing.step; // 4  (base grid step)
 
 // Border radius
+theme.borderRadius.zero; // 0
+theme.borderRadius.xxSmall; // 1
 theme.borderRadius.xSmall; // 2
 theme.borderRadius.small; // 4
 theme.borderRadius.medium; // 6
 theme.borderRadius.regular; // 8
 theme.borderRadius.large; // 10
 theme.borderRadius.xLarge; // 12
+theme.borderRadius.xxLarge; // 14
+theme.borderRadius.step; // 2
+theme.borderRadius.full; // 9999 — pill / fully-rounded (chips, circles). Use INSTEAD of 9999px.
 
-// Border width
+// Border width — use these modern names:
+theme.borderWidth.zero; // 0
 theme.borderWidth.mild; // 0.5
 theme.borderWidth.thin; // 1
 theme.borderWidth.light; // 1.5
@@ -224,7 +268,46 @@ theme.borderWidth.medium; // 3
 theme.borderWidth.bold; // 4
 ```
 
-> **Rule**: Never hardcode spacing numbers. Always use `theme.sizing.*` or `theme.borderRadius.*`.
+> **Rule**: Never hardcode spacing numbers. Always use `theme.sizing.*` (or `theme.padding.*` /
+> `theme.margin.*`) and `theme.borderRadius.*`.
+>
+> ⚠️ **Deprecated**: `borderWidth` also carries legacy `borderWidthThin` / `borderWidthMild` /
+> `borderWidthLight` / `borderWidthMedium` / `borderWidthBold` / `borderWidthZero` aliases for
+> backward compat. **Do not use them in new code** — use `theme.borderWidth.thin` etc.
+
+### 3.4a Effects Tokens (shadow, overlay, gradient)
+
+Mode-independent visual effects live on the theme (spread from `effects.ts`). They replace
+every hardcoded `#000` shadow, `rgba(…)` overlay, and LinearGradient color array:
+
+```typescript
+// Elevation — pre-composed CSS snippets, interpolated directly into a template literal:
+theme.shadow.none; theme.shadow.sm; theme.shadow.md; theme.shadow.lg; theme.shadow.top;
+//   const Card = styled.View`${({ theme }) => theme.shadow.md}`;
+
+// Overlays / scrims (modal backdrops, on-dark / on-light alpha fills):
+theme.overlay.scrim;      // rgba(0,0,0,0.6)
+theme.overlay.scrimSoft;  // rgba(0,0,0,0.4)
+theme.overlay.onDark08;   // rgba(255,255,255,0.08)  (…onDark04 … onDark55)
+theme.overlay.onLight06;  // rgba(0,0,0,0.06)        (…onLight08)
+
+// Brand gradient ramps (feed expo-linear-gradient `colors`) + accent orbs:
+theme.gradient.brandHero;   // ["#0D0B26","#1A1754","#2D2A8A"]
+theme.gradient.cta;         // ["#4F46E5","#7C3AED"]  (…ctaDisabled, ctaSuccess)
+theme.gradient.dashboardHero; theme.gradient.premiumCard;
+theme.gradient.orbIndigo;   // "#6366F1"   theme.gradient.orbViolet; // "#7C3AED"
+
+// Fixed brand surfaces (dark by design, both modes):
+theme.colorSplashBg;        // #0D0B26   theme.colorBrandSurface; // #0F0E1A
+theme.colorAccentLavender;  // #A5B4FC   theme.colorTrustNote;    // #4338CA
+
+// Fixed component dimensions that don't map to the spacing scale:
+theme.componentSizing.ctaBtnHeight;      // 54
+theme.componentSizing.heroBrandIconSize; // 36
+```
+
+> **Rule**: Never write `shadow-color: #000`, `rgba(...)`, or literal gradient arrays in a
+> screen. Use `theme.shadow.*`, `theme.overlay.*`, and `theme.gradient.*`.
 
 ### 3.5 ThemeProvider & Hooks
 
@@ -250,21 +333,38 @@ export default function RootLayout() {
 ```typescript
 const {
   theme, // NKSTheme — the full resolved token object
-  isDarkMode, // boolean
-  toggleTheme, // () => Promise<void>
-  setTheme, // (isDark: boolean) => Promise<void>
+  isDarkMode, // boolean — derived from themePreference + system scheme
+  themePreference, // ThemePreference — "light" | "dark" | "auto"
+  setThemePreference, // (preference: ThemePreference) => Promise<void>  (persists to AsyncStorage)
   isThemeReady, // boolean — false until AsyncStorage resolves
 } = useMobileTheme();
 ```
 
+> ⚠️ There is **no** `toggleTheme` or `setTheme(isDark)`. Persistence is preference-based:
+> call `setThemePreference("dark" | "light" | "auto")`. `isDarkMode` is read-only (derived).
+> To toggle: `setThemePreference(isDarkMode ? "light" : "dark")`.
+
 #### `useColorVariant()`
 
 ```typescript
-// Returns a flat map of all variant colors for a specific "place"
-const mainColors = useColorVariant({ place: 'main' }); // { primary, danger, ... }
+// Returns a flat map of all variant colors for a specific "place".
+// place ∈ "main" | "background" | "border"
+const mainColors = useColorVariant({ place: 'main' }); // { primary, danger, success, ... }
 const bgColors = useColorVariant({ place: 'background' }); // { primary, danger, ... }
 const borderColors = useColorVariant({ place: 'border' });
 ```
+
+#### Responsive hooks (`useBreakpoint.ts`)
+
+```typescript
+const { breakpoint, isPhone, isTablet, width } = useBreakpoint(); // BreakpointInfo
+const cols = useResponsiveValue({ phone: 1, tablet: 2, largeTablet: 3 }); // ResponsiveValue<T>
+const size = useScaledSize(16);   // scales a dimension by deviceScale per breakpoint
+const font = useScaledFont(14);   // scales a font size by fontScale per breakpoint
+```
+
+Breakpoints: `phone: 0`, `tablet: 600`, `largeTablet: 1024`. Also exported: `resolveBreakpoint(width)`,
+`deviceScale`, `fontScale`, and the `breakpoints` map.
 
 ---
 
@@ -272,49 +372,115 @@ const borderColors = useColorVariant({ place: 'border' });
 
 ### 4.1 Component Catalogue
 
-| Component             | Import                      | Description                                  |
-| --------------------- | --------------------------- | -------------------------------------------- |
-| `Button`              | `@nks/mobile-ui-components` | Primary, default, dashed, text variants      |
-| `IconButton`          | `@nks/mobile-ui-components` | Square icon-only button                      |
-| `Input`               | `@nks/mobile-ui-components` | RHF-controlled text input with label & error |
-| `PasswordInput`       | `@nks/mobile-ui-components` | Input with show/hide toggle                  |
-| `SearchInput`         | `@nks/mobile-ui-components` | Search bar with icon                         |
-| `TextArea`            | `@nks/mobile-ui-components` | Multi-line input                             |
-| `CheckBox`            | `@nks/mobile-ui-components` | Controlled or RHF-integrated checkbox        |
-| `Switch`              | `@nks/mobile-ui-components` | Animated toggle, uncontrolled or RHF         |
-| `RadioGroup`          | `@nks/mobile-ui-components` | Group of radio options                       |
-| `Typography`          | `@nks/mobile-ui-components` | Compound text system (H1–H5, Body, Caption…) |
-| `Avatar`              | `@nks/mobile-ui-components` | Image, initials, or icon avatar              |
-| `MetricCard`          | `@nks/mobile-ui-components` | Stat card with icon, title, subtitle         |
-| `QuickActionButton`   | `@nks/mobile-ui-components` | List-row style CTA with icon                 |
-| `Card`                | `@nks/mobile-ui-components` | Elevated surface container                   |
-| `Divider`             | `@nks/mobile-ui-components` | Horizontal rule                              |
-| `Tag`                 | `@nks/mobile-ui-components` | Colored badge / label                        |
-| `SectionHeader`       | `@nks/mobile-ui-components` | Section title                                |
-| `TitleDescription`    | `@nks/mobile-ui-components` | Two-line label + description                 |
-| `TitleWithIcon`       | `@nks/mobile-ui-components` | Icon + title row                             |
-| `LucideIcon`          | `@nks/mobile-ui-components` | Type-safe Lucide icon wrapper                |
-| `Flex / Row / Column` | `@nks/mobile-ui-components` | Flex layout primitives                       |
-| `Header`              | `@nks/mobile-ui-components` | Screen header with SafeAreaView              |
-| `ModalHeader`         | `@nks/mobile-ui-components` | Header for bottom sheets / modals            |
-| `BaseModal`           | `@nks/mobile-ui-components` | Reusable modal container                     |
-| `BottomSheetModal`    | `@nks/mobile-ui-components` | Bottom sheet with handle                     |
-| `ModalSelect`         | `@nks/mobile-ui-components` | Single / multi-select modal                  |
-| `FlatListScaffold`    | `@nks/mobile-ui-components` | FlatList with pull-to-refresh & empty state  |
-| `ThemedFlatList`      | `@nks/mobile-ui-components` | FlatList with theme background               |
-| `FlatListLoading`     | `@nks/mobile-ui-components` | Loading shimmer for lists                    |
-| `NoDataContainer`     | `@nks/mobile-ui-components` | Empty state view                             |
-| `ListPageScaffold`    | `@nks/mobile-ui-components` | Full list page with header and search        |
-| `AppLayout`           | `@nks/mobile-ui-components` | Full-screen layout wrapper                   |
-| `ItemCard`            | `@nks/mobile-ui-components` | Generic product/item card                    |
-| `GroupedMenu`         | `@nks/mobile-ui-components` | Settings-style grouped list                  |
-| `ListRow`             | `@nks/mobile-ui-components` | Single list row with chevron                 |
-| `SkeletonLoader`      | `@nks/mobile-ui-components` | Animated placeholder                         |
-| `ImagePreview`        | `@nks/mobile-ui-components` | Image with fullscreen preview                |
-| `ImageWithoutPreview` | `@nks/mobile-ui-components` | Inline image display                         |
-| `SegmentedTabs`       | `@nks/mobile-ui-components` | Pill-style tab selector                      |
-| `SelectGeneric`       | `@nks/mobile-ui-components` | Generic dropdown select                      |
-| `BaseSelectItem`      | `@nks/mobile-ui-components` | Single item in a select list                 |
+All components import from the package root `@nks/mobile-ui-components`. The table below is
+generated from the actual barrel (`src/index.ts`) and `src/lib/` folders.
+
+**Forms & inputs**
+
+| Component        | Description                                       |
+| ---------------- | ------------------------------------------------- |
+| `Input`          | RHF-controlled text input with label & error      |
+| `PasswordInput`  | Input with show/hide toggle                        |
+| `SearchInput`    | Search bar with icon                               |
+| `TextArea`       | Multi-line input                                   |
+| `MaskedInput`    | Masked text input (`masked-input`)                 |
+| `OtpInput`       | OTP / PIN entry (`otp-input`)                       |
+| `CheckBox`       | Controlled or RHF-integrated checkbox              |
+| `Switch`         | Animated toggle, uncontrolled or RHF               |
+| `RadioGroup`     | Group of radio options                             |
+| `Form`           | Form helpers / wrappers (`form`)                   |
+
+**Selects**
+
+| Component          | Description                                            |
+| ------------------ | ----------------------------------------------------- |
+| `SelectGeneric`    | Generic dropdown select (default export from `Select`)|
+| `ConfigSelectItem` | Config row inside a Select                             |
+| `ModalSelect`      | Single / multi-select modal                           |
+| `BaseSelectItem`   | Single item in a select list                          |
+| `DateTimePicker`   | Date/time picker (`DateTimePicker`)                   |
+| `TimeField`        | Time entry field (`TimeField`)                        |
+
+**Text & display**
+
+| Component          | Description                                       |
+| ------------------ | ------------------------------------------------- |
+| `Typography`       | Compound text system (H1–H5, Body, Caption…)      |
+| `Avatar`           | Image, initials, or icon avatar                   |
+| `InitialsTile`     | Initials-only tile (`initials-tile`)              |
+| `MetricCard`       | Stat card with icon, title, subtitle              |
+| `Tag`              | Colored badge / label                             |
+| `Chip`             | Compact chip / pill (`chip`)                      |
+| `SectionHeader`    | Section title                                     |
+| `TitleDescription` | Two-line label + description                      |
+| `TitleWithIcon`    | Icon + title row                                  |
+| `LucideIcon`       | Type-safe Lucide icon wrapper                     |
+| `ImagePreview`     | Image with fullscreen preview                     |
+| `ImageWithoutPreview` | Inline image display                           |
+
+**Buttons & actions**
+
+| Component           | Description                              |
+| ------------------- | ---------------------------------------- |
+| `Button`            | Primary, default, dashed, text variants  |
+| `IconButton`        | Square icon-only button                  |
+| `QuickActionButton` | List-row style CTA with icon             |
+
+**Layout & containers**
+
+| Component             | Description                                  |
+| --------------------- | -------------------------------------------- |
+| `Flex / Row / Column` | Flex layout primitives (`layout`)            |
+| `Card`                | Elevated surface container                   |
+| `Divider`             | Horizontal rule                              |
+| `Header`              | Screen header with SafeAreaView              |
+| `AppLayout`           | Full-screen layout wrapper (`app-layout`)    |
+| `AppScrollLayout`     | Scrollable full-screen layout                |
+| `SegmentedTabs`       | Pill-style tab selector                      |
+| `GroupedMenu`         | Settings-style grouped list                  |
+| `ListRow`             | Single list row with chevron                 |
+
+**Modals & sheets**
+
+| Component          | Description                        |
+| ------------------ | ---------------------------------- |
+| `BaseModal`        | Reusable modal container           |
+| `BottomSheetModal` | Bottom sheet with handle           |
+| `ModalHeader`      | Header for bottom sheets / modals  |
+| `Alert`            | Alert dialog (`alert`)             |
+
+**Lists & scaffolds**
+
+| Component          | Description                                  |
+| ------------------ | -------------------------------------------- |
+| `ListPageScaffold` | Full list page with header and search        |
+| `FlatListScaffold` | FlatList with pull-to-refresh & empty state  |
+| `ThemedFlatList`   | FlatList with theme background               |
+| `FlatListLoading`  | Loading shimmer for lists                    |
+| `NoDataContainer`  | Empty state view                             |
+| `SearchBar`        | Search bar (from `flat-list-scaffold`)       |
+| `ItemCard`         | Generic product/item card                    |
+
+**Loading & state**
+
+| Component             | Description                            |
+| --------------------- | -------------------------------------- |
+| `SkeletonLoader`      | Animated placeholder                   |
+| `SkeletonBox`         | Single shimmer box (`skeleton-box`)    |
+| `OverlayLoader`       | Full-screen blocking loader            |
+| `ScreenStateRenderer` | Loading / error / empty state switch   |
+
+**POS & domain**
+
+| Component          | Description                                        |
+| ------------------ | ------------------------------------------------- |
+| `pos`              | POS-specific components (`pos`)                    |
+| `sync`             | Sync-status components (`sync`)                    |
+| `useScanFeedback`  | Barcode-scan feedback hook (`use-scan-feedback`)  |
+
+> **Casing note**: most component folders are kebab-case, but a few are PascalCase in the source
+> (`DateTimePicker`, `ItemCard`, `Select`, `SkeletonLoader`, `TimeField`). New components should
+> follow the kebab-case rule in §6; the PascalCase folders predate it.
 
 ### 4.2 Typography Component
 
@@ -404,11 +570,11 @@ const HeaderContainer = styled(View)`
   flex-direction: row;
   align-items: center;
   justify-content: space-between;
-  padding-bottom: ${({ theme }) => theme.padding.xSmall}px;
-  padding-left: ${({ theme }) => theme.padding.small}px;
-  padding-right: ${({ theme }) => theme.padding.small}px;
+  padding-bottom: ${({ theme }) => theme.sizing.xSmall}px;
+  padding-left: ${({ theme }) => theme.sizing.small}px;
+  padding-right: ${({ theme }) => theme.sizing.small}px;
   background-color: ${({ theme }) => theme.colorBgContainer};
-  border-bottom-width: ${({ theme }) => theme.borderWidth.borderWidthThin}px;
+  border-bottom-width: ${({ theme }) => theme.borderWidth.thin}px;
   border-bottom-color: ${({ theme }) => theme.colorBorder};
 `;
 
@@ -422,16 +588,13 @@ const CardContainer = styled(View)<{ $active: boolean }>`
   border-color: ${({ theme }) => theme.colorBorder};
 `;
 
-// ✅ CORRECT — Wrapping a third-party or RN core component
+// ✅ CORRECT — Wrapping a third-party or RN core component.
+// Use theme.shadow.* instead of hand-writing shadow-color/offset/opacity/radius.
 const StyledTouchable = styled(TouchableOpacity)`
   flex-direction: row;
   align-items: center;
-  gap: 8px;
-  elevation: 2;
-  shadow-color: #000;
-  shadow-offset: 0px 2px;
-  shadow-opacity: 0.1;
-  shadow-radius: 4px;
+  gap: ${({ theme }) => theme.sizing.xSmall}px;
+  ${({ theme }) => theme.shadow.md}
 `;
 
 // ❌ WRONG — Object literal syntax (only allowed in app-layer screens, not in libs-mobile)
@@ -573,12 +736,12 @@ export * from './lib/my-component';
 
 ## 7. Creating New Theme Tokens
 
-When told to add new tokens to `libs-mobile/theme`:
+When told to add new tokens to `libs-mobile/mobile-theme`:
 
 ### Adding a new color group
 
 ```typescript
-// libs-mobile/theme/src/tokens/colors/light.ts
+// libs-mobile/mobile-theme/src/tokens/colors/light.ts
 
 const teal: ColorValueType = {
   bg: '#e6fff9',
@@ -600,7 +763,7 @@ Then register it in `ColorVariantKey` in `types.ts`, add to `ColorType` runtime 
 ### Adding new flat tokens
 
 ```typescript
-// libs-mobile/theme/src/tokens/colors/light.ts
+// libs-mobile/mobile-theme/src/tokens/colors/light.ts
 export const lightColorTokens = {
   // ... existing tokens ...
   colorNewFeature: '#somevalue', // Add at end with a clear name
@@ -615,16 +778,20 @@ export const lightColorTokens = {
 
 Before committing any code to `libs-mobile`:
 
-- [ ] Imports are only from `@nks/mobile-theme` (never sub-paths)
+- [ ] Imports are only from `@nks/mobile-theme` / `@nks/mobile-ui-components` (never sub-paths)
 - [ ] Styled-components use **template literal** syntax
 - [ ] Styled-components are **below** the component function in the file
-- [ ] All spacing values use `theme.sizing.*`
+- [ ] All spacing values use `theme.sizing.*` (or `theme.padding.*` / `theme.margin.*`)
 - [ ] All colors use `theme.color.*` or flat `theme.colorXxx` tokens
-- [ ] All border radii use `theme.borderRadius.*`
-- [ ] All border widths use `theme.borderWidth.*`
+- [ ] All border radii use `theme.borderRadius.*` (pill = `theme.borderRadius.full`, not `9999px`)
+- [ ] All border widths use `theme.borderWidth.*` (modern names — **not** the `borderWidthThin` aliases)
+- [ ] All shadows use `theme.shadow.*` — no hand-written `shadow-color: #000` / `elevation`
+- [ ] All overlays/scrims use `theme.overlay.*` — no raw `rgba(...)`
+- [ ] All brand gradients use `theme.gradient.*` — no literal color arrays
 - [ ] No hardcoded color strings (no `"#ff0000"`, `"white"`, `"rgba(...)"`)
 - [ ] No inline `style={{ }}` props
 - [ ] Custom styled-component props are `$`-prefixed
 - [ ] New component is exported from `libs-mobile/mobile-ui-components/src/index.ts`
 - [ ] `ColorType.xxx` is used (not raw strings) for variant props
 - [ ] Form inputs are wired to `react-hook-form` with `name` + `control`
+- [ ] Theme toggling uses `setThemePreference(...)` — **not** `toggleTheme`/`setTheme`

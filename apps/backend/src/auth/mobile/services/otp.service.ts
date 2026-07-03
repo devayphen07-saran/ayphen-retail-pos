@@ -1,32 +1,33 @@
-import { Inject, Injectable } from '@nestjs/common';
+import { Inject, Injectable, Logger } from '@nestjs/common';
 import { randomInt, timingSafeEqual } from 'crypto';
 import Redis from 'ioredis';
-import { AppException } from '../../../common/exceptions/app.exception.js';
-import { ErrorCodes } from '../../../common/error-codes.js';
-import { Msg91Service } from '../../core/msg91.service.js';
-import { AppConfigService } from '../../../config/app-config.service.js';
+import { AppException } from '#common/exceptions/app.exception.js';
+import { ErrorCodes } from '#common/error-codes.js';
 import { OtpRequestRepository, type OtpRequest } from '../repositories/otp-request.repository.js';
 import { MOBILE_REDIS } from './redis.provider.js';
 
 const devOtpKey = (phone: string) => `dev_otp:${phone}`;
 
+/**
+ * MSG91 sending is disabled for now — every environment generates the code
+ * locally (Redis + console log). Re-wire Msg91Service.sendOtp here when
+ * real SMS delivery is needed again.
+ */
 @Injectable()
 export class OtpService {
+  private readonly logger = new Logger(OtpService.name);
+
   constructor(
     @Inject(MOBILE_REDIS)     private readonly redis:   Redis,
-    private readonly msg91:   Msg91Service,
-    private readonly config:  AppConfigService,
     private readonly otpRepo: OtpRequestRepository,
   ) {}
 
   async generateAndSend(phone: string, ttlSeconds: number): Promise<string> {
     const code = String(randomInt(100_000, 999_999));
 
-    if (this.config.nodeEnv !== 'production') {
-      await this.redis.setex(devOtpKey(phone), ttlSeconds, code);
-    } else {
-      await this.msg91.sendOtp(phone, code);
-    }
+    await this.redis.setex(devOtpKey(phone), ttlSeconds, code);
+    this.logger.log(`[dev] OTP for ${phone}: ${code}`);
+
     return code;
   }
 
@@ -47,18 +48,11 @@ export class OtpService {
 
     let valid = false;
 
-    if (this.config.nodeEnv !== 'production') {
-      const stored = await this.redis.get(devOtpKey(phone));
-      if (stored) {
-        const a = Buffer.from(stored.padEnd(6));
-        const b = Buffer.from(submitted.padEnd(6));
-        valid = a.length === b.length && timingSafeEqual(a, b);
-      }
-    } else {
-      // MSG91 template verification — they hold the OTP server-side
-      // We verify the code matches what we stored in the dev path in non-prod
-      // For prod: delegate to MSG91 verify API (omitted — MSG91 owns the code)
-      valid = true; // MSG91 verify called via msg91.service if needed
+    const stored = await this.redis.get(devOtpKey(phone));
+    if (stored) {
+      const a = Buffer.from(stored.padEnd(6));
+      const b = Buffer.from(submitted.padEnd(6));
+      valid = a.length === b.length && timingSafeEqual(a, b);
     }
 
     await this.otpRepo.incrementAttempts(request.id);

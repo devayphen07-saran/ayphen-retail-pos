@@ -28,9 +28,10 @@ import { RefreshTokenRepository } from './repositories/refresh-token.repository.
 import { MobileJwtGuard } from './guards/mobile-jwt.guard.js';
 import { SnapshotRefreshInterceptor } from './interceptors/snapshot-refresh.interceptor.js';
 import { MobileAuthController } from './mobile-auth.controller.js';
+import { MeController } from './me.controller.js';
 
 @Module({
-  controllers: [MobileAuthController],
+  controllers: [MobileAuthController, MeController],
   providers: [
     // Repositories
     OtpRequestRepository,
@@ -68,6 +69,10 @@ import { MobileAuthController } from './mobile-auth.controller.js';
     ReplayProtectionService,
     SnapshotRefreshInterceptor,
     AuthSessionRepository,
+    // Mutations that change permissions (store create, invitation accept)
+    // must invalidate the cached bootstrap snapshot, or the client keeps
+    // seeing stale data until SNAPSHOT_CACHE_TTL_SECONDS expires.
+    SnapshotService,
   ],
 })
 export class MobileAuthModule {}

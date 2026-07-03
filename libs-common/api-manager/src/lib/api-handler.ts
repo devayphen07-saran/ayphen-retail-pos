@@ -69,6 +69,23 @@ function normalizeError(error: unknown): NormalizedError {
   };
 }
 
+/**
+ * The backend's global `ResponseInterceptor` wraps every successful response
+ * as `{ success, statusCode, message, data, requestId, timestamp }`. Callers
+ * only care about the inner `data` payload.
+ */
+function unwrapEnvelope<T>(responseData: unknown): T {
+  if (
+    responseData &&
+    typeof responseData === 'object' &&
+    'success' in responseData &&
+    'data' in responseData
+  ) {
+    return (responseData as { data: T }).data;
+  }
+  return responseData as T;
+}
+
 export class APIData {
   path: string;
   method: APIMethod;
@@ -155,7 +172,7 @@ export class APIData {
     >(typePrefix, async (param, { rejectWithValue }) => {
       try {
         const response = await this.routeMethod<ThunkArg>(param);
-        return response.data as Returned;
+        return unwrapEnvelope<Returned>(response.data);
       } catch (error) {
         return rejectWithValue(normalizeError(error));
       }
@@ -183,7 +200,7 @@ export class APIData {
           formData,
           config,
         );
-        return response.data as Returned;
+        return unwrapEnvelope<Returned>(response.data);
       } catch (error) {
         return rejectWithValue(normalizeError(error));
       }
@@ -210,7 +227,7 @@ export class APIData {
       queryFn: async ({ signal }) => {
         try {
           const response = await this.routeMethod(params, undefined, { signal });
-          return response.data as TResponse;
+          return unwrapEnvelope<TResponse>(response.data);
         } catch (error) {
           throw normalizeError(error);
         }
@@ -240,10 +257,14 @@ export class APIData {
       mutationFn: async (params: RequestParams<TBody>) => {
         try {
           const response = await this.routeMethod<TBody>(params);
+          const data = unwrapEnvelope<TResponse>(response.data);
           if (onRawSuccess) {
-            await onRawSuccess(response as AxiosResponse<TResponse>, params);
+            await onRawSuccess(
+              { ...response, data } as AxiosResponse<TResponse>,
+              params,
+            );
           }
-          return response.data as TResponse;
+          return data;
         } catch (error) {
           throw normalizeError(error);
         }

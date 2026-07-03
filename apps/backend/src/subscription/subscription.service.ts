@@ -1,7 +1,7 @@
 import { Inject, Injectable } from '@nestjs/common';
 import type { Redis } from 'ioredis';
-import { UnitOfWork, type DbExecutor } from '../db/db.module.js';
-import { MOBILE_REDIS } from '../auth/mobile/services/redis.provider.js';
+import { UnitOfWork, type DbExecutor } from '#db/db.module.js';
+import { MOBILE_REDIS } from '#auth/mobile/services/redis.provider.js';
 import {
   SubscriptionRepository,
   type AccountSubscription,

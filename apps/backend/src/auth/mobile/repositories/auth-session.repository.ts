@@ -1,10 +1,10 @@
 import { Inject, Injectable } from '@nestjs/common';
 import { and, desc, eq, isNull, type SQL } from 'drizzle-orm';
 import type { PostgresJsDatabase } from 'drizzle-orm/postgres-js';
-import { DRIZZLE, type DbExecutor } from '../../../db/db.module.js';
-import * as schema from '../../../db/schema.js';
-import { deviceSessions, devices } from '../../../db/schema.js';
-import { paginateByCursor, type CursorPage } from '../../../common/pagination/paginate.js';
+import { DRIZZLE, type DbExecutor } from '#db/db.module.js';
+import * as schema from '#db/schema.js';
+import { deviceSessions, devices } from '#db/schema.js';
+import { paginateByCursor, type CursorPage } from '#common/pagination/paginate.js';
 
 export type DeviceSession = typeof deviceSessions.$inferSelect;
 
@@ -45,15 +45,15 @@ export class AuthSessionRepository {
     return row ?? null;
   }
 
-  async revokeSession(id: string, reason = 'user_logout'): Promise<void> {
-    await this.db
+  async revokeSession(id: string, reason = 'user_logout', tx?: DbExecutor): Promise<void> {
+    await (tx ?? this.db)
       .update(deviceSessions)
       .set({ revokedAt: new Date(), revokedReason: reason })
       .where(eq(deviceSessions.id, id));
   }
 
-  async revokeAllUserSessions(userFk: string, reason: string): Promise<void> {
-    await this.db
+  async revokeAllUserSessions(userFk: string, reason: string, tx?: DbExecutor): Promise<void> {
+    await (tx ?? this.db)
       .update(deviceSessions)
       .set({ revokedAt: new Date(), revokedReason: reason })
       .where(
@@ -64,15 +64,15 @@ export class AuthSessionRepository {
       );
   }
 
-  async updateLastUsed(id: string): Promise<void> {
-    await this.db
+  async updateLastUsed(id: string, tx?: DbExecutor): Promise<void> {
+    await (tx ?? this.db)
       .update(deviceSessions)
       .set({ lastUsedAt: new Date() })
       .where(eq(deviceSessions.id, id));
   }
 
-  async updateStepUp(id: string, method: string, at: Date): Promise<void> {
-    await this.db
+  async updateStepUp(id: string, method: string, at: Date, tx?: DbExecutor): Promise<void> {
+    await (tx ?? this.db)
       .update(deviceSessions)
       .set({
         lastStepUpAt: at,
@@ -81,15 +81,15 @@ export class AuthSessionRepository {
       .where(eq(deviceSessions.id, id));
   }
 
-  async setStepUpLockedUntil(id: string, until: Date): Promise<void> {
-    await this.db
+  async setStepUpLockedUntil(id: string, until: Date, tx?: DbExecutor): Promise<void> {
+    await (tx ?? this.db)
       .update(deviceSessions)
       .set({ stepUpLockedUntil: until })
       .where(eq(deviceSessions.id, id));
   }
 
-  async updateCurrentJti(id: string, jti: string, exp: Date): Promise<void> {
-    await this.db
+  async updateCurrentJti(id: string, jti: string, exp: Date, tx?: DbExecutor): Promise<void> {
+    await (tx ?? this.db)
       .update(deviceSessions)
       .set({ currentJti: jti, currentJtiExp: exp })
       .where(eq(deviceSessions.id, id));

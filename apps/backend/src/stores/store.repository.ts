@@ -1,8 +1,8 @@
 import { Inject, Injectable } from '@nestjs/common';
 import { and, eq, isNull, sql } from 'drizzle-orm';
 import type { PostgresJsDatabase } from 'drizzle-orm/postgres-js';
-import { DRIZZLE, type DbExecutor } from '../db/db.module.js';
-import * as schema from '../db/schema.js';
+import { DRIZZLE, type DbExecutor } from '#db/db.module.js';
+import * as schema from '#db/schema.js';
 import {
   accounts,
   accountSubscriptions,
@@ -10,7 +10,7 @@ import {
   roles,
   userRoleMappings,
   locations,
-} from '../db/schema.js';
+} from '#db/schema.js';
 
 @Injectable()
 export class StoreRepository {
@@ -32,6 +32,20 @@ export class StoreRepository {
       .from(accounts)
       .where(eq(accounts.ownerUserFk, userId));
     return row ?? null;
+  }
+
+  /**
+   * Lock the account row for the duration of the transaction (SELECT ... FOR
+   * UPDATE). Serializes concurrent store-creation attempts against the same
+   * account so the max_stores recheck below it can't race — the second
+   * transaction blocks here until the first commits (or rolls back).
+   */
+  async lockAccount(accountId: string, tx: DbExecutor): Promise<void> {
+    await tx
+      .select({ id: accounts.id })
+      .from(accounts)
+      .where(eq(accounts.id, accountId))
+      .for('update');
   }
 
   /**

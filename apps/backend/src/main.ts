@@ -3,7 +3,7 @@ import { NestFactory } from '@nestjs/core';
 import type { NestExpressApplication } from '@nestjs/platform-express';
 import { Logger } from 'nestjs-pino';
 import { AppModule } from './app/app.module.js';
-import { env } from './config/env.js';
+import { env } from '#config/env.js';
 import { applyGlobalConfig, setupSwagger } from './bootstrap/apply-global-config.js';
 
 async function bootstrap() {

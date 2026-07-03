@@ -1,6 +1,6 @@
 import type { Provider } from '@nestjs/common';
 import Redis from 'ioredis';
-import { env } from '../../config/env.js';
+import { env } from '#config/env.js';
 
 /**
  * CORE_REDIS token + provider, in its own file to avoid a circular import:

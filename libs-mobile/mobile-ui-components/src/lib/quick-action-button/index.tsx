@@ -1,7 +1,7 @@
 import React from "react";
 import { TouchableOpacityProps } from "react-native";
 import styled from "styled-components/native";
-import { ColorType, useMobileTheme, useBreakpoint } from "@nks/mobile-theme";
+import { ColorType, useMobileTheme, useBreakpoint } from "@ayphen/mobile-theme";
 import { LucideIcon, LucideIconNameType } from "../lucide-icon";
 import { Typography } from "../typography";
 import { Row, Flex } from "../layout";

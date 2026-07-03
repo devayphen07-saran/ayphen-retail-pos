@@ -4,7 +4,7 @@ import styled from "styled-components/native";
 import { buttonTextVariant, buttonVariant } from "./style";
 import { LucideIcon, LucideIconNameType } from "../lucide-icon";
 import { Typography } from "../typography";
-import { useMobileTheme, ColorType, useBreakpoint } from "@nks/mobile-theme";
+import { useMobileTheme, ColorType, useBreakpoint } from "@ayphen/mobile-theme";
 
 
 type ButtonVariant = "primary" | "default" | "dashed" | "text";

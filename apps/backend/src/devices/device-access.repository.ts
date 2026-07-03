@@ -1,14 +1,14 @@
 import { Inject, Injectable } from '@nestjs/common';
 import { and, desc, eq, sql } from 'drizzle-orm';
 import type { PostgresJsDatabase } from 'drizzle-orm/postgres-js';
-import { DRIZZLE, type DbExecutor } from '../db/db.module.js';
-import * as schema from '../db/schema.js';
+import { DRIZZLE, type DbExecutor } from '#db/db.module.js';
+import * as schema from '#db/schema.js';
 import {
   storeDeviceAccess,
   devices,
   deviceSessions,
   users,
-} from '../db/schema.js';
+} from '#db/schema.js';
 
 export type StoreDeviceAccess = typeof storeDeviceAccess.$inferSelect;
 

@@ -4,7 +4,7 @@ import { TouchableOpacity, ViewStyle } from "react-native";
 import { Flex, Row } from "../layout/Flex";
 import { Typography } from "../typography";
 import { LucideIcon, LucideIconNameType } from "../lucide-icon";
-import { useBreakpoint, useMobileTheme } from "@nks/mobile-theme";
+import { useBreakpoint, useMobileTheme } from "@ayphen/mobile-theme";
 
 interface ListRowProps {
   icon: LucideIconNameType;

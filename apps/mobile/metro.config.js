@@ -30,6 +30,22 @@ const config = {
       'react': path.resolve(workspaceRoot, 'node_modules/react'),
       'react-native': path.resolve(workspaceRoot, 'node_modules/react-native'),
     },
+    // App-internal aliases — keep in sync with tsconfig.app.json's "paths".
+    // Metro has no built-in `resolver.alias`; rewrite via resolveRequest instead.
+    resolveRequest: (context, moduleName, platform) => {
+      const ALIASES = {
+        '@core': path.resolve(projectRoot, 'src/core'),
+        '@features': path.resolve(projectRoot, 'src/features'),
+        '@ui': path.resolve(projectRoot, 'src/components'),
+      };
+      for (const [alias, target] of Object.entries(ALIASES)) {
+        if (moduleName === alias || moduleName.startsWith(`${alias}/`)) {
+          const rest = moduleName.slice(alias.length);
+          return context.resolveRequest(context, `${target}${rest}`, platform);
+        }
+      }
+      return context.resolveRequest(context, moduleName, platform);
+    },
   },
 };
 

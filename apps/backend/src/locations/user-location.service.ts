@@ -3,9 +3,9 @@ import {
   Injectable,
   NotFoundException,
 } from '@nestjs/common';
-import { UnitOfWork } from '../db/db.module.js';
-import { RbacService } from '../common/rbac/rbac.service.js';
-import { AuditService } from '../auth/core/audit.service.js';
+import { UnitOfWork } from '#db/db.module.js';
+import { RbacService } from '#common/rbac/rbac.service.js';
+import { AuditService } from '#auth/core/audit.service.js';
 import { LocationRepository } from './location.repository.js';
 import { UserLocationRepository, type LocationMember } from './user-location.repository.js';
 

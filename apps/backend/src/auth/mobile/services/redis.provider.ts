@@ -1,6 +1,6 @@
 import { Provider } from '@nestjs/common';
 import Redis from 'ioredis';
-import { AppConfigService } from '../../../config/app-config.service.js';
+import { AppConfigService } from '#config/app-config.service.js';
 
 export const MOBILE_REDIS = Symbol('MOBILE_REDIS');
 

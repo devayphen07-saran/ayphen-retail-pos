@@ -43,7 +43,7 @@ import {
   type PathValue,
   type RegisterOptions,
 } from 'react-hook-form';
-import { useMobileTheme, useBreakpoint } from '@nks/mobile-theme';
+import { useMobileTheme, useBreakpoint } from '@ayphen/mobile-theme';
 import { LucideIcon } from '../lucide-icon';
 
 // ─── Types ────────────────────────────────────────────────────────────────────
@@ -254,7 +254,7 @@ const Root = styled.View<{
         : $labelPosition === 'bottom'
           ? 'column'
           : 'column-reverse'};
-  justify-content: center;
+  justify-content: flex-start;
   align-items: center;
   padding-top: ${({ theme, $scale }) => theme.sizing.xxSmall * $scale}px;
   padding-bottom: ${({ theme, $scale }) => theme.sizing.xxSmall * $scale}px;

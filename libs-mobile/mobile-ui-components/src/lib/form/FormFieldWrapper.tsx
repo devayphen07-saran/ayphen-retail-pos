@@ -1,7 +1,7 @@
 import React from "react";
 import { StyleProp, ViewStyle } from "react-native";
 import styled from "styled-components/native";
-import { useBreakpoint } from "@nks/mobile-theme";
+import { useBreakpoint } from "@ayphen/mobile-theme";
 
 import { Typography } from "../typography";
 import { inputLabelStyles } from "../input/style";
@@ -40,7 +40,9 @@ export const FormFieldWrapper: React.FC<FormFieldWrapperProps> = ({
       {children}
 
       {error ? (
-        <ErrorText accessibilityLiveRegion="polite">{error}</ErrorText>
+        <ErrorText accessibilityRole="alert" accessibilityLiveRegion="polite">
+          {error}
+        </ErrorText>
       ) : null}
     </Wrapper>
   );

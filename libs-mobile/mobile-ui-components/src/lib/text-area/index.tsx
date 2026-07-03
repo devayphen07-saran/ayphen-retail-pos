@@ -38,6 +38,7 @@
 import React, { useCallback, useState } from 'react';
 import {
   StyleProp,
+  TextInput,
   TextInputProps,
   ViewStyle,
 } from 'react-native';
@@ -52,7 +53,7 @@ import {
   type PathValue,
   type RegisterOptions,
 } from 'react-hook-form';
-import { useMobileTheme, useBreakpoint } from '@nks/mobile-theme';
+import { useMobileTheme, useBreakpoint } from '@ayphen/mobile-theme';
 
 import { FormFieldWrapper } from '../form/FormFieldWrapper';
 import { inputStyles } from '../input/style';
@@ -103,23 +104,26 @@ interface TextAreaProps<T extends FieldValues>
 
 // ─── Component ────────────────────────────────────────────────────────────────
 
-export function TextArea<T extends FieldValues>({
-  value,
-  onChange,
-  name,
-  control,
-  rules,
-  style,
-  label,
-  required,
-  disabled  = false,
-  placeholder,
-  minHeight = 100,
-  error,
-  accessibilityHint,
-  testID,
-  ...rest
-}: TextAreaProps<T>) {
+function TextAreaInner<T extends FieldValues>(
+  {
+    value,
+    onChange,
+    name,
+    control,
+    rules,
+    style,
+    label,
+    required,
+    disabled  = false,
+    placeholder,
+    minHeight = 100,
+    error,
+    accessibilityHint,
+    testID,
+    ...rest
+  }: TextAreaProps<T>,
+  forwardedRef: React.ForwardedRef<TextInput>,
+) {
   const { theme }              = useMobileTheme();
   const { scale, fontScale }   = useBreakpoint();
   const [isFocused, setIsFocused] = useState(false);
@@ -140,6 +144,7 @@ export function TextArea<T extends FieldValues>({
       setVal: (v: string) => void,
       onBlurCallback: (() => void) | undefined,
       errorMsg: string | undefined,
+      ref: React.Ref<TextInput> | undefined,
     ): React.ReactElement => (
       <FormFieldWrapper
         label={label}
@@ -149,6 +154,7 @@ export function TextArea<T extends FieldValues>({
         style={[{ marginBottom: theme.sizing.small }, style]}
       >
         <StyledTextArea
+          ref={ref}
           value={val}
           onChangeText={setVal}
           editable={!disabled}
@@ -200,14 +206,22 @@ export function TextArea<T extends FieldValues>({
         }: {
           field:      ControllerRenderProps<T, Path<T>>;
           fieldState: ControllerFieldState;
-        }) =>
-          renderArea(
+        }) => {
+          // Combine RHF's field.ref (needed for setFocus) with any ref the
+          // caller forwarded in, same pattern as Input's refCallback.
+          const combinedRef = (instance: TextInput | null): void => {
+            if (typeof field.ref === 'function') field.ref(instance);
+            if (typeof forwardedRef === 'function') forwardedRef(instance);
+            else if (forwardedRef) forwardedRef.current = instance;
+          };
+          return renderArea(
             (field.value as string | undefined) ?? '',
             (v) => field.onChange(v as PathValue<T, Path<T>>),
             field.onBlur,        // ← previously missing: triggers RHF validation on blur
             fieldState.error?.message,
-          )
-        }
+            combinedRef,
+          );
+        }}
       />
     );
   }
@@ -218,8 +232,13 @@ export function TextArea<T extends FieldValues>({
     onChange ?? (() => {}),
     undefined,
     error,
+    forwardedRef,
   );
 }
+
+export const TextArea = React.forwardRef(TextAreaInner) as <T extends FieldValues>(
+  props: TextAreaProps<T> & { ref?: React.ForwardedRef<TextInput> },
+) => React.ReactElement;
 
 export default TextArea;
 
@@ -233,7 +252,7 @@ interface StyledTextAreaProps {
   $isFocused: boolean;
 }
 
-const StyledTextArea = styled.TextInput<StyledTextAreaProps>`
+const StyledTextArea = styled(TextInput)<StyledTextAreaProps>`
   ${({ theme, hasError, $scale, $fontScale }) => {
     const s = inputStyles(theme, hasError);
     return `

@@ -11,7 +11,7 @@ import {
   PathValue,
   RegisterOptions,
 } from "react-hook-form";
-import { useMobileTheme, useBreakpoint } from "@nks/mobile-theme";
+import { useMobileTheme, useBreakpoint } from "@ayphen/mobile-theme";
 
 import { FormFieldWrapper } from "../form/FormFieldWrapper";
 import { StyledFormInput } from "../form/StyledFormInput";

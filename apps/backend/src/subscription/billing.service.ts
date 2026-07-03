@@ -6,7 +6,7 @@ import {
   UnprocessableEntityException,
 } from '@nestjs/common';
 import type { Redis } from 'ioredis';
-import { MOBILE_REDIS } from '../auth/mobile/services/redis.provider.js';
+import { MOBILE_REDIS } from '#auth/mobile/services/redis.provider.js';
 import { SubscriptionRepository } from './subscription.repository.js';
 import { SubscriptionService } from './subscription.service.js';
 import { PAYMENT_PROVIDER, type PaymentProvider, type PaymentEvent } from './payment/payment-provider.js';

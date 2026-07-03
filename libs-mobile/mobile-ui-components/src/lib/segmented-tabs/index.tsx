@@ -2,7 +2,7 @@ import React from "react";
 import { Platform, ViewStyle } from "react-native";
 import styled, { css } from "styled-components/native";
 import { Typography } from "../typography";
-import { useBreakpoint } from "@nks/mobile-theme";
+import { useBreakpoint } from "@ayphen/mobile-theme";
 
 export type SegmentedTabItem = {
   key: string;

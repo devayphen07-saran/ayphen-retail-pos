@@ -3,7 +3,7 @@ import { Animated, Dimensions, Easing, Modal, View, Pressable } from "react-nati
 import styled from "styled-components/native";
 import { Flex } from "../layout";
 import { LucideIcon } from "../lucide-icon";
-import { useMobileTheme } from "@nks/mobile-theme";
+import { useMobileTheme } from "@ayphen/mobile-theme";
 import { ThemedFlatList } from "../flat-list-scaffold/ThemedFlatList";
 
 type valueType = string | number | undefined | null;

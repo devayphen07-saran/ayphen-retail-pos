@@ -58,8 +58,8 @@ export interface LoginResponse {
   refresh_token: string;
   user: AuthUserResponse;
   is_new_user: boolean;
-  device_guuid: string;
-  device_session_guuid: string;
+  device_id: string;
+  device_session_id: string;
   is_trusted: boolean;
 }
 
@@ -74,10 +74,68 @@ export interface RefreshRequest {
   snapshot_version?: number;
 }
 
+/**
+ * Signed permission snapshot — opaque on the client today (no on-device
+ * verification or offline gating consumes it yet). Kept camelCase, matching
+ * the backend's internal `PermissionSnapshot` shape exactly, since it's
+ * treated as an opaque signed document rather than individually-read fields.
+ */
+export interface PermissionSnapshot {
+  userId: string;
+  permissionsVersion: number;
+  generatedAt: string;
+  globalPermissions: string[];
+  storeLocations: {
+    store_id: string;
+    name: string;
+    default_location_id: string | null;
+    locations: {
+      id: string;
+      name: string;
+      is_primary: boolean;
+      is_default: boolean;
+      is_locked: boolean;
+    }[];
+  }[];
+}
+
 export interface RefreshResponse {
   access_token: string;
   refresh_token: string;
   snapshot_version: number;
+  snapshot: PermissionSnapshot | null;
+  snapshot_signature: string | null;
+  snapshot_changed: boolean;
+  force_bootstrap: boolean;
+  store_access_changed: boolean;
+}
+
+/** Body for REFRESH_CHALLENGE — the refresh token identifies the device. */
+export interface RefreshChallengeRequest {
+  refresh_token: string;
+}
+
+/**
+ * Full session snapshot for an already-authenticated principal — what a
+ * cold-launch refresh (tokens only) is missing relative to a fresh login.
+ */
+export type AccountMode = 'business' | 'personal';
+
+export interface BootstrapResponse {
+  user: AuthUserResponse;
+  device_id: string;
+  device_session_id: string;
+  is_trusted: boolean;
+  permissions_version: number;
+  snapshot: PermissionSnapshot;
+  snapshot_signature: string;
+  last_account_mode: AccountMode | null;
+  has_pending_invitations: boolean;
+  pending_invitation_count: number;
+}
+
+export interface AccountModeRequest {
+  mode: AccountMode;
 }
 
 // ── Sessions ─────────────────────────────────────────────────────────────────

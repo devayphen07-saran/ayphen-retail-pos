@@ -1,6 +1,6 @@
-import { NKSTheme } from "@nks/mobile-theme";
+import { NKSTheme } from "@ayphen/mobile-theme";
 import { TextStyle } from "react-native";
-import { ColorType } from "@nks/mobile-theme";
+import { ColorType } from "@ayphen/mobile-theme";
 
 // ─── Public types ────────────────────────────────────────────────────────────
 

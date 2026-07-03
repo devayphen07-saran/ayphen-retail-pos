@@ -11,10 +11,10 @@
     "outDir": "./dist",
     "allowSyntheticDefaultImports": true,
     "paths": {
-      "@nks/mobile-theme": ["../mobile-theme/src"],
-      "@nks/mobile-theme/*": ["../mobile-theme/src/*"],
-      "@nks/mobile-utils": ["../mobile-utils/src"],
-      "@nks/mobile-utils/*": ["../mobile-utils/src/*"]
+      "@ayphen/mobile-theme": ["../mobile-theme/src"],
+      "@ayphen/mobile-theme/*": ["../mobile-theme/src/*"],
+      "@ayphen/mobile-utils": ["../mobile-utils/src"],
+      "@ayphen/mobile-utils/*": ["../mobile-utils/src/*"]
     }
   },
   "include": ["src/**/*", "../mobile-theme/src/**/*"],

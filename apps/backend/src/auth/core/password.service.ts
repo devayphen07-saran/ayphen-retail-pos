@@ -1,6 +1,6 @@
 import { Injectable } from '@nestjs/common';
 import * as argon2 from 'argon2';
-import { AppConfigService } from '../../config/app-config.service.js';
+import { AppConfigService } from '#config/app-config.service.js';
 
 const ARGON2_OPTIONS: argon2.Options = {
   type:        argon2.argon2id,

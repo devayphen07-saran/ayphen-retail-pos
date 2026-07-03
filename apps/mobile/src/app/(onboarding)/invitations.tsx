@@ -1,0 +1,1 @@
+export { InvitationsScreen as default } from '@features/onboarding/screens/InvitationsScreen';

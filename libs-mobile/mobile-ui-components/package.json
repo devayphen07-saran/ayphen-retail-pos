@@ -1,5 +1,5 @@
 {
-  "name": "@nks/mobile-ui-components",
+  "name": "@ayphen/mobile-ui-components",
   "private": true,
   "version": "1.0.0",
   "description": "Shared UI components for NKS mobile apps",
@@ -16,7 +16,7 @@
     "lint": "tsc --noEmit"
   },
   "dependencies": {
-    "@nks/mobile-theme": "workspace:*",
+    "@ayphen/mobile-theme": "workspace:*",
     "lucide-react-native": "^0.562.0",
     "styled-components": "~6.3.11"
   },

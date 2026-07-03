@@ -13,11 +13,11 @@ import {
   UseInterceptors,
 } from '@nestjs/common';
 import type { Request } from 'express';
-import { parse } from '../../common/validation/parse.js';
+import { parse } from '#common/validation/parse.js';
 import {
   clampLimit,
   type PaginatedResponse,
-} from '../../common/pagination/paginated-response.js';
+} from '#common/pagination/paginated-response.js';
 import { MobileJwtGuard } from './guards/mobile-jwt.guard.js';
 import { SnapshotRefreshInterceptor } from './interceptors/snapshot-refresh.interceptor.js';
 import { AuthLoginService } from './services/auth-login.service.js';
@@ -39,6 +39,8 @@ import {
 import {
   RefreshDtoSchema,
   type RefreshDto,
+  RefreshChallengeDtoSchema,
+  type RefreshChallengeDto,
 } from './dto/request/refresh.request.js';
 import {
   StepUpRequestDtoSchema,
@@ -159,6 +161,21 @@ export class MobileAuthController {
   }
 
   // ── REFRESH ────────────────────────────────────────────────────────────────
+
+  /**
+   * Device-binding challenge for refresh. PUBLIC by necessity: it runs when the
+   * access token has expired (that's why the client is refreshing), so it can't
+   * require one. The refresh token in the body identifies the device; the
+   * server issues a challenge bound to it, the client signs it, and echoes the
+   * signature to `refresh`.
+   */
+  @Post('refresh/challenge')
+  @HttpCode(200)
+  async refreshChallenge(@Body() body: unknown): Promise<ChallengeResponse> {
+    const dto: RefreshChallengeDto = parse(body, RefreshChallengeDtoSchema);
+    const challengeId = await this.tokenService.issueRefreshChallenge(dto.refresh_token);
+    return SessionMapper.toChallengeResponse(challengeId);
+  }
 
   @Post('refresh')
   @HttpCode(200)

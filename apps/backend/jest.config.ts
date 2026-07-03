@@ -38,6 +38,13 @@ const config: Config = {
   // (needed for tsx/native ESM); ts-jest's CommonJS transform doesn't resolve
   // those back to the .ts source, so strip the extension before resolution.
   moduleNameMapper: {
+    // Node subpath aliases (package.json "imports") — ts-jest's CJS resolver
+    // doesn't read the "imports" field, so map them here. Must precede the
+    // generic .js stripper below.
+    '^#db/(.*)\\.js$': '<rootDir>/src/db/$1',
+    '^#common/(.*)\\.js$': '<rootDir>/src/common/$1',
+    '^#config/(.*)\\.js$': '<rootDir>/src/config/$1',
+    '^#auth/(.*)\\.js$': '<rootDir>/src/auth/$1',
     '^(\\.{1,2}/.*)\\.js$': '$1',
   },
   collectCoverageFrom: [

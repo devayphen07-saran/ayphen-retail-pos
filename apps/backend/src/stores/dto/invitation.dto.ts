@@ -15,3 +15,8 @@ export const AcceptInvitationDtoSchema = z.object({
   token: z.string().min(1),
 });
 export type AcceptInvitationDto = z.infer<typeof AcceptInvitationDtoSchema>;
+
+export const RejectInvitationDtoSchema = z.object({
+  token: z.string().min(1),
+});
+export type RejectInvitationDto = z.infer<typeof RejectInvitationDtoSchema>;

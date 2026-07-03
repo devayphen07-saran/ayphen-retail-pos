@@ -1,28 +1,30 @@
 import {
   Body,
   Controller,
+  Get,
   Param,
   Post,
   Req,
   UseGuards,
 } from '@nestjs/common';
 import type { Request } from 'express';
-import { parse } from '../common/validation/parse.js';
-import { MobileJwtGuard } from '../auth/mobile/guards/mobile-jwt.guard.js';
-import { TenantGuard } from '../common/rbac/guards/tenant.guard.js';
-import { PermissionsGuard } from '../common/rbac/guards/permissions.guard.js';
-import { SubscriptionStatusGuard } from '../auth/mobile/guards/subscription-status.guard.js';
+import { parse } from '#common/validation/parse.js';
+import { MobileJwtGuard } from '#auth/mobile/guards/mobile-jwt.guard.js';
+import { TenantGuard } from '#common/rbac/guards/tenant.guard.js';
+import { PermissionsGuard } from '#common/rbac/guards/permissions.guard.js';
+import { SubscriptionStatusGuard } from '#auth/mobile/guards/subscription-status.guard.js';
 import {
   StoreContext,
   RequirePermissions,
   CurrentUser,
-} from '../common/rbac/decorators/rbac.decorators.js';
-import type { MobilePrincipal } from '../auth/mobile/types/mobile-principal.js';
-import type { ResolvedStoreContext } from '../common/rbac/resolved-store-context.js';
+} from '#common/rbac/decorators/rbac.decorators.js';
+import type { MobilePrincipal } from '#auth/mobile/types/mobile-principal.js';
+import type { ResolvedStoreContext } from '#common/rbac/resolved-store-context.js';
 import { InvitationService } from './invitation.service.js';
 import {
   CreateInvitationDtoSchema,
   AcceptInvitationDtoSchema,
+  RejectInvitationDtoSchema,
 } from './dto/invitation.dto.js';
 
 /** Create an invitation — store-scoped, gated by Invitation.create + max_users. */
@@ -63,5 +65,41 @@ export class InvitationController {
   ): Promise<{ storeId: string }> {
     const dto = parse(body, AcceptInvitationDtoSchema);
     return this.invitations.accept(dto.token, user.userId);
+  }
+
+  @Post('reject')
+  async reject(@Body() body: unknown): Promise<{ ok: true }> {
+    const dto = parse(body, RejectInvitationDtoSchema);
+    await this.invitations.reject(dto.token);
+    return { ok: true };
+  }
+}
+
+export interface MyInvitationResponse {
+  id:         string;
+  token:      string;
+  store_id:   string;
+  store_name: string;
+  role_name:  string;
+  expires_at: string;
+}
+
+/** List the authenticated user's own pending invitations (mobile-03 §8D.3/8D.4). */
+@Controller('me')
+@UseGuards(MobileJwtGuard)
+export class MeInvitationsController {
+  constructor(private readonly invitations: InvitationService) {}
+
+  @Get('invitations')
+  async listMine(@CurrentUser() user: MobilePrincipal): Promise<MyInvitationResponse[]> {
+    const rows = await this.invitations.listMyInvitations(user.userId);
+    return rows.map((r) => ({
+      id:         r.id,
+      token:      r.token,
+      store_id:   r.storeId,
+      store_name: r.storeName,
+      role_name:  r.roleName,
+      expires_at: r.expiresAt.toISOString(),
+    }));
   }
 }

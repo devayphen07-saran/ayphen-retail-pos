@@ -1,6 +1,6 @@
 import { Module } from '@nestjs/common';
-import { AuthCoreModule } from '../auth/core/auth-core.module.js';
-import { MobileAuthModule } from '../auth/mobile/mobile-auth.module.js';
+import { AuthCoreModule } from '#auth/core/auth-core.module.js';
+import { MobileAuthModule } from '#auth/mobile/mobile-auth.module.js';
 import { SubscriptionModule } from '../subscription/subscription.module.js';
 import { DeviceAccessRepository } from './device-access.repository.js';
 import { DeviceAccessService } from './device-access.service.js';

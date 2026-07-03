@@ -1,8 +1,8 @@
 import { Inject, Injectable, Logger } from '@nestjs/common';
 import type Redis from 'ioredis';
 
-import { MOBILE_REDIS } from '../../auth/mobile/services/redis.provider.js';
-import type { DbExecutor } from '../../db/db.module.js';
+import { MOBILE_REDIS } from '#auth/mobile/services/redis.provider.js';
+import type { DbExecutor } from '#db/db.module.js';
 import { RbacRepository, type ActiveRole } from './rbac.repository.js';
 import type { EffectivePermissions } from './effective-permissions.js';
 import {

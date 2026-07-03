@@ -87,7 +87,7 @@ export interface EntityDef {
 }
 
 /**
- * 28 entities.
+ * 29 entities.
  *
  * Note:
  * - PersonalExpense / PersonalBudget are kept in the catalogue because they exist
@@ -269,6 +269,12 @@ export const ENTITIES = [
     isOfflineSafe: true,
     supportsAttachments: false,
   },
+  {
+    code: 'Lookup',
+    label: 'Lookup Values',
+    isOfflineSafe: true,
+    supportsAttachments: false,
+  },
 ] as const satisfies readonly EntityDef[];
 
 export type EntityCode = (typeof ENTITIES)[number]['code'];
@@ -340,6 +346,7 @@ export const STORE_OWNER_CRUD: CrudMatrixMap = Object.freeze({
   Note: FULL,
   Address: FULL,
   TaxRate: FULL,
+  Lookup: FULL,
 });
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -490,6 +497,10 @@ export const DEFAULT_ROLE_CRUD: PartialCrudMatrixMap = Object.freeze({
   Attachment: VIEW_CREATE,
   Note: NO_DELETE,
   Address: NO_DELETE,
+  // Staff can read dropdowns (payment terms, reasons, …) but adding/editing/
+  // removing store-custom values is owner-only — not part of the default
+  // custom-role seed (lookup-entity-prd.md §9 BR-2).
+  Lookup: VIEW_ONLY,
 });
 
 /**

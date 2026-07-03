@@ -1,6 +1,7 @@
 import type {
   LoginResult,
   StageOneResult,
+  BootstrapResult,
 } from '../types/auth-result.js';
 import type { RotateResult } from '../services/refresh-token.service.js';
 import type { OtpRequestResult } from '../services/otp-request.service.js';
@@ -11,6 +12,7 @@ import type {
 import type {
   LoginResponse,
   RefreshResponse,
+  BootstrapResponse,
 } from '../dto/response/auth.response.js';
 
 /**
@@ -39,13 +41,13 @@ export const AuthMapper = {
 
   toLoginResponse(r: LoginResult): LoginResponse {
     return {
-      access_token:         r.accessToken,
-      refresh_token:        r.refreshToken,
-      user:                 { id: r.user.id, permissions_version: r.user.permissionsVersion },
-      is_new_user:          r.isNewUser,
-      device_guuid:         r.deviceGuuid,
-      device_session_guuid: r.deviceSessionGuuid,
-      is_trusted:           r.isTrusted,
+      access_token:      r.accessToken,
+      refresh_token:     r.refreshToken,
+      user:              { id: r.user.id, permissions_version: r.user.permissionsVersion },
+      is_new_user:       r.isNewUser,
+      device_id:         r.deviceId,
+      device_session_id: r.deviceSessionId,
+      is_trusted:        r.isTrusted,
     };
   },
 
@@ -54,6 +56,26 @@ export const AuthMapper = {
       access_token:     r.accessToken,
       refresh_token:    r.refreshToken,
       snapshot_version: r.snapshotVersion,
+      snapshot:             r.snapshotResult?.snapshot ?? null,
+      snapshot_signature:   r.snapshotResult?.signature ?? null,
+      snapshot_changed:     r.snapshotResult !== null,
+      force_bootstrap:      false,
+      store_access_changed: r.snapshotResult !== null,
+    };
+  },
+
+  toBootstrapResponse(r: BootstrapResult): BootstrapResponse {
+    return {
+      user:                    { id: r.user.id, permissions_version: r.user.permissionsVersion },
+      device_id:               r.deviceId,
+      device_session_id:       r.deviceSessionId,
+      is_trusted:              r.isTrusted,
+      permissions_version:     r.user.permissionsVersion,
+      snapshot:                r.snapshot,
+      snapshot_signature:      r.snapshotSignature,
+      last_account_mode:       r.lastAccountMode,
+      has_pending_invitations: r.hasPendingInvitations,
+      pending_invitation_count: r.pendingInvitationCount,
     };
   },
 };

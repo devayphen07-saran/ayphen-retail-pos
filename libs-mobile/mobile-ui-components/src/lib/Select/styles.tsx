@@ -1,5 +1,5 @@
 import styled from "styled-components/native";
-import { Animated, Platform, TouchableOpacity, View } from "react-native";
+import { Platform, TouchableOpacity, View } from "react-native";
 import type { DefaultTheme } from "styled-components/native";
 
 interface InputStylesArgs {
@@ -25,33 +25,6 @@ interface SelectTouchableProps extends React.ComponentProps<typeof TouchableOpac
 
 export const SelectGenericContainer = styled.View`
   padding-bottom: ${({ theme }) => theme.sizing.small}px;
-`;
-
-export const SelectBackdrop = styled.Pressable`
-  flex: 1;
-  background-color: rgba(0, 0, 0, 0.18);
-`;
-
-export const SelectAnimatedSheetContainer = styled(Animated.View)`
-  background-color: ${({ theme }) => theme.colorBgLayout};
-  border-top-left-radius: ${({ theme }) => theme.borderRadius.xxLarge + theme.borderRadius.xSmall}px;
-  border-top-right-radius: ${({ theme }) => theme.borderRadius.xxLarge + theme.borderRadius.xSmall}px;
-  padding-top: ${({ theme }) => theme.sizing.small}px;
-  min-height: 260px;
-  max-height: 80%;
-  position: absolute;
-  left: 0;
-  right: 0;
-  bottom: 0;
-`;
-
-export const SelectSheetBar = styled(View)`
-  align-self: center;
-  width: 44px;
-  height: ${({ theme }) => theme.borderRadius.medium}px;
-  border-radius: ${({ theme }) => theme.borderRadius.xSmall}px;
-  background-color: ${({ theme }) => theme.colorBorder};
-  margin-bottom: ${({ theme }) => theme.sizing.xSmall}px;
 `;
 
 export const Separator = styled(View)`

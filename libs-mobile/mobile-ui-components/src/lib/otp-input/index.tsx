@@ -13,7 +13,7 @@ import {
   type RegisterOptions,
 } from "react-hook-form";
 import styled from "styled-components/native";
-import { ColorType } from "@nks/mobile-theme";
+import { ColorType } from "@ayphen/mobile-theme";
 
 import { Typography } from "../typography";
 import { Column, Row } from "../layout/Flex";
@@ -26,6 +26,7 @@ interface OtpInputProps<T extends FieldValues> {
   label?: string;
   rules?: RegisterOptions<T, Path<T>>;
   autoFocus?: boolean;
+  disabled?: boolean;
 }
 
 // ─── Component ───────────────────────────────────────────────────────────
@@ -36,6 +37,7 @@ export function OtpInput<T extends FieldValues>({
   label,
   rules,
   autoFocus = true,
+  disabled = false,
 }: OtpInputProps<T>): React.ReactElement | null {
   return (
     <Controller
@@ -51,6 +53,7 @@ export function OtpInput<T extends FieldValues>({
             length={length}
             hasError={!!error}
             autoFocus={autoFocus}
+            disabled={disabled}
           />
           {error?.message && (
             <Typography.Caption colorType={ColorType.danger}>
@@ -71,6 +74,7 @@ interface OtpRowProps {
   length: number;
   hasError: boolean;
   autoFocus: boolean;
+  disabled: boolean;
 }
 
 function OtpRow({
@@ -79,6 +83,7 @@ function OtpRow({
   length,
   hasError,
   autoFocus,
+  disabled,
 }: OtpRowProps): React.ReactElement | null {
   const refs = useRef<Array<TextInput | null>>(Array(length).fill(null));
 
@@ -137,6 +142,7 @@ function OtpRow({
           keyboardType="number-pad"
           maxLength={i === 0 ? length : 1}
           autoFocus={autoFocus && i === 0}
+          editable={!disabled}
           textContentType={i === 0 ? "oneTimeCode" : "none"}
           autoComplete={
             Platform.OS === "android" && i === 0 ? "sms-otp" : "off"

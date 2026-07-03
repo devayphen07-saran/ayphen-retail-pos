@@ -1,7 +1,7 @@
 import React from "react";
 import { ViewProps } from "react-native";
 import styled from "styled-components/native";
-import { SizeType } from "@nks/mobile-theme";
+import { SizeType } from "@ayphen/mobile-theme";
 
 export type Spacing = keyof SizeType | number;
 

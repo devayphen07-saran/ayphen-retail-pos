@@ -1,0 +1,1 @@
+export { StoreHomeScreen as default } from '@features/store/screens/StoreHomeScreen';

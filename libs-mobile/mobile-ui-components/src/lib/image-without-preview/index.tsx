@@ -1,6 +1,6 @@
 import React, { useState } from "react";
 import styled from "styled-components/native";
-import { useMobileTheme } from "@nks/mobile-theme";
+import { useMobileTheme } from "@ayphen/mobile-theme";
 import { LucideIcon, LucideIconNameType } from "../lucide-icon";
 import { ActivityIndicator } from "react-native";
 

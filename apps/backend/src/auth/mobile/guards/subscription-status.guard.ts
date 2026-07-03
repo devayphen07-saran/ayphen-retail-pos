@@ -10,11 +10,11 @@ import { eq } from 'drizzle-orm';
 import type { PostgresJsDatabase } from 'drizzle-orm/postgres-js';
 import type { Request } from 'express';
 import type { Redis } from 'ioredis';
-import { DRIZZLE } from '../../../db/db.module.js';
-import * as schema from '../../../db/schema.js';
-import { accountSubscriptions } from '../../../db/schema.js';
+import { DRIZZLE } from '#db/db.module.js';
+import * as schema from '#db/schema.js';
+import { accountSubscriptions } from '#db/schema.js';
 import { MOBILE_REDIS } from '../services/redis.provider.js';
-import type { ResolvedStoreContext } from '../../../common/rbac/resolved-store-context.js';
+import type { ResolvedStoreContext } from '#common/rbac/resolved-store-context.js';
 import type { StoreContext } from '../types/store-context.js';
 import {
   subVersionPointerKey,
