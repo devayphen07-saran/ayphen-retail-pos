@@ -9,6 +9,7 @@ import {
 import { ErrorCodes } from '#common/error-codes.js';
 import { EntitlementService } from '../subscription/entitlement.service.js';
 import { AuditService } from '#common/audit/audit.service.js';
+import { TombstoneRepository } from '../sync/repositories/tombstone.repository.js';
 import { LocationRepository, type Location } from './location.repository.js';
 import { UserLocationRepository } from './user-location.repository.js';
 
@@ -48,6 +49,7 @@ export class LocationService {
     private readonly userLocationRepo: UserLocationRepository,
     private readonly entitlements: EntitlementService,
     private readonly audit: AuditService,
+    private readonly tombstones: TombstoneRepository,
     private readonly uow: UnitOfWork,
   ) {}
 
@@ -209,7 +211,20 @@ export class LocationService {
       );
     }
 
-    await this.repo.softDelete(locationId);
+    // Tombstone write is MANDATORY same-tx with the soft-delete (sync-engine.md
+    // §8) — writing it outside the transaction risks the row surviving a
+    // rollback while the tombstone doesn't (or vice versa), either of which
+    // desyncs devices that already cached this location.
+    await this.uow.execute(async (tx) => {
+      await this.repo.softDelete(locationId, tx);
+      await this.tombstones.write(tx, {
+        storeFk: storeId,
+        entityType: 'location',
+        entityGuuid: loc.guuid,
+        entityId: locationId,
+        deletedByUserFk: actorId,
+      });
+    });
     await this.audit.log({
       event: 'LOCATION_DELETED', activityType: 'PERMISSION_CHANGED',
       prefix: 'Location', suffix: `"${loc.name}" deleted`,

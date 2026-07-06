@@ -20,6 +20,7 @@ import {
   sanitizeError,
 } from '../network/interceptors';
 import { resetSubscriptionFreshness } from '../network/subscription-freshness';
+import { resetPermissionFreshness } from '../network/permission-freshness';
 import { getDevicePublicKey } from '../auth/device-key';
 import {
   getAccessToken,
@@ -53,6 +54,7 @@ function delay(ms: number): Promise<void> {
 function clearSession(): void {
   useAuthStore.getState().clear();
   resetSubscriptionFreshness();
+  resetPermissionFreshness();
 }
 
 /** Hydrates authStore's `lastOpenedStoreId` cache from AsyncStorage once at
@@ -194,6 +196,12 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         // Subscription version advanced (or a lapse was observed) — silent
         // background refetch; the banner/entitlements swap in-place.
         void queryClient.invalidateQueries({ queryKey: subscriptionKeys.detail() });
+      },
+      () => {
+        // Permissions version advanced (role/permission change) — refetch
+        // bootstrap for a fresh signed snapshot; local UX gates (usePermission)
+        // pick it up automatically since they read straight from authStore.
+        void fetchBootstrap();
       },
     );
 

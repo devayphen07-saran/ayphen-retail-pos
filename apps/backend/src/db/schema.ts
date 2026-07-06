@@ -126,6 +126,7 @@ export const locations = pgTable(
     archivedAt:   timestamp('archived_at', { withTimezone: true }),
     createdAt:    timestamp('created_at',  { withTimezone: true }).notNull().defaultNow(),
     updatedAt:    timestamp('updated_at',  { withTimezone: true }).notNull().defaultNow(),
+    ...syncColumns(), // pull-only for now (sync-engine.md §4) — no mutation handler yet
   },
   (t) => [
     // Exactly one Head Office per store, and exactly one default per store
@@ -137,6 +138,7 @@ export const locations = pgTable(
     // (two concurrent requests can both pass the pre-check before either
     // inserts) — the DB is the actual source of truth for uniqueness.
     uniqueIndex('uk_location_name').on(t.storeFk, sql`lower(${t.name})`).where(sql`${t.isActive} = true`),
+    index('idx_locations_sync').on(t.storeFk, t.modifiedAt, t.id),
   ],
 );
 

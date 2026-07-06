@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from 'react';
 import { ActivityIndicator, View } from 'react-native';
+import { SafeAreaView } from 'react-native-safe-area-context';
 import { router, useLocalSearchParams } from 'expo-router';
 import styled from 'styled-components/native';
 import { useMobileTheme } from '@ayphen/mobile-theme';
@@ -43,6 +44,7 @@ function asRazorpayOrder(res: CheckoutSubscriptionResponse): RazorpayOrderFields
  * final.
  */
 export function SubscriptionCheckoutScreen() {
+  const { theme } = useMobileTheme();
   const { planCode } = useLocalSearchParams<Params>();
   const checkout = useCheckoutSubscriptionMutation();
   const verify = useVerifySubscriptionPaymentMutation();
@@ -105,28 +107,37 @@ export function SubscriptionCheckoutScreen() {
     router.back();
   };
 
-  return (
-    <AppLayout title="Checkout" onBack={() => router.back()}>
-      {!order || !prefill ? (
+  // Razorpay's hosted checkout.js renders its own header (back arrow wired to
+  // `modal.ondismiss` → onDismiss below, plus a language toggle) — once the
+  // WebView is up, our own header would just be a second, redundant back
+  // button stacked above theirs. Only show ours while there's nothing else
+  // on screen to navigate away from (i.e. before the order exists yet).
+  if (!order || !prefill) {
+    return (
+      <AppLayout title="Checkout" onBack={() => router.back()}>
         <CheckoutLoadingState />
-      ) : (
-        <RazorpayCheckoutWebView
-          keyId={order.key}
-          orderId={order.order_id}
-          amount={order.amount}
-          currency={order.currency}
-          prefill={prefill}
-          onSuccess={handleSuccess}
-          onDismiss={handleDismiss}
-          onFailure={handleFailure}
-        />
-      )}
+      </AppLayout>
+    );
+  }
+
+  return (
+    <SafeAreaView style={{ flex: 1, backgroundColor: theme.colorBgContainer }} edges={['top']}>
+      <RazorpayCheckoutWebView
+        keyId={order.key}
+        orderId={order.order_id}
+        amount={order.amount}
+        currency={order.currency}
+        prefill={prefill}
+        onSuccess={handleSuccess}
+        onDismiss={handleDismiss}
+        onFailure={handleFailure}
+      />
       {/* Razorpay's modal closes the instant it hands us the payment result,
           leaving the WebView blank while we finalize. verify() is the critical,
           irreversible step — block interaction behind an overlay so the user
           can't background/back out mid-confirmation (loading-agent.md §3). */}
       <OverlayLoader visible={verify.isPending} message="Confirming payment…" />
-    </AppLayout>
+    </SafeAreaView>
   );
 }
 

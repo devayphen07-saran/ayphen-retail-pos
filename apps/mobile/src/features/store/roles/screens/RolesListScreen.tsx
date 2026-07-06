@@ -14,6 +14,7 @@ import {
 } from '@ayphen/mobile-ui-components';
 import { useRolesQuery } from '@ayphen/api-manager';
 import { useActiveStoreStore } from '@store';
+import { usePermission } from '@core/auth/usePermission';
 import { RolesListLoading } from '../loading/RolesListLoading';
 
 /** Custom roles + permission matrix — reached from More > Staff & Roles > Roles
@@ -26,18 +27,23 @@ export function RolesListScreen() {
   const { data: roles, isLoading, isError, refetch, isRefetching } = useRolesQuery(storeId, {
     enabled: !!storeId,
   });
+  // Local UX gating only — the create endpoint is still enforced server-side
+  // regardless of this check (see usePermission.ts / permission-check.ts).
+  const canCreateRole = usePermission('Role', 'create');
 
   return (
     <AppLayout
       title="Roles"
       onBack={() => router.back()}
       rightElement={
-        <IconButton
-          iconName="Plus"
-          variant="default"
-          accessibilityLabel="Create role"
-          onPress={() => router.push('/(store)/role-create')}
-        />
+        canCreateRole ? (
+          <IconButton
+            iconName="Plus"
+            variant="default"
+            accessibilityLabel="Create role"
+            onPress={() => router.push('/(store)/role-create')}
+          />
+        ) : undefined
       }
     >
       <ScrollView
@@ -55,7 +61,11 @@ export function RolesListScreen() {
           error="Couldn't load roles."
           emptyTitle="No custom roles yet"
           emptyDescription="Create a role to tailor what your staff can do."
-          emptyAction={{ label: 'Create role', onPress: () => router.push('/(store)/role-create') }}
+          emptyAction={
+            canCreateRole
+              ? { label: 'Create role', onPress: () => router.push('/(store)/role-create') }
+              : undefined
+          }
           onRetry={() => refetch()}
         >
           {() => (

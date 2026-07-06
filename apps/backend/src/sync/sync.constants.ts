@@ -99,6 +99,7 @@ export const SYNC_ENTITY_TYPES = [
   'lookup',
   'payment_method',
   'taxrate',
+  'location',
   'product',
   'product_case',
   'paymentaccount',

@@ -148,6 +148,20 @@
       "when": 1783280676063,
       "tag": "0020_lying_caretaker",
       "breakpoints": true
+    },
+    {
+      "idx": 21,
+      "version": "7",
+      "when": 1783336277414,
+      "tag": "0021_small_azazel",
+      "breakpoints": true
+    },
+    {
+      "idx": 22,
+      "version": "7",
+      "when": 1783336277415,
+      "tag": "0022_locations_sync_trigger",
+      "breakpoints": true
     }
   ]
 }

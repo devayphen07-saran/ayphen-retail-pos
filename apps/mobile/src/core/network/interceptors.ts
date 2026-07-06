@@ -42,6 +42,7 @@ import {
 import { signChallenge } from '../auth/device-key';
 import { useAuthStore } from '@store';
 import { observeSubscriptionVersion } from './subscription-freshness';
+import { observePermissionsVersion } from './permission-freshness';
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Public endpoints
@@ -367,6 +368,26 @@ function readSubscriptionHeaders(
   }
 }
 
+// ─────────────────────────────────────────────────────────────────────────────
+// Permissions freshness (rbac.md — X-Permissions-Version)
+// ─────────────────────────────────────────────────────────────────────────────
+
+function readPermissionsHeaders(
+  headers: AxiosResponse['headers'] | undefined,
+  onPermissionsStale: () => void,
+): void {
+  if (!headers) return;
+  const version = headers['x-permissions-version'];
+  if (typeof version === 'string') {
+    const n = Number(version);
+    // observePermissionsVersion returns true only when the version actually
+    // advanced — dedupes duplicate/out-of-order headers so we refetch once.
+    if (Number.isFinite(n) && observePermissionsVersion(n)) {
+      onPermissionsStale();
+    }
+  }
+}
+
 /** Pull `{ code, details }` out of the backend's `{ error: { errorCode, ... } }`
  *  (or root-level) error envelope — mirrors api-manager's own `normalizeError`
  *  since this module doesn't import that package (network/ sits below it). */
@@ -414,6 +435,7 @@ function observeSubscriptionError(
 export function installAuthInterceptors(
   onAuthLost: () => void,
   onSubscriptionStale: () => void,
+  onPermissionsStale: () => void,
 ): () => void {
   const requestInterceptorId = API.interceptors.request.use(
     async (config: InternalAxiosRequestConfig) => {
@@ -448,11 +470,13 @@ export function installAuthInterceptors(
     (response: AxiosResponse) => {
       updateServerTimeOffset(extractEnvelopeTimestamp(response.data));
       readSubscriptionHeaders(response.headers, onSubscriptionStale);
+      readPermissionsHeaders(response.headers, onPermissionsStale);
       return response;
     },
     async (error: AxiosError) => {
       updateServerTimeOffset(extractEnvelopeTimestamp(error.response?.data));
       readSubscriptionHeaders(error.response?.headers, onSubscriptionStale);
+      readPermissionsHeaders(error.response?.headers, onPermissionsStale);
       observeSubscriptionError(error.response?.status, error.response?.data, error.config?.url, onSubscriptionStale);
 
       const original = error.config as RetriableConfig | undefined;
