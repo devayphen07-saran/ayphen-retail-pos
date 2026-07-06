@@ -10,8 +10,8 @@ export const FormSection = styled(View)`
 `;
 
 export const FormSectionLabel = styled(Typography.Caption)`
-  font-size: 11px;
-  font-weight: 700;
+  font-size: ${({ theme }) => theme.fontSize.xSmall}px;
+  font-weight: ${({ theme }) => theme.fontWeight['700']};
   letter-spacing: 1.2px;
   color: ${({ theme }) => theme.colorTextTertiary};
   margin-bottom: ${({ theme }) => theme.sizing.xSmall}px;
@@ -21,14 +21,14 @@ export const FormSectionLabel = styled(Typography.Caption)`
 export const FormInputWrapper = styled(View)`
   padding: ${({ theme }) => theme.sizing.small}px
     ${({ theme }) => theme.sizing.medium}px;
-  gap: 6px;
+  gap: ${({ theme }) => theme.sizing.xSmall}px;
 `;
 
 export const FormBottomSpacer = styled(View)`
-  height: 40px;
+  height: ${({ theme }) => theme.sizing.xxLarge}px;
 `;
 
 export const FormFieldHint = styled(Typography.Caption)`
-  font-size: 11px;
+  font-size: ${({ theme }) => theme.fontSize.xSmall}px;
   color: ${({ theme }) => theme.colorTextTertiary};
 `;

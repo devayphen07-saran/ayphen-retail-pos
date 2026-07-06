@@ -1,12 +1,14 @@
 import React, { useEffect, useRef } from 'react';
 import { View, Animated } from 'react-native';
 import styled from 'styled-components/native';
+import { useMobileTheme } from '@ayphen/mobile-theme';
 
 interface SkeletonLoaderProps {
   rows?: number;
 }
 
 export const SkeletonLoader: React.FC<SkeletonLoaderProps> = ({ rows = 2 }) => {
+  const { theme } = useMobileTheme();
   const opacity = useRef(new Animated.Value(0.4)).current;
 
   useEffect(() => {
@@ -27,14 +29,38 @@ export const SkeletonLoader: React.FC<SkeletonLoaderProps> = ({ rows = 2 }) => {
           <Card>
             <TopRow>
               <TitleGroup>
-                <Bone style={{ width: '58%', height: 13 }} />
-                <Bone style={{ width: '36%', height: 10, marginTop: 8 }} />
+                <Bone style={{ width: '58%', height: theme.sizing.small }} />
+                <Bone
+                  style={{
+                    width: '36%',
+                    height: theme.sizing.small,
+                    marginTop: theme.sizing.xSmall,
+                  }}
+                />
               </TitleGroup>
-              <Bone style={{ width: 54, height: 22, borderRadius: 4 }} />
+              <Bone
+                style={{
+                  width: theme.sizing.xxLarge,
+                  height: theme.sizing.large,
+                  borderRadius: theme.borderRadius.small,
+                }}
+              />
             </TopRow>
             <BottomRow>
-              <Bone style={{ width: 14, height: 14, borderRadius: 7 }} />
-              <Bone style={{ width: '30%', height: 10, marginLeft: 8 }} />
+              <Bone
+                style={{
+                  width: theme.sizing.medium,
+                  height: theme.sizing.medium,
+                  borderRadius: theme.borderRadius.full,
+                }}
+              />
+              <Bone
+                style={{
+                  width: '30%',
+                  height: theme.sizing.small,
+                  marginLeft: theme.sizing.xSmall,
+                }}
+              />
             </BottomRow>
           </Card>
         </Animated.View>
@@ -64,7 +90,7 @@ const TopRow = styled(View)`
 
 const TitleGroup = styled(View)`
   flex: 1;
-  margin-right: 16px;
+  margin-right: ${({ theme }) => theme.sizing.medium}px;
 `;
 
 const BottomRow = styled(View)`
@@ -75,5 +101,5 @@ const BottomRow = styled(View)`
 
 const Bone = styled(View)`
   background-color: ${({ theme }) => theme.colorFill ?? theme.colorBorder};
-  border-radius: 6px;
+  border-radius: ${({ theme }) => theme.borderRadius.medium}px;
 `;

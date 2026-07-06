@@ -5,7 +5,7 @@ import {
   useWindowDimensions,
   ModalProps,
 } from "react-native";
-import styled, { css } from "styled-components/native";
+import styled, { css, useTheme } from "styled-components/native";
 
 export interface BaseModalProps {
   visible: boolean;
@@ -24,11 +24,14 @@ export const BaseModal: React.FC<BaseModalProps> = ({
   children,
   animationType = "slide",
   transparent = true,
-  backdropColor = "rgba(0,0,0,0.5)",
+  backdropColor,
   position = "center",
   disableBackdropPress = false,
 }) => {
   const { height, width } = useWindowDimensions();
+  const theme = useTheme();
+  // A param default can't reference theme, so resolve the token here.
+  const resolvedBackdropColor = backdropColor ?? theme.overlay.scrim;
 
   const handleBackdropPress = () => {
     if (!disableBackdropPress && onClose) {
@@ -45,7 +48,7 @@ export const BaseModal: React.FC<BaseModalProps> = ({
       statusBarTranslucent
     >
       <TouchableWithoutFeedback onPress={handleBackdropPress}>
-        <Backdrop $backdropColor={backdropColor}>
+        <Backdrop $backdropColor={resolvedBackdropColor}>
           <TouchableWithoutFeedback>
             <ModalContainer $position={position} $width={width} $height={height}>{children}</ModalContainer>
           </TouchableWithoutFeedback>

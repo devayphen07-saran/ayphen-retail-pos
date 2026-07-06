@@ -1,5 +1,5 @@
 import { useLocalSearchParams } from 'expo-router';
-import { StoreEntryScreen } from '@features/store/screens/StoreEntryScreen';
+import { StoreEntryScreen } from '@features/store/home/screens/StoreEntryScreen';
 
 type Params = { storeId: string };
 

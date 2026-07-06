@@ -13,6 +13,8 @@ import {
   UseInterceptors,
 } from '@nestjs/common';
 import type { Request } from 'express';
+import { Throttle } from '@nestjs/throttler';
+import { Public } from '#common/rbac/decorators/rbac.decorators.js';
 import { parse } from '#common/validation/parse.js';
 import {
   clampLimit,
@@ -45,7 +47,6 @@ import {
 import {
   StepUpRequestDtoSchema,
   StepUpVerifyDtoSchema,
-  type StepUpRequestDto,
   type StepUpVerifyDto,
 } from './dto/request/step-up.request.js';
 
@@ -66,16 +67,7 @@ import { AuthMapper } from './mappers/auth.mapper.js';
 import { SessionMapper } from './mappers/session.mapper.js';
 import { DeviceRequestMapper } from './mappers/device.request-mapper.js';
 import type { MobilePrincipal } from './types/mobile-principal.js';
-
-function getIp(req: Request): string {
-  return (
-    (req.headers['x-forwarded-for'] as string | undefined)
-      ?.split(',')[0]
-      ?.trim() ??
-    req.socket.remoteAddress ??
-    '0.0.0.0'
-  );
-}
+import { getRequestIp } from '#common/request-ip.js';
 
 function principalOf(req: Request): MobilePrincipal {
   return req.user as MobilePrincipal;
@@ -94,7 +86,11 @@ export class MobileAuthController {
 
   // ── LOGIN ──────────────────────────────────────────────────────────────────
 
+  // OTP send triggers an SMS — a coarse per-IP backstop under the per-phone/IP
+  // Redis limiters in the service (defence in depth, cluster-wide via Redis storage).
+  @Public()
   @Post('login/otp')
+  @Throttle({ global: { limit: 5, ttl: 60_000 } })
   @HttpCode(200)
   async loginRequest(
     @Body() body: unknown,
@@ -103,13 +99,15 @@ export class MobileAuthController {
     const dto: OtpRequestDto = parse(body, OtpRequestDtoSchema);
     const result = await this.loginService.loginStageOne(
       dto.phone,
-      getIp(req),
+      getRequestIp(req),
       dto.resend_of,
     );
     return AuthMapper.toOtpChallengeResponse(result);
   }
 
+  @Public()
   @Post('login/verify')
+  @Throttle({ global: { limit: 10, ttl: 60_000 } })
   @HttpCode(200)
   async loginVerify(
     @Body() body: unknown,
@@ -121,14 +119,16 @@ export class MobileAuthController {
       dto.otp_code,
       dto.otp_request_id,
       DeviceRequestMapper.toDomain(dto.device),
-      getIp(req),
+      getRequestIp(req),
     );
     return AuthMapper.toLoginResponse(result);
   }
 
   // ── SIGNUP ─────────────────────────────────────────────────────────────────
 
+  @Public()
   @Post('signup/otp')
+  @Throttle({ global: { limit: 5, ttl: 60_000 } })
   @HttpCode(200)
   async signupRequest(
     @Body() body: unknown,
@@ -137,12 +137,14 @@ export class MobileAuthController {
     const dto: OtpRequestDto = parse(body, OtpRequestDtoSchema);
     const result = await this.signupService.signupStageOne(
       dto.phone,
-      getIp(req),
+      getRequestIp(req),
     );
     return AuthMapper.toOtpChallengeResponse(result);
   }
 
+  @Public()
   @Post('signup/verify')
+  @Throttle({ global: { limit: 10, ttl: 60_000 } })
   @HttpCode(201)
   async signupVerify(
     @Body() body: unknown,
@@ -155,7 +157,7 @@ export class MobileAuthController {
       dto.otp_request_id,
       dto.name,
       DeviceRequestMapper.toDomain(dto.device),
-      getIp(req),
+      getRequestIp(req),
     );
     return AuthMapper.toLoginResponse(result);
   }
@@ -169,14 +171,18 @@ export class MobileAuthController {
    * server issues a challenge bound to it, the client signs it, and echoes the
    * signature to `refresh`.
    */
+  @Public()
   @Post('refresh/challenge')
   @HttpCode(200)
   async refreshChallenge(@Body() body: unknown): Promise<ChallengeResponse> {
     const dto: RefreshChallengeDto = parse(body, RefreshChallengeDtoSchema);
-    const challengeId = await this.tokenService.issueRefreshChallenge(dto.refresh_token);
+    const challengeId = await this.tokenService.issueRefreshChallenge(
+      dto.refresh_token,
+    );
     return SessionMapper.toChallengeResponse(challengeId);
   }
 
+  @Public()
   @Post('refresh')
   @HttpCode(200)
   async refresh(@Body() body: unknown): Promise<RefreshResponse> {
@@ -258,8 +264,13 @@ export class MobileAuthController {
     @Body() body: unknown,
     @Req() req: Request,
   ): Promise<OtpChallengeResponse> {
-    const dto: StepUpRequestDto = parse(body, StepUpRequestDtoSchema);
-    const result = await this.loginService.loginStageOne(dto.phone, getIp(req));
+    // Validate the body shape but IGNORE any client-supplied phone — step-up
+    // OTP always targets the authenticated user's own registered number.
+    parse(body, StepUpRequestDtoSchema);
+    const result = await this.loginService.stepUpStageOne(
+      principalOf(req).userId,
+      getRequestIp(req),
+    );
     return AuthMapper.toOtpChallengeResponse(result);
   }
 

@@ -123,10 +123,14 @@ export function AmountInput<T extends FieldValues>(
         style={props.containerStyle}
       >
         <StyledFormFieldFrame
-          hasError={!!error}
-          disabled={props.disabled}
+          $hasError={!!error}
+          $disabled={props.disabled}
           $scale={scale}
-          style={{ marginBottom: props.helperText ? 4 : 13 }}
+          style={{
+            marginBottom: props.helperText
+              ? theme.sizing.xxSmall
+              : theme.sizing.small,
+          }}
         >
           {props.symbolAsPrefix ? (
             <SymbolText accessibilityElementsHidden>{resolved.symbol}</SymbolText>
@@ -138,7 +142,7 @@ export function AmountInput<T extends FieldValues>(
             placeholder={formatForDisplay(0)}
             placeholderTextColor={placeholderColor}
             keyboardType="number-pad"
-            hasError={!!error}
+            $hasError={!!error}
             $fontScale={fontScale}
             accessibilityLabel={props.label ?? "Amount"}
             accessibilityRole="text"
@@ -192,26 +196,26 @@ export function AmountInput<T extends FieldValues>(
 }
 
 const SymbolText = styled(Typography.Subtitle)`
-  margin-right: 8px;
+  margin-right: ${({ theme }) => theme.sizing.xSmall}px;
   color: ${({ theme }) => theme.colorTextSecondary || theme.colorText};
 `;
 
 const HelperText = styled(Typography.Caption)`
   color: ${({ theme }) => theme.colorTextSecondary};
-  margin-left: 3px;
-  margin-bottom: 13px;
+  margin-left: ${({ theme }) => theme.sizing.xxSmall}px;
+  margin-bottom: ${({ theme }) => theme.sizing.small}px;
 `;
 
 const AmountTextInput = styled.TextInput<{
-  hasError?: boolean;
+  $hasError?: boolean;
   $fontScale: number;
 }>`
   flex: 1;
   text-align: right;
   font-family: ${({ theme }) => theme.fontFamily.poppinsMedium};
   font-size: ${({ theme, $fontScale }) => theme.fontSize.medium * $fontScale}px;
-  color: ${({ theme, hasError }) =>
-    hasError ? theme.colorError : theme.colorText};
+  color: ${({ theme, $hasError }) =>
+    $hasError ? theme.colorError : theme.colorText};
 `;
 
 export default AmountInput;

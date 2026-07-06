@@ -1,0 +1,1 @@
+ALTER TABLE "account_subscriptions" ADD COLUMN "plan_code" text;

@@ -6,6 +6,7 @@ import { StoreContext } from '#common/rbac/decorators/rbac.decorators.js';
 import { LookupService } from './lookup.service.js';
 import { LookupTypeMapper, type LookupTypeResponse } from './lookup-type.mapper.js';
 import { CreateLookupTypeDtoSchema } from './dto/lookup.dto.js';
+import { LookupRequestMapper } from './lookup.request-mapper.js';
 
 /** Lookup category management (lookup-entity-prd.md §7) — platform-admin only. */
 @Controller('lookup/types')
@@ -23,7 +24,7 @@ export class LookupTypeController {
   @Post()
   async create(@Body() body: unknown): Promise<LookupTypeResponse> {
     const dto = parse(body, CreateLookupTypeDtoSchema);
-    const row = await this.lookup.createType(dto);
+    const row = await this.lookup.createType(LookupRequestMapper.toCreateTypeCommand(dto));
     return LookupTypeMapper.toResponse(row);
   }
 }

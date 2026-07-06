@@ -37,6 +37,8 @@ export const shadow = {
 export const overlay = {
   scrim: "rgba(0, 0, 0, 0.6)",
   scrimSoft: "rgba(0, 0, 0, 0.4)",
+  /** Heavy scrim for media viewers / lightboxes where content must recede fully. */
+  scrimStrong: "rgba(0, 0, 0, 0.85)",
   onDark04: "rgba(255, 255, 255, 0.04)",
   onDark06: "rgba(255, 255, 255, 0.06)",
   onDark08: "rgba(255, 255, 255, 0.08)",
@@ -95,4 +97,10 @@ export const componentSizing = {
   ctaBtnHeight: 54,
   /** Logo / app-icon box on hero surfaces. */
   heroBrandIconSize: 36,
+  /** Button size ladder — fixed heights, off the spacing scale. */
+  btnHeightXsm: 26,
+  btnHeightSm: 32,
+  btnHeightMd: 40,
+  btnHeightLg: 48,
+  btnHeightXlg: 56,
 } as const;

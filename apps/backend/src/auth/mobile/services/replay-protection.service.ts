@@ -1,5 +1,7 @@
-import { Inject, Injectable, UnauthorizedException } from '@nestjs/common';
+import { Inject, Injectable } from '@nestjs/common';
 import Redis from 'ioredis';
+import { UnauthorizedError } from '#common/exceptions/app.exception.js';
+import { ErrorCodes } from '#common/error-codes.js';
 import { MOBILE_REDIS } from './redis.provider.js';
 
 const NONCE_TTL_SECONDS = 600; // 10 min
@@ -11,18 +13,18 @@ export class ReplayProtectionService {
 
   async check(deviceId: string, timestampHeader: string | undefined, nonceHeader: string | undefined): Promise<void> {
     if (!timestampHeader || !nonceHeader) {
-      throw new UnauthorizedException('REPLAY_DETECTED');
+      throw new UnauthorizedError(ErrorCodes.REPLAY_DETECTED, 'Missing replay-protection headers');
     }
 
     const ts = Number(timestampHeader);
     if (isNaN(ts) || Math.abs(Date.now() - ts) > TIMESTAMP_DRIFT_MS) {
-      throw new UnauthorizedException('REPLAY_DETECTED');
+      throw new UnauthorizedError(ErrorCodes.REPLAY_DETECTED, 'Request timestamp outside the allowed window');
     }
 
     const key = `nonce:${deviceId}:${nonceHeader}`;
     const set = await this.redis.set(key, '1', 'EX', NONCE_TTL_SECONDS, 'NX');
     if (!set) {
-      throw new UnauthorizedException('REPLAY_DETECTED');
+      throw new UnauthorizedError(ErrorCodes.REPLAY_DETECTED, 'Request nonce has already been used');
     }
   }
 }

@@ -7,10 +7,15 @@ export const StepUpRequestDtoSchema = z.object({
 });
 export type StepUpRequestDto = z.infer<typeof StepUpRequestDtoSchema>;
 
-/** Verify a step-up challenge (otp_sms / biometric / totp / password_reentry). */
+/**
+ * Verify a step-up challenge. Only otp_sms and biometric are implemented
+ * (StepUpService.verifyMethod) — the enum is intentionally narrow so the
+ * client contract doesn't advertise methods the server can't deliver; widen
+ * it only alongside a real implementation of the new method.
+ */
 export const StepUpVerifyDtoSchema = z
   .object({
-    method:                  z.enum(['otp_sms', 'biometric', 'totp', 'password_reentry']),
+    method:                  z.enum(['otp_sms', 'biometric']),
     credential:              z.string().min(1),
     otp_request_id:          z.string().uuid().optional(),
     challenge_id:            z.string().uuid().optional(),

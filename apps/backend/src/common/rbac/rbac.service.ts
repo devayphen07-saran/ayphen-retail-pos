@@ -19,7 +19,6 @@ import {
   CRUD_ACTIONS,
   isEntityCode,
   type CrudAction,
-  type EntityCode,
 } from './permission-matrix.constants.js';
 
 // ─── Redis cache keys + TTLs ──────────────────────────────────────────────────
@@ -128,7 +127,10 @@ export class RbacService {
 
     const crud: EffectivePermissions['crud'] = new Map();
     for (const row of crudRows) {
-      const entity = row.entityCode as EntityCode;
+      // Drop rows whose entity_code is no longer in the matrix (decommissioned)
+      // instead of asserting — fail-closed, and `entity` is genuinely EntityCode.
+      if (!isEntityCode(row.entityCode)) continue;
+      const entity = row.entityCode;
       const current = crud.get(entity) ?? {
         view: false,
         create: false,
@@ -142,7 +144,8 @@ export class RbacService {
 
     const special: EffectivePermissions['special'] = new Map();
     for (const row of specialRows) {
-      const entity = row.entityCode as EntityCode;
+      if (!isEntityCode(row.entityCode)) continue;
+      const entity = row.entityCode;
       const current = special.get(entity) ?? new Set<string>();
       current.add(row.actionCode);
       special.set(entity, current);

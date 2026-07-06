@@ -2,9 +2,11 @@ import { useEffect, useMemo } from 'react';
 import { Redirect } from 'expo-router';
 import { useQueryClient } from '@tanstack/react-query';
 import { prefetchGlobalLookup, prefetchStates, prefetchCurrencies } from '@ayphen/api-manager';
-import { useAuthStore } from '@features/auth/authStore';
+import { useAuthStore } from '@store';
+import { useAuth } from '@core/providers/AuthProvider';
 import { BootstrapLoader } from '@ui/BootstrapLoader';
-import { BUSINESS_CATEGORY_TYPE } from '@features/store/selects/BusinessTypeSelect';
+import { ConnectionGateScreen } from '@ui/ConnectionGateScreen';
+import { BUSINESS_CATEGORY_TYPE } from '@features/store';
 
 /**
  * Post-login routing gate (mobile-03 §4 step 3-4, §8D.2). Runs every time
@@ -13,7 +15,9 @@ import { BUSINESS_CATEGORY_TYPE } from '@features/store/selects/BusinessTypeSele
  */
 export default function AppGate() {
   const isBootstrapped = useAuthStore((s) => s.isBootstrapped);
+  const bootstrapFailed = useAuthStore((s) => s.bootstrapFailed);
   const isLastOpenedResolved = useAuthStore((s) => s.isLastOpenedResolved);
+  const { refetchUser, logout } = useAuth();
   const lastOpenedStoreId = useAuthStore((s) => s.lastOpenedStoreId);
   const lastAccountMode = useAuthStore((s) => s.lastAccountMode);
   // `snapshot` itself is a stable reference from the store — deriving the
@@ -51,6 +55,18 @@ export default function AppGate() {
   // routingReady waits on both too); this fallback only actually renders on
   // a mid-session re-login, where there's no native splash left to hold.
   if (!isBootstrapped || !isLastOpenedResolved) {
+    // Bootstrap exhausted its retries — offer a manual retry instead of
+    // spinning forever or (worse) routing to mode-select on stale null data.
+    // The session itself is fine; only the snapshot fetch failed.
+    if (bootstrapFailed) {
+      return (
+        <ConnectionGateScreen
+          onRetry={refetchUser}
+          onLogout={logout}
+          message="We couldn't load your account. Check your connection and try again."
+        />
+      );
+    }
     return <BootstrapLoader />;
   }
 

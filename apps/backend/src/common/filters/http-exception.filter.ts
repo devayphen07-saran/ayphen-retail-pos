@@ -4,6 +4,7 @@ import {
   ExceptionFilter,
   HttpException,
   HttpStatus,
+  Logger,
 } from '@nestjs/common';
 import { Response, Request } from 'express';
 import { ThrottlerException } from '@nestjs/throttler';
@@ -26,6 +27,8 @@ function humanize(code: string): string {
 
 @Catch()
 export class AllExceptionsFilter implements ExceptionFilter {
+  private readonly logger = new Logger(AllExceptionsFilter.name);
+
   catch(exception: unknown, host: ArgumentsHost): void {
     const ctx       = host.switchToHttp();
     const response  = ctx.getResponse<Response>();
@@ -36,6 +39,7 @@ export class AllExceptionsFilter implements ExceptionFilter {
     let errorCode: string = ErrorCodes.INTERNAL_ERROR;
     let message:   string = 'Internal server error';
     let issues:    unknown[] | undefined;
+    let details:   Record<string, unknown> | undefined;
 
     if (exception instanceof ThrottlerException) {
       status    = HttpStatus.TOO_MANY_REQUESTS;
@@ -52,6 +56,7 @@ export class AllExceptionsFilter implements ExceptionFilter {
       // Humanize it so clients get prose, not a raw code — matching the
       // bare-HttpException branch below.
       message   = SCREAMING_SNAKE.test(raw) ? humanize(raw) : raw;
+      details   = exception.details;
 
     } else if (exception instanceof HttpException) {
       // 2 & 3. NestJS built-in exceptions (guards, pipes, etc.)
@@ -70,9 +75,9 @@ export class AllExceptionsFilter implements ExceptionFilter {
           if (Array.isArray(b['issues'])) issues = b['issues'] as unknown[];
         } else if (typeof b['message'] === 'string') {
           const raw = b['message'];
-          if (b['errorCode']) {
+          if (typeof b['errorCode'] === 'string') {
             message   = raw;
-            errorCode = b['errorCode'] as string;
+            errorCode = b['errorCode'];
           } else if (SCREAMING_SNAKE.test(raw)) {
             // Guard pattern: `throw new ForbiddenException('STORE_NOT_FOUND')`.
             // The code lands in `message`; promote it to errorCode (rbac.md §22)
@@ -83,6 +88,11 @@ export class AllExceptionsFilter implements ExceptionFilter {
             message   = raw;
             errorCode = ErrorCodes.INTERNAL_ERROR;
           }
+        }
+        // Structured context alongside a guard-pattern code, e.g.
+        // `throw new ForbiddenException({ message: 'STORE_LIMIT_REACHED', details: { limit, current } })`.
+        if (b['details'] && typeof b['details'] === 'object') {
+          details = b['details'] as Record<string, unknown>;
         }
       } else if (typeof body === 'string' && SCREAMING_SNAKE.test(body)) {
         errorCode = body;
@@ -116,15 +126,17 @@ export class AllExceptionsFilter implements ExceptionFilter {
           message   = 'Invalid ID format';
           break;
         default:
-          console.error('[AllExceptionsFilter] Unhandled PostgresError', {
-            code:    exception.code,
-            message: exception.message,
-          });
+          this.logger.error(
+            `Unhandled PostgresError ${exception.code}: ${exception.message}`,
+          );
       }
 
     } else {
       // 5. Unknown — log internally, never expose internals
-      console.error('[AllExceptionsFilter] Unhandled exception', exception);
+      this.logger.error(
+        'Unhandled exception',
+        exception instanceof Error ? exception.stack : String(exception),
+      );
     }
 
     response.status(status).json({
@@ -136,6 +148,7 @@ export class AllExceptionsFilter implements ExceptionFilter {
       // (lowercase) form of the same code.
       errorCode:  errorCode.toLowerCase(),
       ...(issues && { issues }),
+      ...(details && { details }),
       requestId,
       timestamp:  new Date().toISOString(),
     });

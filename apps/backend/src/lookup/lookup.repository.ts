@@ -2,6 +2,7 @@ import { Inject, Injectable } from '@nestjs/common';
 import { and, eq, isNull, or } from 'drizzle-orm';
 import type { PostgresJsDatabase } from 'drizzle-orm/postgres-js';
 import { DRIZZLE, type DbExecutor } from '#db/db.module.js';
+import { requireRow } from '#db/require-row.js';
 import * as schema from '#db/schema.js';
 import { lookup } from '#db/schema.js';
 
@@ -74,27 +75,31 @@ export class LookupRepository {
     tx?: DbExecutor,
   ): Promise<LookupValueRow> {
     const [row] = await this.client(tx).insert(lookup).values(data).returning();
-    return row!;
+    return requireRow(row);
   }
 
   async updateValue(
     guuid: string,
+    storeId: string,
     patch: Partial<typeof lookup.$inferInsert>,
     tx?: DbExecutor,
   ): Promise<LookupValueRow | null> {
+    // storeFk is filtered in SQL (not just in the service pre-check) so the write
+    // itself is tenant-scoped — a caller that reaches this method with a foreign
+    // guuid mutates nothing (defense-in-depth for tenant isolation).
     const [row] = await this.client(tx)
       .update(lookup)
       .set({ ...patch, updatedAt: new Date() })
-      .where(eq(lookup.guuid, guuid))
+      .where(and(eq(lookup.guuid, guuid), eq(lookup.storeFk, storeId)))
       .returning();
     return row ?? null;
   }
 
   /** BR-6: deleting a value is a soft-delete. */
-  async softDeleteValue(guuid: string, tx?: DbExecutor): Promise<void> {
+  async softDeleteValue(guuid: string, storeId: string, tx?: DbExecutor): Promise<void> {
     await this.client(tx)
       .update(lookup)
       .set({ isActive: false, updatedAt: new Date() })
-      .where(eq(lookup.guuid, guuid));
+      .where(and(eq(lookup.guuid, guuid), eq(lookup.storeFk, storeId)));
   }
 }

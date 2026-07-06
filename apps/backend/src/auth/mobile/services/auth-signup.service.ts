@@ -1,11 +1,9 @@
-import { Inject, Injectable } from '@nestjs/common';
-import { eq } from 'drizzle-orm';
-import type { PostgresJsDatabase } from 'drizzle-orm/postgres-js';
-import { DRIZZLE, UnitOfWork } from '#db/db.module.js';
-import * as schema from '#db/schema.js';
-import { users } from '#db/schema.js';
+import { Injectable } from '@nestjs/common';
+import postgres from 'postgres';
+import { UnitOfWork } from '#db/db.module.js';
 import { AppException } from '#common/exceptions/app.exception.js';
 import { ErrorCodes } from '#common/error-codes.js';
+import { UserRepository } from '../repositories/user.repository.js';
 import { AuditService } from '../../core/audit.service.js';
 import { AuthConstantsService } from '../../core/auth-constants.service.js';
 import { CryptoService } from '../../core/crypto.service.js';
@@ -22,7 +20,7 @@ import type { StageOneResult, LoginResult } from '../types/auth-result.js';
 @Injectable()
 export class AuthSignupService {
   constructor(
-    @Inject(DRIZZLE) private readonly db: PostgresJsDatabase<typeof schema>,
+    private readonly userRepo: UserRepository,
     private readonly rateLimit: RateLimitService,
     private readonly otpReqService: OtpRequestService,
     private readonly otpService: OtpService,
@@ -58,11 +56,8 @@ export class AuthSignupService {
   ): Promise<LoginResult> {
     await this.rateLimit.checkIpLimit(ip);
 
-    const existing = await this.db
-      .select({ id: users.id })
-      .from(users)
-      .where(eq(users.phone, phone));
-    if (existing.length)
+    const existing = await this.userRepo.findByPhone(phone);
+    if (existing)
       throw new AppException(
         ErrorCodes.DUPLICATE_ENTRY,
         'USER_ALREADY_EXISTS',
@@ -87,48 +82,11 @@ export class AuthSignupService {
       throw err;
     }
 
-    // User creation + device + session + refresh token are one atomic unit.
-    const { user, device, session, refreshToken } = await this.uow.execute(
-      async (tx) => {
-        const [user] = await tx
-          .insert(users)
-          .values({
-            phone,
-            name,
-            phoneVerified: true,
-            primaryLoginMethod: 'otp',
-          })
-          .returning();
-
-        // Provision the tenant layer: account (owned by this user) + membership
-        // + trialing subscription. Part of the same atomic unit as user creation.
-        await this.accountBootstrap.bootstrap(user!.id, tx);
-
-        const device = await this.deviceService.upsertDevice(
-          user!.id,
-          { ...deviceInfo, lastIp: ip },
-          tx,
-        );
-        const session = await this.sessionRepo.create(
-          {
-            userFk: user!.id,
-            deviceFk: device.id,
-            expiresAt: new Date(
-              Date.now() + this.constants.REFRESH_TOKEN_TTL_SECONDS * 1000,
-            ),
-            ipAtCreation: ip,
-            appVersion: deviceInfo.appVersion,
-            platform: deviceInfo.platform,
-          },
-          tx,
-        );
-
-        const refreshToken = await this.tokenService.issueRefreshToken(
-          session.id,
-          tx,
-        );
-        return { user: user!, device, session, refreshToken };
-      },
+    const { user, device, session, refreshToken } = await this.createUserAtomically(
+      phone,
+      name,
+      deviceInfo,
+      ip,
     );
 
     const accessToken = await this.crypto.signJwt(user.id, session.id, user.permissionsVersion);
@@ -151,5 +109,70 @@ export class AuthSignupService {
       deviceSessionId: session.id,
       isTrusted: device.isTrusted,
     };
+  }
+
+  /**
+   * User creation + device + session + refresh token as one atomic unit.
+   *
+   * The `existing.length` pre-check above is TOCTOU-able by itself — two
+   * concurrent signups for the same phone can both pass it before either
+   * commits. The DB's unique constraint on `users.phone` is the real guard;
+   * normalize its violation to the same USER_ALREADY_EXISTS shape the
+   * pre-check throws, so the client sees identical text either way instead
+   * of a generic "record already exists" depending on timing.
+   */
+  private async createUserAtomically(
+    phone: string,
+    name: string,
+    deviceInfo: DeviceInfo,
+    ip: string,
+  ) {
+    try {
+      return await this.uow.execute(async (tx) => {
+        const user = await this.userRepo.insert(
+          {
+            phone,
+            name,
+            phoneVerified: true,
+            primaryLoginMethod: 'otp',
+          },
+          tx,
+        );
+
+        // Provision the tenant layer: account (owned by this user) + membership
+        // + trialing subscription. Part of the same atomic unit as user creation.
+        await this.accountBootstrap.bootstrap(user.id, tx);
+
+        const device = await this.deviceService.upsertDevice(
+          user.id,
+          { ...deviceInfo, lastIp: ip },
+          tx,
+        );
+        const session = await this.sessionRepo.create(
+          {
+            userFk: user.id,
+            deviceFk: device.id,
+            expiresAt: new Date(
+              Date.now() + this.constants.REFRESH_TOKEN_TTL_SECONDS * 1000,
+            ),
+            ipAtCreation: ip,
+            appVersion: deviceInfo.appVersion,
+            platform: deviceInfo.platform,
+          },
+          tx,
+        );
+
+        const refreshToken = await this.tokenService.issueRefreshToken(
+          session.id,
+          tx,
+        );
+        return { user: user!, device, session, refreshToken };
+      });
+    } catch (err) {
+      if (err instanceof postgres.PostgresError && err.code === '23505') {
+        throw new AppException(ErrorCodes.DUPLICATE_ENTRY, 'USER_ALREADY_EXISTS', 409);
+      }
+      throw err;
+    }
   }
 }

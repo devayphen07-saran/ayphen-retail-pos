@@ -1,6 +1,6 @@
 import React from "react";
 import { TouchableOpacityProps, ActivityIndicator } from "react-native";
-import styled from "styled-components/native";
+import styled, { DefaultTheme } from "styled-components/native";
 import { buttonTextVariant, buttonVariant } from "./style";
 import { LucideIcon, LucideIconNameType } from "../lucide-icon";
 import { Typography } from "../typography";
@@ -68,7 +68,7 @@ export const Button: React.FC<ButtonProps> = ({
           {iconElement && <IconWrapper>{iconElement}</IconWrapper>}
 
           {label && (
-            <ButtonText $size={size} $variant={variant} color={resolvedTextColor}>
+            <ButtonText $size={size} $variant={variant} $color={resolvedTextColor}>
               {label}
             </ButtonText>
           )}
@@ -86,7 +86,7 @@ const RowView = styled.View`
   flex-direction: row;
   align-items: center;
   justify-content: center;
-  gap: 10px;
+  gap: ${({ theme }) => theme.sizing.small}px;
 `;
 
 const IconWrapper = styled.View`
@@ -98,21 +98,53 @@ const IconWrapper = styled.View`
 /* Size configs                        */
 /* ---------------------------------- */
 
-const sizeConfigs: Record<
+// Size ladder resolved from theme tokens. Raw px snapped to the nearest token
+// (deltas noted inline where the original value was off the scale).
+const sizeConfigs = (
+  theme: DefaultTheme,
+): Record<
   ButtonSize,
   {
-    height?: number;
+    height: number;
     paddingVertical: number;
     paddingHorizontal: number;
     borderRadius: number;
   }
-> = {
-  xsm: { height: 26, paddingVertical: 2, paddingHorizontal: 8, borderRadius: 4 },
-  sm: { height: 32, paddingVertical: 4, paddingHorizontal: 12, borderRadius: 4 },
-  md: { height: 40, paddingVertical: 8, paddingHorizontal: 16, borderRadius: 6 },
-  lg: { height: 48, paddingVertical: 10, paddingHorizontal: 20, borderRadius: 8 },
-  xlg: { height: 56, paddingVertical: 12, paddingHorizontal: 24, borderRadius: 10 },
-};
+> => ({
+  // heights use the dedicated btnHeight* component tokens (exact, off the spacing
+  // scale); padding/radius snap to the spacing/radius scale (pv 2→xxSmall(4, +2)).
+  xsm: {
+    height: theme.componentSizing.btnHeightXsm,
+    paddingVertical: theme.sizing.xxSmall,
+    paddingHorizontal: theme.sizing.xSmall,
+    borderRadius: theme.borderRadius.small,
+  },
+  sm: {
+    height: theme.componentSizing.btnHeightSm,
+    paddingVertical: theme.sizing.xxSmall,
+    paddingHorizontal: theme.sizing.small,
+    borderRadius: theme.borderRadius.small,
+  },
+  md: {
+    height: theme.componentSizing.btnHeightMd,
+    paddingVertical: theme.sizing.xSmall,
+    paddingHorizontal: theme.sizing.medium,
+    borderRadius: theme.borderRadius.medium,
+  },
+  // pv 10→small(12, +2)
+  lg: {
+    height: theme.componentSizing.btnHeightLg,
+    paddingVertical: theme.sizing.small,
+    paddingHorizontal: theme.sizing.regular,
+    borderRadius: theme.borderRadius.regular,
+  },
+  xlg: {
+    height: theme.componentSizing.btnHeightXlg,
+    paddingVertical: theme.sizing.small,
+    paddingHorizontal: theme.sizing.large,
+    borderRadius: theme.borderRadius.large,
+  },
+});
 
 /* ---------------------------------- */
 /* Styled components                   */
@@ -133,18 +165,18 @@ const ButtonContainer = styled.TouchableOpacity<{
 
   opacity: ${({ disabled }) => (disabled ? 0.6 : 1)};
 
-  height: ${({ $size, $scale }) => (sizeConfigs[$size].height ?? 0) * $scale}px;
-  border-radius: ${({ $size, $scale }) => sizeConfigs[$size].borderRadius * $scale}px;
-  padding-top: ${({ $size, $scale }) => sizeConfigs[$size].paddingVertical * $scale}px;
-  padding-bottom: ${({ $size, $scale }) => sizeConfigs[$size].paddingVertical * $scale}px;
-  padding-left: ${({ $size, $scale }) => sizeConfigs[$size].paddingHorizontal * $scale}px;
-  padding-right: ${({ $size, $scale }) => sizeConfigs[$size].paddingHorizontal * $scale}px;
+  height: ${({ theme, $size, $scale }) => sizeConfigs(theme)[$size].height * $scale}px;
+  border-radius: ${({ theme, $size, $scale }) => sizeConfigs(theme)[$size].borderRadius * $scale}px;
+  padding-top: ${({ theme, $size, $scale }) => sizeConfigs(theme)[$size].paddingVertical * $scale}px;
+  padding-bottom: ${({ theme, $size, $scale }) => sizeConfigs(theme)[$size].paddingVertical * $scale}px;
+  padding-left: ${({ theme, $size, $scale }) => sizeConfigs(theme)[$size].paddingHorizontal * $scale}px;
+  padding-right: ${({ theme, $size, $scale }) => sizeConfigs(theme)[$size].paddingHorizontal * $scale}px;
 
-  ${({ $borderColor }) =>
+  ${({ $borderColor, theme }) =>
     $borderColor
       ? `
     border-color: ${$borderColor};
-    border-width: 1px;
+    border-width: ${theme.borderWidth.thin}px;
   `
       : ""}
 `;
@@ -152,11 +184,11 @@ const ButtonContainer = styled.TouchableOpacity<{
 const ButtonText = styled(Typography.Subtitle)<{
   $variant: ButtonVariant;
   $size: ButtonSize;
-  color?: string;
+  $color?: string;
 }>`
   ${({ $variant, theme }) => buttonTextVariant[$variant](theme)}
   letter-spacing: 0.5px;
-  ${({ color }) => (color ? `color: ${color};` : "")}
+  ${({ $color }) => ($color ? `color: ${$color};` : "")}
 `;
 
 export default Button;

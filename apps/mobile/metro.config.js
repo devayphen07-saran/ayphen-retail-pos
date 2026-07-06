@@ -36,6 +36,7 @@ const config = {
       const ALIASES = {
         '@core': path.resolve(projectRoot, 'src/core'),
         '@features': path.resolve(projectRoot, 'src/features'),
+        '@store': path.resolve(projectRoot, 'src/store'),
         '@ui': path.resolve(projectRoot, 'src/components'),
       };
       for (const [alias, target] of Object.entries(ALIASES)) {

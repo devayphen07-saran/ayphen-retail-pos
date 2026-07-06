@@ -1,7 +1,6 @@
 import { Redirect, Stack } from 'expo-router';
 import { useMobileTheme } from '@ayphen/mobile-theme';
-import { useAuthStore } from '@features/auth/authStore';
-import { useActiveStoreStore } from '@features/store/activeStore';
+import { useAuthStore, useActiveStoreStore } from '@store';
 
 /**
  * Store stack — the in-store experience. Reachable only when authenticated AND

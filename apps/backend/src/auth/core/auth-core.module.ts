@@ -6,10 +6,10 @@ import { CryptoService } from './crypto.service.js';
 import { PasswordService } from './password.service.js';
 import { RateLimitRepository } from './rate-limit.repository.js';
 import { RateLimitService } from './rate-limit.service.js';
+import { LoginAttemptsCleanupService } from './login-attempts-cleanup.service.js';
 import { AuditService } from './audit.service.js';
 import { Msg91Service } from './msg91.service.js';
 import { RequestContextService } from './request-context.service.js';
-import { UserRevocationCacheService } from './user-revocation-cache.service.js';
 
 // Re-export for existing importers of `CORE_REDIS` from this module path.
 export { CORE_REDIS } from './core.tokens.js';
@@ -32,10 +32,10 @@ const CoreRedisProvider = {
     PasswordService,
     RateLimitRepository,
     RateLimitService,
+    LoginAttemptsCleanupService,
     AuditService,
     Msg91Service,
     RequestContextService,
-    UserRevocationCacheService,
   ],
   exports: [
     CORE_REDIS,
@@ -47,7 +47,6 @@ const CoreRedisProvider = {
     AuditService,
     Msg91Service,
     RequestContextService,
-    UserRevocationCacheService,
   ],
 })
 export class AuthCoreModule {}

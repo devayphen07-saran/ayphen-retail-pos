@@ -112,8 +112,8 @@ export function MaskedInput<T extends FieldValues>(
           placeholderTextColor={placeholderColor}
           keyboardType={mask.keyboardType}
           maxLength={mask.maxLength}
-          hasError={!!error}
-          disabled={props.disabled}
+          $hasError={!!error}
+          $disabled={props.disabled}
           $scale={scale}
           $fontScale={fontScale}
           accessibilityLabel={props.label}

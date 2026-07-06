@@ -14,22 +14,21 @@ import { DRIZZLE } from '#db/db.module.js';
 import * as schema from '#db/schema.js';
 import { deviceSessions, devices, users } from '#db/schema.js';
 import { CryptoService } from '../../core/crypto.service.js';
+import { AppConfigService } from '#config/app-config.service.js';
 import { BlacklistCacheService } from '../services/blacklist-cache.service.js';
 import { ReplayProtectionService } from '../services/replay-protection.service.js';
-import { UserRevocationCacheService } from '../../core/user-revocation-cache.service.js';
 import { MOBILE_REDIS } from '../services/redis.provider.js';
 import type { MobilePrincipal } from '../types/mobile-principal.js';
 
-const SESSION_CACHE_TTL = 30; // seconds
 const sessionKey = (id: string) => `session:${id}`;
 
 @Injectable()
 export class MobileJwtGuard implements CanActivate {
   constructor(
     private readonly crypto:      CryptoService,
+    private readonly config:      AppConfigService,
     private readonly blacklist:   BlacklistCacheService,
     private readonly replay:      ReplayProtectionService,
-    private readonly revocation:  UserRevocationCacheService,
     @Inject(MOBILE_REDIS) private readonly redis: Redis,
     @Inject(DRIZZLE)      private readonly db:    PostgresJsDatabase<typeof schema>,
   ) {}
@@ -49,24 +48,15 @@ export class MobileJwtGuard implements CanActivate {
     const token = auth.slice(7);
 
     // ─ Step 2: Verify JWT + type:'access' (§18.3) ────────────────────────────
+    // verifyJwt validates the claim shape (Zod), so the fields below are typed —
+    // no casts. `type` is kept loose there so we own the INVALID_TOKEN_TYPE code.
     const payload = await this.crypto.verifyJwt(token);
-    if ((payload as { type?: string }).type !== 'access') {
+    if (payload.type !== 'access') {
       throw new UnauthorizedException('INVALID_TOKEN_TYPE');
     }
 
-    const {
-      sub: userId,
-      jti,
-      deviceSessionId,
-      pv: jwtPv,
-    } = payload as {
-      sub: string;
-      jti: string;
-      deviceSessionId: string;
-      pv?: number;
-      exp: number;
-    };
-    const jtiExp = new Date((payload as { exp: number }).exp * 1000);
+    const { sub: userId, jti, deviceSessionId, pv: jwtPv } = payload;
+    const jtiExp = new Date(payload.exp * 1000);
 
     // ─ Step 3: JTI blacklist (LRU → Redis → DB) ──────────────────────────────
     if (await this.blacklist.isBlacklisted(jti)) {
@@ -100,15 +90,14 @@ export class MobileJwtGuard implements CanActivate {
     if (device.isBlocked) throw new UnauthorizedException('DEVICE_BLOCKED');
 
     // ─ Step 6: User status block (§18.14) ────────────────────────────────────
-    // Soft-delete check via 5s Redis cache — avoids a DB hit on every request.
-    if (await this.revocation.isDeleted(userId))
-      throw new UnauthorizedException('USER_NOT_FOUND');
-
     const [user] = await this.db
       .select()
       .from(users)
       .where(eq(users.id, userId));
     if (!user) throw new UnauthorizedException('USER_NOT_FOUND');
+    // Soft-delete check on the already-loaded row — replaces the redundant 5s
+    // revocation cache (the full user row is fetched every request anyway).
+    if (user.deletedAt) throw new UnauthorizedException('USER_NOT_FOUND');
     if (user.isBlocked) throw new UnauthorizedException('USER_BLOCKED');
     if (user.status === 'suspended' || user.status === 'locked') {
       throw new UnauthorizedException('USER_SUSPENDED');
@@ -146,14 +135,16 @@ export class MobileJwtGuard implements CanActivate {
 
   private reviveSession(raw: string): typeof deviceSessions.$inferSelect {
     const row = JSON.parse(raw) as typeof deviceSessions.$inferSelect;
-    const d = (v: unknown) => (v ? new Date(v as string) : null);
+    // JSON turns Dates into ISO strings; rehydrate them. Nullable columns stay
+    // null (the row type is honest about `Date | null`, so no assertion needed).
+    const nullableDate = (v: Date | null): Date | null => (v ? new Date(v) : null);
     row.expiresAt         = new Date(row.expiresAt);
     row.lastUsedAt        = new Date(row.lastUsedAt);
     row.createdAt         = new Date(row.createdAt);
-    row.revokedAt         = d(row.revokedAt) as Date;
-    row.lastStepUpAt      = d(row.lastStepUpAt) as Date;
-    row.stepUpLockedUntil = d(row.stepUpLockedUntil) as Date;
-    row.currentJtiExp     = d(row.currentJtiExp) as Date;
+    row.revokedAt         = nullableDate(row.revokedAt);
+    row.lastStepUpAt      = nullableDate(row.lastStepUpAt);
+    row.stepUpLockedUntil = nullableDate(row.stepUpLockedUntil);
+    row.currentJtiExp     = nullableDate(row.currentJtiExp);
     return row;
   }
 
@@ -171,7 +162,7 @@ export class MobileJwtGuard implements CanActivate {
     if (row) {
       await this.redis.setex(
         sessionKey(id),
-        SESSION_CACHE_TTL,
+        this.config.sessionCacheTtlSeconds,
         JSON.stringify(row),
       );
     }

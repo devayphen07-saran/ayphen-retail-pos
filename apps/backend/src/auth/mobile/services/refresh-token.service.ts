@@ -1,19 +1,44 @@
-import { Inject, Injectable, UnauthorizedException } from '@nestjs/common';
+import { Injectable } from '@nestjs/common';
 import { randomBytes, randomUUID } from 'crypto';
-import { eq } from 'drizzle-orm';
-import type { PostgresJsDatabase } from 'drizzle-orm/postgres-js';
-import { DRIZZLE, UnitOfWork, type DbExecutor } from '#db/db.module.js';
-import * as schema from '#db/schema.js';
-import { devices } from '#db/schema.js';
+import { z } from 'zod';
+import { ServiceUnavailableError, UnauthorizedError } from '#common/exceptions/app.exception.js';
+import { ErrorCodes } from '#common/error-codes.js';
+import { UnitOfWork, type DbExecutor } from '#db/db.module.js';
 import { CryptoService } from '../../core/crypto.service.js';
 import { AuthConstantsService } from '../../core/auth-constants.service.js';
 import { BlacklistCacheService } from './blacklist-cache.service.js';
 import { DeviceChallengeService } from './device-challenge.service.js';
+import { DeviceRepository } from '../repositories/device.repository.js';
 import { RefreshTokenRepository } from '../repositories/refresh-token.repository.js';
 import { AuthSessionRepository } from '../repositories/auth-session.repository.js';
 import { SessionCacheInvalidatorService } from './session-cache-invalidator.service.js';
-import { RefreshIdempotencyService } from './refresh-idempotency.service.js';
-import { SnapshotService, type SnapshotResult } from './snapshot.service.js';
+import {
+  RefreshIdempotencyService,
+  REFRESH_IDEM_DONE_TTL_SECONDS,
+} from './refresh-idempotency.service.js';
+import { SnapshotService } from './snapshot.service.js';
+import type { SnapshotResult } from '../types/permission-snapshot.js';
+
+/**
+ * Reuse-grace window (flow-critic Phase 3): a token whose usedAt is younger
+ * than this was consumed by a CONCURRENT rotation (a client timeout-retry
+ * racing its own original request while the Redis idempotency layer was
+ * unavailable), not by a replayed stolen token. Within the window the loser
+ * gets the retryable REFRESH_IN_PROGRESS_RETRY signal instead of a family
+ * revocation — critically, the winner's just-issued successor token survives.
+ * Only a token used longer ago than this is treated as a genuine reuse attack.
+ */
+const REUSE_GRACE_MS = 30_000;
+
+/**
+ * A used token may still legitimately need to complete a refresh: a client
+ * that crashed after the server committed the rotation but before persisting
+ * the new pair retries with the OLD token, and recovers via the idempotency
+ * DONE record. That path still starts at the challenge endpoint, so
+ * challenges must remain issuable for this long after usedAt — gated by the
+ * same device proof as everything else.
+ */
+const CACHED_RECOVERY_WINDOW_MS = REFRESH_IDEM_DONE_TTL_SECONDS * 1000;
 
 export interface RotateInput {
   refreshToken:    string;
@@ -38,7 +63,7 @@ export interface RotateResult {
 @Injectable()
 export class RefreshTokenService {
   constructor(
-    @Inject(DRIZZLE)                   private readonly db:             PostgresJsDatabase<typeof schema>,
+    private readonly deviceRepo:       DeviceRepository,
     private readonly crypto:           CryptoService,
     private readonly constants:        AuthConstantsService,
     private readonly blacklist:        BlacklistCacheService,
@@ -76,12 +101,19 @@ export class RefreshTokenService {
     const tokenHash = this.crypto.hashToken(refreshToken);
     const record    = await this.tokenRepo.findByHash(tokenHash);
 
-    if (!record)                              throw new UnauthorizedException('REFRESH_TOKEN_REVOKED');
-    if (record.usedAt)                        throw new UnauthorizedException('REFRESH_TOKEN_REUSE');
-    if (record.revokedAt)                     throw new UnauthorizedException('REFRESH_TOKEN_REVOKED');
-    if (new Date() > record.expiresAt)        throw new UnauthorizedException('REFRESH_TOKEN_EXPIRED');
-    if (record.session.revokedAt)             throw new UnauthorizedException('SESSION_REVOKED');
-    if (new Date() > record.session.expiresAt) throw new UnauthorizedException('SESSION_EXPIRED');
+    if (!record)                              throw new UnauthorizedError(ErrorCodes.REFRESH_TOKEN_REVOKED, 'Refresh token is not recognized');
+    // A recently-used token may be a crashed client recovering its committed
+    // rotation via the idempotency DONE record — that flow still needs a
+    // challenge (rotate()'s cached path verifies device proof against it), so
+    // keep issuing challenges inside the recovery window. Beyond it the DONE
+    // record is gone and this can only be a replay.
+    if (record.usedAt && Date.now() - record.usedAt.getTime() > CACHED_RECOVERY_WINDOW_MS) {
+      throw new UnauthorizedError(ErrorCodes.REFRESH_TOKEN_REUSE, 'Refresh token has already been used');
+    }
+    if (record.revokedAt)                     throw new UnauthorizedError(ErrorCodes.REFRESH_TOKEN_REVOKED, 'Refresh token has been revoked');
+    if (new Date() > record.expiresAt)        throw new UnauthorizedError(ErrorCodes.REFRESH_TOKEN_EXPIRED, 'Refresh token has expired');
+    if (record.session.revokedAt)             throw new UnauthorizedError(ErrorCodes.SESSION_REVOKED, 'Session has been revoked');
+    if (new Date() > record.session.expiresAt) throw new UnauthorizedError(ErrorCodes.SESSION_EXPIRED, 'Session has expired');
 
     return this.challenge.issueChallenge(record.session.deviceFk);
   }
@@ -96,8 +128,26 @@ export class RefreshTokenService {
   async rotate(dto: RotateInput): Promise<RotateResult> {
     const idemKey = this.crypto.hashToken(dto.refreshToken);
 
-    const cached = await this.idempotency.claim(idemKey);
-    if (cached) return this.reviveResult(cached);
+    const claim = await this.idempotency.claim(idemKey);
+    if (claim.role === 'cached') {
+      // The cached path skips performRotation() — but its payload is a live
+      // token pair, so it must be gated by the SAME device-binding proof as a
+      // real rotation. Without this, anyone who captured the old refresh
+      // token could harvest the successor pair from cache for the whole
+      // DONE-record lifetime without ever proving device possession.
+      const result = this.reviveResult(claim.response);
+      await this.verifyDeviceProofForCached(result.deviceSessionId, dto);
+      return result;
+    }
+    if (claim.role === 'timed_out') {
+      // The leader (another concurrent call for the same token) is still
+      // mid-rotation — do NOT proceed to performRotation() ourselves: the
+      // loser of that race would hit the `markUsed` CAS below, get treated as
+      // REFRESH_TOKEN_REUSE, and revoke the whole token family over nothing
+      // more than DB latency (flow-critic review, Finding A). Surface a
+      // distinct, retryable signal instead of a false reuse-detection trip.
+      throw new ServiceUnavailableError(ErrorCodes.REFRESH_IN_PROGRESS_RETRY, 'A concurrent refresh is in progress; please retry');
+    }
 
     try {
       const result = await this.performRotation(dto);
@@ -109,46 +159,106 @@ export class RefreshTokenService {
     }
   }
 
-  /** Re-hydrate a cached RotateResult (Date fields survive JSON as strings). */
-  private reviveResult(cached: unknown): RotateResult {
-    const r = cached as RotateResult;
-    return { ...r, newJtiExp: new Date(r.newJtiExp) };
+  /**
+   * Device-binding proof for the cached idempotency path — mirrors
+   * performRotation() step 2, resolved via the cached result's session (the
+   * original token row is already consumed, so the proof anchors to the
+   * session's bound device instead).
+   */
+  private async verifyDeviceProofForCached(deviceSessionId: string, dto: RotateInput): Promise<void> {
+    const session = await this.sessionRepo.findById(deviceSessionId);
+    if (!session) throw new UnauthorizedError(ErrorCodes.SESSION_REVOKED, 'Session no longer exists');
+    if (session.revokedAt) throw new UnauthorizedError(ErrorCodes.SESSION_REVOKED, 'Session has been revoked');
+
+    const device = await this.deviceRepo.findById(session.deviceFk);
+    if (!device) throw new UnauthorizedError(ErrorCodes.DEVICE_NOT_FOUND, 'Bound device not found');
+    if (device.isTrusted) return;
+
+    if (!dto.challengeId || !dto.deviceSignature) {
+      throw new UnauthorizedError(ErrorCodes.DEVICE_PROOF_REQUIRED, 'Device proof is required for this refresh');
+    }
+
+    const challengeDeviceId = await this.challenge.consumeChallenge(dto.challengeId);
+    if (challengeDeviceId !== session.deviceFk) {
+      throw new UnauthorizedError(ErrorCodes.DEVICE_SIGNATURE_INVALID, 'Device signature does not match the bound device');
+    }
+
+    const ok = await this.crypto.verifyDeviceSignature(
+      device.publicKey,
+      dto.challengeId,
+      dto.deviceSignature,
+    );
+    if (!ok) throw new UnauthorizedError(ErrorCodes.DEVICE_SIGNATURE_INVALID, 'Device signature verification failed');
   }
+
+  /**
+   * Re-hydrate a cached RotateResult (our own idempotency payload). Validating
+   * the envelope with Zod — and coercing `newJtiExp` back to a Date — beats a
+   * blind `as RotateResult`: a shape drift is caught here, not at a later
+   * `.getTime()`. `snapshotResult` is stored/returned verbatim (JSON-safe).
+   */
+  private reviveResult(cached: unknown): RotateResult {
+    const parsed = RefreshTokenService.CachedRotateSchema.parse(cached);
+    return {
+      accessToken:     parsed.accessToken,
+      refreshToken:    parsed.refreshToken,
+      newJti:          parsed.newJti,
+      newJtiExp:       parsed.newJtiExp,
+      userId:          parsed.userId,
+      deviceSessionId: parsed.deviceSessionId,
+      snapshotVersion: parsed.snapshotVersion,
+      snapshotResult:  parsed.snapshotResult as SnapshotResult | null,
+    };
+  }
+
+  private static readonly CachedRotateSchema = z.object({
+    accessToken:     z.string(),
+    refreshToken:    z.string(),
+    newJti:          z.string(),
+    newJtiExp:       z.coerce.date(),
+    userId:          z.string(),
+    deviceSessionId: z.string(),
+    snapshotVersion: z.number(),
+    snapshotResult:  z.unknown(),
+  });
 
   private async performRotation(dto: RotateInput): Promise<RotateResult> {
     const tokenHash = this.crypto.hashToken(dto.refreshToken);
     const record    = await this.tokenRepo.findByHash(tokenHash);
 
-    if (!record) throw new UnauthorizedException('REFRESH_TOKEN_REVOKED');
+    if (!record) throw new UnauthorizedError(ErrorCodes.REFRESH_TOKEN_REVOKED, 'Refresh token is not recognized');
 
     const { session, user } = record;
 
-    // 1. Reuse attack — token already consumed
+    // 1. Token already consumed. Within the grace window this is a concurrent
+    //    rotation whose DONE record Redis lost (leader committed moments ago) —
+    //    retryable, and revoking the family here would kill the winner's
+    //    just-issued successor. Beyond the grace it's a reuse attack.
     if (record.usedAt) {
+      if (Date.now() - record.usedAt.getTime() < REUSE_GRACE_MS) {
+        throw new ServiceUnavailableError(ErrorCodes.REFRESH_IN_PROGRESS_RETRY, 'A concurrent refresh is in progress; please retry');
+      }
       await this.tokenRepo.revokeFamily(record.familyId, 'reuse_detected');
-      throw new UnauthorizedException('REFRESH_TOKEN_REUSE');
+      throw new UnauthorizedError(ErrorCodes.REFRESH_TOKEN_REUSE, 'Refresh token has already been used');
     }
-    if (record.revokedAt) throw new UnauthorizedException('REFRESH_TOKEN_REVOKED');
-    if (new Date() > record.expiresAt) throw new UnauthorizedException('REFRESH_TOKEN_EXPIRED');
-    if (session.revokedAt) throw new UnauthorizedException('SESSION_REVOKED');
-    if (new Date() > session.expiresAt) throw new UnauthorizedException('SESSION_EXPIRED');
-    if (user.deletedAt) throw new UnauthorizedException('USER_NOT_FOUND');
-    if (user.status !== 'active') throw new UnauthorizedException('USER_SUSPENDED');
+    if (record.revokedAt) throw new UnauthorizedError(ErrorCodes.REFRESH_TOKEN_REVOKED, 'Refresh token has been revoked');
+    if (new Date() > record.expiresAt) throw new UnauthorizedError(ErrorCodes.REFRESH_TOKEN_EXPIRED, 'Refresh token has expired');
+    if (session.revokedAt) throw new UnauthorizedError(ErrorCodes.SESSION_REVOKED, 'Session has been revoked');
+    if (new Date() > session.expiresAt) throw new UnauthorizedError(ErrorCodes.SESSION_EXPIRED, 'Session has expired');
+    if (user.deletedAt) throw new UnauthorizedError(ErrorCodes.USER_NOT_FOUND, 'User account no longer exists');
+    if (user.status !== 'active') throw new UnauthorizedError(ErrorCodes.USER_SUSPENDED, 'User account is suspended');
 
     // 2. Device-binding proof. A refresh token is only as safe as the device it
     //    is bound to: if we accept it without proof of the device's private key,
     //    a stolen token alone rotates forever. So proof is MANDATORY unless the
     //    device has been explicitly trusted (is_trusted) — trust is the seam for
     //    relaxing this later; until a trust path sets it, every refresh must sign.
-    const [device] = await this.db
-      .select({ publicKey: devices.publicKey, isTrusted: devices.isTrusted })
-      .from(devices)
-      .where(eq(devices.id, session.deviceFk));
-    if (!device) throw new UnauthorizedException('DEVICE_NOT_FOUND');
+    const device = await this.deviceRepo.findById(session.deviceFk);
+    if (!device) throw new UnauthorizedError(ErrorCodes.DEVICE_NOT_FOUND, 'Bound device not found');
 
     if (!device.isTrusted) {
       if (!dto.challengeId || !dto.deviceSignature) {
-        throw new UnauthorizedException('DEVICE_PROOF_REQUIRED');
+        throw new UnauthorizedError(ErrorCodes.DEVICE_PROOF_REQUIRED, 'Device proof is required for this refresh');
       }
 
       // Consume returns the device the challenge was issued for. Bind it to this
@@ -156,7 +266,7 @@ export class RefreshTokenService {
       // prove device B.
       const challengeDeviceId = await this.challenge.consumeChallenge(dto.challengeId);
       if (challengeDeviceId !== session.deviceFk) {
-        throw new UnauthorizedException('DEVICE_SIGNATURE_INVALID');
+        throw new UnauthorizedError(ErrorCodes.DEVICE_SIGNATURE_INVALID, 'Device signature does not match the bound device');
       }
 
       const ok = await this.crypto.verifyDeviceSignature(
@@ -164,7 +274,7 @@ export class RefreshTokenService {
         dto.challengeId,
         dto.deviceSignature,
       );
-      if (!ok) throw new UnauthorizedException('DEVICE_SIGNATURE_INVALID');
+      if (!ok) throw new UnauthorizedError(ErrorCodes.DEVICE_SIGNATURE_INVALID, 'Device signature verification failed');
     }
 
     // 3. Issue the new JWT up front — signing is pure crypto (no DB), and the
@@ -182,8 +292,27 @@ export class RefreshTokenService {
     const newTokenHash = this.crypto.hashToken(raw);
     const expiresAt    = new Date(Date.now() + this.constants.REFRESH_TOKEN_TTL_SECONDS * 1000);
 
-    await this.uow.execute(async (tx) => {
-      await this.tokenRepo.markUsed(record.id, tx);
+    // The `record.usedAt` check above (step 1) reads outside this transaction,
+    // so two concurrent rotations of the same token can both pass it before
+    // either commits. `markUsed` is the actual compare-and-swap: whoever's
+    // UPDATE lands first wins the row: the loser must be treated as a reuse
+    // attempt, not a second successful rotation, or the family forks. On loss
+    // the revocation still needs to commit, so we return a sentinel and throw
+    // *after* the transaction rather than inside it — throwing inside would
+    // roll back the very revokeFamily write we need to persist.
+    const raceResult = await this.uow.execute(async (tx): Promise<'won' | 'lost_recent' | 'lost'> => {
+      const wonRace = await this.tokenRepo.markUsed(record.id, tx);
+      if (!wonRace) {
+        // Same grace as the pre-check: a usedAt stamped seconds ago is our own
+        // concurrent duplicate (client timeout-retry with the idempotency
+        // layer down), and revoking the family would kill the winner's fresh
+        // successor — the very token the client is about to receive.
+        const usedAt   = await this.tokenRepo.findUsedAt(record.id, tx);
+        const isRecent = usedAt !== null && Date.now() - usedAt.getTime() < REUSE_GRACE_MS;
+        if (isRecent) return 'lost_recent';
+        await this.tokenRepo.revokeFamily(record.familyId, 'reuse_detected', tx);
+        return 'lost';
+      }
       await this.tokenRepo.insert({
         deviceSessionFk: session.id,
         tokenHash:       newTokenHash,
@@ -193,7 +322,15 @@ export class RefreshTokenService {
       }, tx);
       await this.sessionRepo.updateLastUsed(session.id, tx);
       await this.sessionRepo.updateCurrentJti(session.id, claims.jti, newJtiExp, tx);
+      return 'won';
     });
+
+    if (raceResult === 'lost_recent') {
+      throw new ServiceUnavailableError(ErrorCodes.REFRESH_IN_PROGRESS_RETRY, 'A concurrent refresh is in progress; please retry');
+    }
+    if (raceResult === 'lost') {
+      throw new UnauthorizedError(ErrorCodes.REFRESH_TOKEN_REUSE, 'Refresh token has already been used');
+    }
 
     // 5. Post-commit: blacklist the old JWT and invalidate caches. Best-effort
     //    side effects — never part of the DB transaction.

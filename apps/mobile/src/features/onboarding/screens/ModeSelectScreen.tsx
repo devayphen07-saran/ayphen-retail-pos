@@ -14,7 +14,7 @@ import { router } from 'expo-router';
 import { useMobileTheme } from '@ayphen/mobile-theme';
 import { LucideIcon, Row, Column, Typography } from '@ayphen/mobile-ui-components';
 import { useUpdateAccountModeMutation, type AccountMode } from '@ayphen/api-manager';
-import { useAuthStore } from '@features/auth/authStore';
+import { useAuthStore } from '@store';
 
 const W50 = 'rgba(255,255,255,0.50)';
 const W55 = 'rgba(255,255,255,0.55)';
@@ -65,7 +65,15 @@ export function ModeSelectScreen() {
           keyboardShouldPersistTaps="handled"
           showsVerticalScrollIndicator={false}
         >
-          <Header>
+          <Row
+            align="center"
+            gap={theme.sizing.small}
+            style={{
+              paddingHorizontal: theme.sizing.large,
+              paddingTop: theme.sizing.regular,
+              paddingBottom: theme.sizing.xSmall,
+            }}
+          >
             <LogoBox>
               <LucideIcon name="Store" size={20} color={theme.colorWhite} />
             </LogoBox>
@@ -77,9 +85,15 @@ export function ModeSelectScreen() {
                 Enterprise POS Platform
               </Typography.Caption>
             </Column>
-          </Header>
+          </Row>
 
-          <Hero>
+          <Column
+            style={{
+              paddingHorizontal: theme.sizing.large,
+              paddingTop: theme.sizing.xLarge,
+              paddingBottom: theme.sizing.large,
+            }}
+          >
             <Typography.Overline color={theme.colorAccentLavender}>
               ACCOUNT TYPE
             </Typography.Overline>
@@ -91,7 +105,7 @@ export function ModeSelectScreen() {
             <Typography.Body color={W55}>
               Pick how you want to start. You can switch anytime from Settings.
             </Typography.Body>
-          </Hero>
+          </Column>
 
           <Card>
             <ModeCard
@@ -121,22 +135,31 @@ export function ModeSelectScreen() {
             />
 
             {error ? (
-              <ErrorRow>
+              <Row
+                align="center"
+                gap={theme.sizing.xSmall}
+                style={{ marginTop: theme.sizing.medium }}
+              >
                 <LucideIcon name="TriangleAlert" size={14} color={theme.colorError} />
                 <Typography.Caption color={theme.colorError}>
                   {error}
                 </Typography.Caption>
-              </ErrorRow>
+              </Row>
             ) : null}
 
-            <Disclaimer>
+            <Row
+              wrap="wrap"
+              align="center"
+              justify="center"
+              style={{ marginTop: theme.sizing.large }}
+            >
               <Typography.Caption color={theme.color.grey.borderActive}>
                 You can switch anytime from{' '}
               </Typography.Caption>
               <Typography.Caption color={theme.colorPrimary} weight="semiBold">
                 Settings
               </Typography.Caption>
-            </Disclaimer>
+            </Row>
           </Card>
         </ScrollView>
       </KeyboardAvoidingView>
@@ -185,12 +208,12 @@ function ModeCard({
           <LucideIcon name={icon} size={24} color={accentIcon} />
         </IconTile>
 
-        <CardTextCol>
+        <Column flex={1} gap={3}>
           <Typography.Body weight="semiBold" color={theme.colorText}>
             {title}
           </Typography.Body>
           <Typography.Caption color={theme.color.grey.active}>{description}</Typography.Caption>
-        </CardTextCol>
+        </Column>
 
         {loading ? (
           <ActivityIndicator color={theme.colorPrimary} size="small" />
@@ -233,15 +256,6 @@ const Orb2 = styled.View`
   opacity: 0.15;
 `;
 
-const Header = styled.View`
-  flex-direction: row;
-  align-items: center;
-  padding-horizontal: ${({ theme }) => theme.sizing.large}px;
-  padding-top: ${({ theme }) => theme.sizing.regular}px;
-  padding-bottom: ${({ theme }) => theme.sizing.xSmall}px;
-  gap: ${({ theme }) => theme.sizing.small}px;
-`;
-
 const LogoBox = styled.View`
   width: 40px;
   height: 40px;
@@ -251,12 +265,6 @@ const LogoBox = styled.View`
   border-color: ${({ theme }) => theme.overlay.onDark20};
   align-items: center;
   justify-content: center;
-`;
-
-const Hero = styled.View`
-  padding-horizontal: ${({ theme }) => theme.sizing.large}px;
-  padding-top: ${({ theme }) => theme.sizing.xLarge}px;
-  padding-bottom: ${({ theme }) => theme.sizing.large}px;
 `;
 
 const Gap = styled.View<{ $h: number }>`
@@ -297,22 +305,3 @@ const IconTile = styled.View`
   flex-shrink: 0;
 `;
 
-const CardTextCol = styled.View`
-  flex: 1;
-  gap: 3px;
-`;
-
-const ErrorRow = styled.View`
-  flex-direction: row;
-  align-items: center;
-  gap: ${({ theme }) => theme.sizing.xSmall}px;
-  margin-top: ${({ theme }) => theme.sizing.medium}px;
-`;
-
-const Disclaimer = styled.View`
-  flex-direction: row;
-  flex-wrap: wrap;
-  align-items: center;
-  justify-content: center;
-  margin-top: ${({ theme }) => theme.sizing.large}px;
-`;

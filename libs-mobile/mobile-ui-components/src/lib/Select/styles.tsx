@@ -9,7 +9,7 @@ interface InputStylesArgs {
 }
 
 export const inputStylesCss = ({ $hasError, theme, $scale = 1 }: InputStylesArgs) => ({
-  borderWidth: theme.borderWidth?.borderWidthThin ?? 1,
+  borderWidth: theme.borderWidth?.thin ?? 1,
   borderColor: $hasError ? theme.colorError : theme.colorBorder,
   borderRadius: (theme.borderRadius?.medium ?? 8) * $scale,
   padding: (theme.padding?.small ?? 8) * $scale,
@@ -45,9 +45,9 @@ export const SelectTouchable = styled(TouchableOpacity)<SelectTouchableProps>`
   align-items: center;
   justify-content: space-between;
   padding: ${({ theme, $scale = 1 }) =>
-    (Platform.OS === 'ios' ? theme.padding?.small ?? 8 : 10) * $scale}px;
+    (Platform.OS === 'ios' ? theme.padding?.small ?? 8 : theme.sizing.small) * $scale}px;
   background-color: ${({ theme }) => theme.colorBgContainer};
-  border-width: ${({ theme }) => theme.borderWidth?.borderWidthThin ?? 1}px;
+  border-width: ${({ theme }) => theme.borderWidth?.thin ?? 1}px;
   border-color: ${({ $hasError, theme }) =>
     $hasError ? theme.colorError : theme.colorBorder};
   border-radius: ${({ theme, $scale = 1 }) =>

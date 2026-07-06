@@ -15,11 +15,11 @@ import {
 } from '@ayphen/mobile-ui-components';
 import {
   useMyInvitationsQuery,
-  useAcceptInvitationMutation,
-  useRejectInvitationMutation,
+  useAcceptInvitationByIdMutation,
+  useRejectInvitationByIdMutation,
   type MyInvitationResponse,
 } from '@ayphen/api-manager';
-import { setLastOpenedStoreId } from '@features/store/prefs';
+import { setLastOpenedStoreId } from '@features/store/shared/utils/prefs';
 import { useAuth } from '@core/providers/AuthProvider';
 
 /** Matches ListRow's shape (icon slot + title + subtitle) so there's zero
@@ -48,11 +48,11 @@ export function InvitationsScreen() {
     refetch,
     isRefetching,
   } = useMyInvitationsQuery();
-  const acceptInvitation = useAcceptInvitationMutation();
-  const rejectInvitation = useRejectInvitationMutation();
-  const [acceptingToken, setAcceptingToken] = useState<string | null>(null);
-  const [rejectingToken, setRejectingToken] = useState<string | null>(null);
-  const busyToken = acceptingToken ?? rejectingToken;
+  const acceptInvitation = useAcceptInvitationByIdMutation();
+  const rejectInvitation = useRejectInvitationByIdMutation();
+  const [acceptingId, setAcceptingId] = useState<string | null>(null);
+  const [rejectingId, setRejectingId] = useState<string | null>(null);
+  const busyId = acceptingId ?? rejectingId;
   const hasData = (invitations?.length ?? 0) > 0;
 
   // Refetch whenever this screen regains focus (loading-agent.md §12), e.g.
@@ -65,9 +65,9 @@ export function InvitationsScreen() {
   );
 
   const onAccept = async (invite: MyInvitationResponse) => {
-    setAcceptingToken(invite.token);
+    setAcceptingId(invite.id);
     try {
-      const res = await acceptInvitation.mutateAsync({ bodyParam: { token: invite.token } });
+      const res = await acceptInvitation.mutateAsync({ pathParam: { id: invite.id } });
       await setLastOpenedStoreId(res.store_id);
       // Accept bumps permissionsVersion server-side — refetch bootstrap so the
       // new store shows up in the snapshot before the gate re-evaluates.
@@ -77,7 +77,7 @@ export function InvitationsScreen() {
       const message = err instanceof Error ? err.message : 'Could not accept the invitation.';
       Alert.info('Error', message);
     } finally {
-      setAcceptingToken(null);
+      setAcceptingId(null);
     }
   };
 
@@ -86,9 +86,9 @@ export function InvitationsScreen() {
       'Decline invitation',
       `Decline the invitation to join ${invite.store_name}?`,
       async () => {
-        setRejectingToken(invite.token);
+        setRejectingId(invite.id);
         try {
-          await rejectInvitation.mutateAsync({ bodyParam: { token: invite.token } });
+          await rejectInvitation.mutateAsync({ pathParam: { id: invite.id } });
           // Badge/list must reflect this immediately (post-login-onboarding-flow.md
           // §5) — refetch bootstrap so pendingInvitationCount drops right away,
           // not just the local list cache.
@@ -102,7 +102,7 @@ export function InvitationsScreen() {
           const message = err instanceof Error ? err.message : 'Could not decline the invitation.';
           Alert.info('Error', message);
         } finally {
-          setRejectingToken(null);
+          setRejectingId(null);
         }
       },
       'Decline',
@@ -139,7 +139,7 @@ export function InvitationsScreen() {
         ) : (
           <Column gap={10}>
             {invitations?.map((invite) => {
-              const isBusy = busyToken === invite.token;
+              const isBusy = busyId === invite.id;
               return (
                 <InviteCard
                   key={invite.id}

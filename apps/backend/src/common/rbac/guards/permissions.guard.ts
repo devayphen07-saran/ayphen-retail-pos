@@ -51,8 +51,13 @@ export class PermissionsGuard implements CanActivate {
       REQUIRE_PERMISSIONS_KEY,
       [ctx.getHandler(), ctx.getClass()],
     );
-    // No @RequirePermissions → no RBAC enforcement on this route.
-    if (!permission) return true;
+    const special = this.reflector.getAllAndOverride<RequireSpecialMeta>(
+      REQUIRE_SPECIAL_KEY,
+      [ctx.getHandler(), ctx.getClass()],
+    );
+    // Neither @RequirePermissions nor @RequireSpecial → no RBAC enforcement.
+    // A @RequireSpecial without @RequirePermissions still enforces on its own.
+    if (!permission && !special) return true;
 
     const req = ctx.switchToHttp().getRequest<Request>();
     const principal = req.user;
@@ -79,11 +84,6 @@ export class PermissionsGuard implements CanActivate {
     }
     const storeId = context.storeId;
 
-    const special = this.reflector.getAllAndOverride<RequireSpecialMeta>(
-      REQUIRE_SPECIAL_KEY,
-      [ctx.getHandler(), ctx.getClass()],
-    );
-
     // H-6 (§16): JWT pv vs current permissionsVersion mismatch → bust cache first.
     if (principal.jwtPv !== principal.permissionsVersion) {
       await this.rbac.invalidateUserStoreCache(principal.userId, storeId);
@@ -91,7 +91,7 @@ export class PermissionsGuard implements CanActivate {
 
     // Critical = delete CRUD, or a critical special action (§7) → 30s TTL.
     const isCritical =
-      permission.action === 'delete' ||
+      permission?.action === 'delete' ||
       (special !== undefined && CRITICAL_SPECIAL_ACTIONS.has(special.actionCode));
 
     const permissions = await this.rbac.getCachedPermissions(
@@ -100,8 +100,8 @@ export class PermissionsGuard implements CanActivate {
       isCritical,
     );
 
-    // CRUD check.
-    if (!this.rbac.checkCrud(permissions, permission.entity, permission.action)) {
+    // CRUD check (only when @RequirePermissions is present).
+    if (permission && !this.rbac.checkCrud(permissions, permission.entity, permission.action)) {
       await this.denyAudit(principal.userId, storeId, req, {
         entity: permission.entity,
         action: permission.action,

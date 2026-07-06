@@ -1,5 +1,17 @@
 import type { StoreDeviceRow } from './device-access.repository.js';
-import type { MyDevice } from './device-access.service.js';
+import type { MyDevice, SlotClaimResult } from './device-access.service.js';
+
+/**
+ * Slot-claim wire response (device-management §7 F2). The existing wire is
+ * `{ access, isNew }` — `isNew` is camelCase and the mobile client already
+ * depends on it, so the field names are preserved exactly and the mapper is a
+ * pass-through. This exists purely to keep the service result type from leaking
+ * to the controller return (layered-architecture §3.7).
+ */
+export interface SlotClaimResponse {
+  access: 'granted';
+  isNew:  boolean;
+}
 
 export interface StoreDeviceResponse {
   device_id:        string;
@@ -29,6 +41,14 @@ export interface MyDeviceResponse {
 
 /** Pure domain → snake_case mappers (layered-architecture §3.7). */
 export const StoreDeviceMapper = {
+  /** Pass-through: wire field names (`access`, `isNew`) are unchanged. */
+  toSlotClaimResponse(result: SlotClaimResult): SlotClaimResponse {
+    return {
+      access: result.access,
+      isNew:  result.isNew,
+    };
+  },
+
   toStoreDeviceList(rows: StoreDeviceRow[], currentDeviceId: string): StoreDeviceResponse[] {
     return rows.map((r) => ({
       device_id:        r.deviceFk,

@@ -1,4 +1,6 @@
-import { Injectable, NotFoundException } from '@nestjs/common';
+import { Injectable } from '@nestjs/common';
+import { NotFoundError } from '#common/exceptions/app.exception.js';
+import { ErrorCodes } from '#common/error-codes.js';
 import { EntityTypesRepository, type EntityTypeRow } from './entity-types.repository.js';
 
 @Injectable()
@@ -11,7 +13,7 @@ export class EntityTypesService {
 
   async findByCode(code: string): Promise<EntityTypeRow> {
     const row = await this.repo.findByCode(code);
-    if (!row) throw new NotFoundException('ENTITY_TYPE_NOT_FOUND');
+    if (!row) throw new NotFoundError(ErrorCodes.ENTITY_TYPE_NOT_FOUND, 'Entity type not found');
     return row;
   }
 

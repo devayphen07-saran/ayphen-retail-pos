@@ -1,6 +1,7 @@
 import { Injectable } from '@nestjs/common';
 import { AppException } from '#common/exceptions/app.exception.js';
 import { ErrorCodes } from '#common/error-codes.js';
+import { UnitOfWork } from '#db/db.module.js';
 import { AuditService } from '../../core/audit.service.js';
 import { AuthSessionRepository } from '../repositories/auth-session.repository.js';
 import { RefreshTokenRepository } from '../repositories/refresh-token.repository.js';
@@ -17,13 +18,18 @@ export class AuthLogoutService {
     private readonly blacklist:        BlacklistCacheService,
     private readonly cacheInvalidator: SessionCacheInvalidatorService,
     private readonly audit:            AuditService,
+    private readonly uow:              UnitOfWork,
   ) {}
 
   /** Log out the current session — blacklist its JWT, revoke it + its refresh tokens, drop its cache. */
   async logout(userId: string, deviceSessionId: string, currentJti: string, jtiExp: Date): Promise<void> {
     await this.blacklist.addToBlacklist(currentJti, jtiExp);
-    await this.sessionRepo.revokeSession(deviceSessionId, 'user_logout');
-    await this.refreshTokenRepo.revokeBySession(deviceSessionId, 'user_logout');
+    // Session + refresh-token revocation commit together or not at all —
+    // previously two separate un-transactioned writes.
+    await this.uow.execute(async (tx) => {
+      await this.sessionRepo.revokeSession(deviceSessionId, 'user_logout', tx);
+      await this.refreshTokenRepo.revokeBySession(deviceSessionId, 'user_logout', tx);
+    });
     await this.cacheInvalidator.invalidate(deviceSessionId);
     await this.audit.log({
       event: 'LOGOUT', activityType: 'AUTH_LOGOUT',
@@ -39,9 +45,14 @@ export class AuthLogoutService {
       if (s.currentJti && s.currentJtiExp) {
         await this.blacklist.addToBlacklist(s.currentJti, s.currentJtiExp);
       }
-      await this.refreshTokenRepo.revokeBySession(s.id, 'user_logout_all');
     }
-    await this.sessionRepo.revokeAllUserSessions(userId, 'user_logout_all');
+    // All sessions + all their refresh tokens revoked as one atomic unit.
+    await this.uow.execute(async (tx) => {
+      for (const s of sessions) {
+        await this.refreshTokenRepo.revokeBySession(s.id, 'user_logout_all', tx);
+      }
+      await this.sessionRepo.revokeAllUserSessions(userId, 'user_logout_all', tx);
+    });
     await this.cacheInvalidator.invalidateAllForUser(userId);
     // Audit the global logout — it's more consequential than a single-session
     // logout (which is already audited), so it must leave a trail too.
@@ -76,8 +87,10 @@ export class AuthLogoutService {
     if (target.currentJti && target.currentJtiExp) {
       await this.blacklist.addToBlacklist(target.currentJti, target.currentJtiExp);
     }
-    await this.sessionRepo.revokeSession(sessionId, 'user_revoked');
-    await this.refreshTokenRepo.revokeBySession(sessionId, 'user_revoked');
+    await this.uow.execute(async (tx) => {
+      await this.sessionRepo.revokeSession(sessionId, 'user_revoked', tx);
+      await this.refreshTokenRepo.revokeBySession(sessionId, 'user_revoked', tx);
+    });
     await this.cacheInvalidator.invalidate(sessionId);
     await this.audit.log({
       event: 'SESSION_REVOKED', activityType: 'AUTH_LOGOUT',

@@ -1,7 +1,7 @@
 import {
   DocumentBuilder,
-  OpenAPIObject,
-  SwaggerCustomOptions,
+  type OpenAPIObject,
+  type SwaggerCustomOptions,
 } from '@nestjs/swagger';
 import { env } from './env';
 

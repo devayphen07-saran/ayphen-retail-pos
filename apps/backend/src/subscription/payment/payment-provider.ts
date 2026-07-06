@@ -38,7 +38,7 @@ export interface VerifyWebhookInput {
 
 /** Normalized, provider-independent billing event the subscription layer reacts to. */
 export type PaymentEvent =
-  | { type: 'payment.succeeded'; orderId: string; providerRef: string }
+  | { type: 'payment.succeeded'; orderId: string; providerRef: string; amount?: number; currency?: string }
   | { type: 'payment.failed'; orderId: string; reason?: string }
   | { type: 'ignored' };
 

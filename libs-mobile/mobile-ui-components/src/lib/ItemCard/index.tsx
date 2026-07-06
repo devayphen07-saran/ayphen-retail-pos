@@ -1,7 +1,7 @@
 import React from "react";
-import { View, Platform, StyleSheet } from "react-native";
+import { View, StyleSheet } from "react-native";
 import type { StyleProp, ViewStyle } from "react-native";
-import styled, { useTheme, css } from "styled-components/native";
+import styled, { useTheme } from "styled-components/native";
 import MaterialIcons from "@expo/vector-icons/MaterialIcons";
 import type { ComponentProps } from "react";
 import { ColorType, useColorVariant } from "@ayphen/mobile-theme";
@@ -95,7 +95,8 @@ const CardTouchable = styled.TouchableOpacity<{
   $variant: ColorType;
   $borderless: boolean;
 }>`
-  border-width: ${({ theme, $borderless }) => ($borderless ? 0 : 1)}px;
+  border-width: ${({ theme, $borderless }) =>
+    $borderless ? 0 : theme.borderWidth.thin}px;
   border-color: ${({ theme, $variant }) => theme.color[$variant].border};
   background-color: ${({ theme, $variant }) => theme.color[$variant].bg};
 
@@ -104,23 +105,11 @@ const CardTouchable = styled.TouchableOpacity<{
   padding: ${({ theme }) => theme.padding.regular}px;
   border-radius: ${({ theme }) => theme.borderRadius.large}px;
 
-  ${({ $borderless, theme }) =>
-    !$borderless &&
-    Platform.select({
-      ios: css`
-        shadow-color: ${theme.colorText};
-        shadow-opacity: 0.13;
-        shadow-radius: 4px;
-        shadow-offset: 0px 2px;
-      `,
-      android: css`
-        elevation: 2;
-      `,
-    })}
+  ${({ $borderless, theme }) => (!$borderless ? theme.shadow.sm : "")}
 `;
 
 const IconWrapper = styled(View)`
-  margin-right: 14px;
+  margin-right: ${({ theme }) => theme.sizing.small}px;
   align-items: center;
   justify-content: center;
 `;
@@ -131,11 +120,11 @@ const ContentColumn = styled.View`
 `;
 
 const ContentWrapper = styled.View`
-  margin-top: 4px;
+  margin-top: ${({ theme }) => theme.sizing.xxSmall}px;
 `;
 
 const ArrowWrapper = styled(View)`
-  margin-left: 10px;
+  margin-left: ${({ theme }) => theme.sizing.xSmall}px;
   align-items: center;
   justify-content: center;
 `;

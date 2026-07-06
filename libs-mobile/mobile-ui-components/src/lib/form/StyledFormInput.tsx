@@ -46,13 +46,13 @@ function num(value: unknown): number {
 //   (not a wrapper View) so this caveat does not apply here.
 
 export const StyledFormInput = styled.TextInput<{
-  hasError?:    boolean;
-  disabled?:    boolean;
+  $hasError?:   boolean;
+  $disabled?:   boolean;
   $scale:       number;
   $fontScale:   number;
 }>`
-  ${({ theme, hasError, $scale, $fontScale }) => {
-    const s = inputStyles(theme, hasError);
+  ${({ theme, $hasError, $scale, $fontScale }) => {
+    const s = inputStyles(theme, $hasError);
     return `
       border-width:  ${num(s.borderWidth)}px;
       border-color:  ${String(s.borderColor)};
@@ -65,7 +65,7 @@ export const StyledFormInput = styled.TextInput<{
   }}
   width: 100%;
   background-color: ${({ theme }) => theme.colorBgContainer};
-  opacity: ${({ disabled }) => (disabled ? 0.6 : 1)};
+  opacity: ${({ $disabled }) => ($disabled ? 0.6 : 1)};
 `;
 
 // ─── StyledFormFieldFrame ─────────────────────────────────────────────────────
@@ -107,12 +107,12 @@ export const StyledFormInput = styled.TextInput<{
 //   and set the TextInput's color to theme.colorTextDisabled.
 
 export const StyledFormFieldFrame = styled.View<{
-  hasError?:  boolean;
-  disabled?:  boolean;
+  $hasError?: boolean;
+  $disabled?: boolean;
   $scale:     number;
 }>`
-  ${({ theme, hasError, $scale }) => {
-    const s = inputStyles(theme, hasError);
+  ${({ theme, $hasError, $scale }) => {
+    const s = inputStyles(theme, $hasError);
     return `
       border-width:  ${num(s.borderWidth)}px;
       border-color:  ${String(s.borderColor)};
@@ -123,5 +123,5 @@ export const StyledFormFieldFrame = styled.View<{
   flex-direction:   row;
   align-items:      center;
   background-color: ${({ theme }) => theme.colorBgContainer};
-  opacity:          ${({ disabled }) => (disabled ? 0.6 : 1)};
+  opacity:          ${({ $disabled }) => ($disabled ? 0.6 : 1)};
 `;

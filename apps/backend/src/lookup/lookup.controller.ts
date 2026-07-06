@@ -5,6 +5,7 @@ import {
   Get,
   HttpCode,
   Param,
+  ParseUUIDPipe,
   Patch,
   Post,
   UseGuards,
@@ -29,6 +30,7 @@ import {
   CreateLookupValueDtoSchema,
   UpdateLookupValueDtoSchema,
 } from './dto/lookup.dto.js';
+import { LookupRequestMapper } from './lookup.request-mapper.js';
 
 /**
  * Lookup values API (lookup-entity-prd.md §7). Reads are any authenticated
@@ -50,7 +52,7 @@ export class LookupController {
   @Get(':typeCode/values')
   @RequirePermissions({ entity: 'Lookup', action: 'view' })
   async listValues(
-    @Param('storeId') storeId: string,
+    @Param('storeId', ParseUUIDPipe) storeId: string,
     @Param('typeCode') typeCode: string,
   ): Promise<LookupValueResponse[]> {
     const rows = await this.lookup.listValues(typeCode, storeId);
@@ -60,26 +62,36 @@ export class LookupController {
   @Post(':typeCode/values')
   @RequirePermissions({ entity: 'Lookup', action: 'create' })
   async addValue(
-    @Param('storeId') storeId: string,
+    @Param('storeId', ParseUUIDPipe) storeId: string,
     @Param('typeCode') typeCode: string,
     @CurrentUser() user: MobilePrincipal,
     @Body() body: unknown,
   ): Promise<LookupValueResponse> {
     const dto = parse(body, CreateLookupValueDtoSchema);
-    const row = await this.lookup.addValue(typeCode, storeId, user.userId, dto);
+    const row = await this.lookup.addValue(
+      typeCode,
+      storeId,
+      user.userId,
+      LookupRequestMapper.toCreateValueCommand(dto),
+    );
     return LookupValueMapper.toResponse(row);
   }
 
   @Patch('values/:guuid')
   @RequirePermissions({ entity: 'Lookup', action: 'edit' })
   async updateValue(
-    @Param('storeId') storeId: string,
-    @Param('guuid') guuid: string,
+    @Param('storeId', ParseUUIDPipe) storeId: string,
+    @Param('guuid', ParseUUIDPipe) guuid: string,
     @CurrentUser() user: MobilePrincipal,
     @Body() body: unknown,
   ): Promise<LookupValueResponse> {
     const dto = parse(body, UpdateLookupValueDtoSchema);
-    const row = await this.lookup.updateValue(guuid, storeId, user.userId, dto);
+    const row = await this.lookup.updateValue(
+      guuid,
+      storeId,
+      user.userId,
+      LookupRequestMapper.toUpdateValueCommand(dto),
+    );
     return LookupValueMapper.toResponse(row);
   }
 
@@ -87,8 +99,8 @@ export class LookupController {
   @HttpCode(204)
   @RequirePermissions({ entity: 'Lookup', action: 'delete' })
   async removeValue(
-    @Param('storeId') storeId: string,
-    @Param('guuid') guuid: string,
+    @Param('storeId', ParseUUIDPipe) storeId: string,
+    @Param('guuid', ParseUUIDPipe) guuid: string,
   ): Promise<void> {
     await this.lookup.softDeleteValue(guuid, storeId);
   }

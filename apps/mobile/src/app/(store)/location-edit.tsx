@@ -1,0 +1,1 @@
+export { EditLocationScreen as default } from '@features/store/locations/screens/EditLocationScreen';

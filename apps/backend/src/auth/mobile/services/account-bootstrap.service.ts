@@ -1,15 +1,9 @@
 import { Injectable } from '@nestjs/common';
 import { randomBytes } from 'crypto';
-import { eq } from 'drizzle-orm';
 import { type DbTransaction } from '#db/db.module.js';
-import {
-  accounts,
-  accountUsers,
-  accountSubscriptions,
-  plans,
-} from '#db/schema.js';
 import { AppException } from '#common/exceptions/app.exception.js';
 import { ErrorCodes } from '#common/error-codes.js';
+import { AccountBootstrapRepository } from '../repositories/account-bootstrap.repository.js';
 
 /** Every new signup starts on this plan; the trial window opens at first store-create. */
 const TRIAL_PLAN_NAME = 'free';
@@ -33,16 +27,15 @@ export interface BootstrappedAccount {
  */
 @Injectable()
 export class AccountBootstrapService {
+  constructor(private readonly repo: AccountBootstrapRepository) {}
+
   async bootstrap(
     userId: string,
     tx: DbTransaction,
   ): Promise<BootstrappedAccount> {
     // Resolve the trial plan — must be seeded (db:seed). Fail loudly if missing.
-    const [plan] = await tx
-      .select({ id: plans.id })
-      .from(plans)
-      .where(eq(plans.name, TRIAL_PLAN_NAME));
-    if (!plan) {
+    const planId = await this.repo.findPlanIdByName(TRIAL_PLAN_NAME, tx);
+    if (!planId) {
       throw new AppException(
         ErrorCodes.INTERNAL_ERROR,
         'TRIAL_PLAN_NOT_CONFIGURED',
@@ -50,41 +43,29 @@ export class AccountBootstrapService {
       );
     }
 
-    const [account] = await tx
-      .insert(accounts)
-      .values({
+    const account = await this.repo.insertAccount(
+      {
         accountNumber: this.generateAccountNumber(),
         name: 'My Business', // internal label; user renames later
         ownerUserFk: userId,
-      })
-      .returning({ id: accounts.id, accountNumber: accounts.accountNumber });
+      },
+      tx,
+    );
 
-    await tx.insert(accountUsers).values({
-      accountFk: account!.id,
-      userFk: userId,
-    });
+    await this.repo.insertMembership({ accountFk: account.id, userFk: userId }, tx);
 
     // The trial clock does NOT start at signup — it starts when the user creates
-    // their first store (subscription.md §1). Here we create the subscription in
-    // 'trialing' with no window yet; the store-create flow stamps trial_ends_at /
-    // access_valid_until and flips has_used_trial. The DB CHECK allows a null
-    // access_valid_until only while status = 'trialing'.
-    const [subscription] = await tx
-      .insert(accountSubscriptions)
-      .values({
-        accountFk: account!.id,
-        planFk: plan.id,
-        status: 'trialing',
-        trialEndsAt: null,
-        accessValidUntil: null,
-        hasUsedTrial: false,
-      })
-      .returning({ id: accountSubscriptions.id });
+    // their first store (subscription.md §1). The store-create flow stamps
+    // trial_ends_at / access_valid_until and flips has_used_trial.
+    const subscription = await this.repo.insertTrialingSubscription(
+      { accountFk: account.id, planFk: planId },
+      tx,
+    );
 
     return {
-      accountId: account!.id,
-      accountNumber: account!.accountNumber,
-      subscriptionId: subscription!.id,
+      accountId: account.id,
+      accountNumber: account.accountNumber,
+      subscriptionId: subscription.id,
     };
   }
 

@@ -77,8 +77,8 @@ export function PasswordInput<T extends FieldValues>({
                 secureTextEntry={secure}
                 placeholderTextColor={placeholderColor}
                 editable={resolvedEditable}
-                hasError={!!fieldState.error}
-                disabled={disabled}
+                $hasError={!!fieldState.error}
+                $disabled={disabled}
                 $scale={scale}
                 $fontScale={fontScale}
                 autoCapitalize="none"

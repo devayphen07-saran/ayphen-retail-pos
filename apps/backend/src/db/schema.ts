@@ -14,7 +14,9 @@ import {
   check,
 } from 'drizzle-orm/pg-core';
 import { sql } from 'drizzle-orm';
+import { primaryKey, numeric } from 'drizzle-orm/pg-core';
 import { auditColumns } from './audit';
+import { syncColumns } from './sync-columns';
 
 // ─── Accounts ─────────────────────────────────────────────────────────────────
 // Top-level billing/tenant entity. Each account owns one or more stores.
@@ -32,7 +34,9 @@ export const accounts = pgTable('accounts', {
   razorpayCustomerId: text('razorpay_customer_id'),
   createdAt:          timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
   updatedAt:          timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
-});
+}, (t) => [
+  index('idx_accounts_owner').on(t.ownerUserFk),
+]);
 
 // ─── Plans ────────────────────────────────────────────────────────────────────
 
@@ -66,7 +70,7 @@ export const planFeatures = pgTable(
   {
     id:      uuid('id').primaryKey().defaultRandom(),
     planFk:  uuid('plan_fk').notNull().references(() => plans.id, { onDelete: 'cascade' }),
-    key:     text('key').notNull(),   // 'barcode_scanning' | 'multi_store' | 'api_access' …
+    key:     text('key').notNull(),   // 'barcode_scanning' | 'advanced_reports' | 'api_access' …
     enabled: boolean('enabled').notNull().default(false),
   },
   (t) => [uniqueIndex('plan_features_plan_key_uq').on(t.planFk, t.key)],
@@ -78,6 +82,10 @@ export const stores = pgTable(
   'stores',
   {
     id:             uuid('id').primaryKey().defaultRandom(),
+    // Sync key + delta watermark (sync-engine.md §3 order 0). The store row is
+    // pulled, never pushed — no row_version. modified_at is trigger-maintained.
+    guuid:          uuid('guuid').notNull().defaultRandom().unique(),
+    modifiedAt:     timestamp('modified_at', { withTimezone: true }).notNull().defaultNow(),
     accountFk:      uuid('account_fk').notNull().references(() => accounts.id),
     name:           text('name').notNull(),
     gstNumber:      text('gst_number'),
@@ -88,6 +96,7 @@ export const stores = pgTable(
     invoiceCounter: integer('invoice_counter').notNull().default(0),
     isActive:       boolean('is_active').notNull().default(true),
     locked:         boolean('locked').notNull().default(false),
+    lockedReason:   text('locked_reason', { enum: ['downgrade'] }),
     ...auditColumns,
   },
   (t) => [
@@ -113,6 +122,7 @@ export const locations = pgTable(
     isActive:     boolean('is_active').notNull().default(true),    // soft-delete
     displayOrder: integer('display_order').notNull().default(0),
     locked:       boolean('locked').notNull().default(false),      // downgrade-locked
+    lockedReason: text('locked_reason', { enum: ['downgrade'] }),
     archivedAt:   timestamp('archived_at', { withTimezone: true }),
     createdAt:    timestamp('created_at',  { withTimezone: true }).notNull().defaultNow(),
     updatedAt:    timestamp('updated_at',  { withTimezone: true }).notNull().defaultNow(),
@@ -123,6 +133,10 @@ export const locations = pgTable(
     uniqueIndex('uk_location_primary').on(t.storeFk).where(sql`${t.isPrimary} = true`),
     uniqueIndex('uk_location_default').on(t.storeFk).where(sql`${t.isDefault} = true`),
     index('idx_location_store_active').on(t.storeFk).where(sql`${t.isActive} = true`),
+    // Backstops the app-level nameTaken() check against a create/rename race
+    // (two concurrent requests can both pass the pre-check before either
+    // inserts) — the DB is the actual source of truth for uniqueness.
+    uniqueIndex('uk_location_name').on(t.storeFk, sql`lower(${t.name})`).where(sql`${t.isActive} = true`),
   ],
 );
 
@@ -150,7 +164,8 @@ export const userLocationMappings = pgTable(
 );
 
 // ─── Users ───────────────────────────────────────────────────────────────────
-// CHECK (email IS NOT NULL OR phone IS NOT NULL) enforced at DB level via migration
+// A user must be reachable by at least one channel — enforced by the
+// users_email_or_phone CHECK below (email/phone each nullable, but not both).
 
 export const users = pgTable('users', {
   id:                  uuid('id').primaryKey().defaultRandom(),
@@ -182,7 +197,21 @@ export const users = pgTable('users', {
   deletedAt:           timestamp('deleted_at', { withTimezone: true }),
   createdAt:           timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
   updatedAt:           timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
-});
+  // Staff-sync delta watermark (sync-engine.md §3 order 8). Bumped by the
+  // sync_touch trigger only when sync-relevant columns change (see the trigger's
+  // WHEN clause) — lastLoginAt churn must not re-deliver every staff row.
+  modifiedAt:          timestamp('modified_at', { withTimezone: true }).notNull().defaultNow(),
+}, (t) => [
+  check(
+    'users_email_or_phone',
+    sql`${t.email} IS NOT NULL OR ${t.phone} IS NOT NULL`,
+  ),
+  // guuid is the client-facing sync key — must be unique to upsert by.
+  uniqueIndex('users_guuid_uq').on(t.guuid),
+  // Staff delta-sync keyset (modified_at, id) — without this the staff pull
+  // seq-scans users as the user base grows.
+  index('idx_users_modified').on(t.modifiedAt, t.id),
+]);
 
 // ─── Account ↔ Users (many-to-many, role scoped) ──────────────────────────────
 
@@ -292,6 +321,8 @@ export const userRoleMappings = pgTable(
     uniqueIndex('user_role_mappings_uq').on(t.userFk, t.roleFk, t.storeFk),
     index('idx_user_role_mappings_user_store').on(t.userFk, t.storeFk),
     index('idx_user_role_mappings_role').on(t.roleFk),
+    // storeFk-leading lookup for the staff-sync membership join (store filter).
+    index('idx_user_role_mappings_store').on(t.storeFk),
   ],
 );
 
@@ -305,7 +336,7 @@ export const invitations = pgTable(
     roleFk:     uuid('role_fk').notNull().references(() => roles.id),
     phone:      text('phone'),
     email:      text('email'),
-    token:      text('token').notNull().unique(),  // opaque accept token
+    token:      text('token').notNull().unique(),  // SHA-256 hash of the accept token
     status:     text('status', {
                   enum: ['pending', 'accepted', 'revoked', 'expired'],
                 }).notNull().default('pending'),
@@ -319,6 +350,7 @@ export const invitations = pgTable(
     index('idx_invitations_store').on(t.storeFk),
     index('idx_invitations_phone').on(t.phone),
     index('idx_invitations_status').on(t.status),
+    index('idx_invitations_role').on(t.roleFk),
   ],
 );
 
@@ -340,6 +372,10 @@ export const accountSubscriptions = pgTable(
     id:                  uuid('id').primaryKey().defaultRandom(),
     accountFk:           uuid('account_fk').notNull().references(() => accounts.id, { onDelete: 'cascade' }),
     planFk:              uuid('plan_fk').notNull().references(() => plans.id),
+    // Billing cadence (e.g. 'starter_monthly' vs 'starter_annual') — keys into
+    // PLAN_PRICING. planFk alone only identifies the plan *name*, not which
+    // priced variant was purchased. Null pre-checkout (trialing on the free plan).
+    planCode:            text('plan_code'),
     status:              text('status', {
                            enum: ['trialing', 'active', 'past_due', 'paused', 'cancelled', 'expired'],
                          }).notNull().default('trialing'),
@@ -354,11 +390,23 @@ export const accountSubscriptions = pgTable(
     subscriptionVersion: integer('subscription_version').notNull().default(1),
     hasUsedTrial:        boolean('has_used_trial').notNull().default(false),
     razorpaySubId:       text('razorpay_sub_id'),
+    // Downgrade-reconciliation gate (subscription §15D/§27, device-management
+    // §19/§27 D11-adjacent). 'pending' = a plan change left some resource
+    // (stores/locations/devices) over its new limit; ALL writes are blocked
+    // account-wide until the owner resolves which to keep (never auto-picked).
+    // 'applied' = resolved; excess locked/revoked. reconciliationEffectiveAt is
+    // the point-in-time boundary sync uses to accept offline writes made before
+    // the downgrade took effect — mirrors accessValidUntil's role for expiry.
+    reconciliationStatus: text('reconciliation_status', {
+                           enum: ['none', 'pending', 'applied'],
+                         }).notNull().default('none'),
+    reconciliationEffectiveAt: timestamp('reconciliation_effective_at', { withTimezone: true }),
     createdAt:           timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
     updatedAt:           timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
   },
   (t) => [
     uniqueIndex('account_subscriptions_account_uq').on(t.accountFk),
+    index('idx_account_subscriptions_plan').on(t.planFk),
     check(
       'access_valid_until_required',
       sql`${t.accessValidUntil} IS NOT NULL OR ${t.status} = 'trialing'`,
@@ -383,12 +431,48 @@ export const subscriptionAuditOutbox = pgTable(
     payload:     jsonb('payload').notNull(),
     createdAt:   timestamp('created_at',   { withTimezone: true }).notNull().defaultNow(),
     processedAt: timestamp('processed_at', { withTimezone: true }),  // null = pending
+    attempts:      integer('attempts').notNull().default(0),               // drain retry count
+    deadLetteredAt: timestamp('dead_lettered_at', { withTimezone: true }), // stamped when a poison row is given up on
   },
   (t) => [
     // Drainer scans pending rows oldest-first; partial index keeps it cheap.
     index('idx_sub_outbox_pending').on(t.createdAt).where(sql`${t.processedAt} IS NULL`),
   ],
 );
+
+/**
+ * Transactional idempotency guard for payment-activation (subscription §9/§19).
+ * `providerRef` (the Razorpay payment id) is the primary key — the INSERT that
+ * backs `BillingService.applySuccess` runs `ON CONFLICT DO NOTHING` in the SAME
+ * transaction as the subscription UPDATE, so the "already processed" claim and
+ * the activation effect can never drift apart (unlike the Redis `pay:done:*`
+ * flag, which is only a fast-path pre-check ahead of this).
+ */
+export const processedPaymentEvents = pgTable('processed_payment_events', {
+  providerRef: text('provider_ref').primaryKey(),
+  accountFk:   uuid('account_fk').notNull().references(() => accounts.id, { onDelete: 'cascade' }),
+  orderId:     text('order_id').notNull(),
+  processedAt: timestamp('processed_at', { withTimezone: true }).notNull().defaultNow(),
+});
+
+/**
+ * Durable pending-order mapping for checkout → verify/webhook (subscription
+ * §9). `BillingService.checkout` writes the account/plan this order was
+ * created for here (not just to Redis's `pay:order:{orderId}`, which has a
+ * 1h TTL) — a payment webhook can legitimately arrive well after that window
+ * (provider redelivery), and without a durable copy the activation has no
+ * data to act on even though `processed_payment_events` could still accept
+ * the claim. Rows are never updated; `applySuccess` only reads them.
+ */
+export const paymentOrders = pgTable('payment_orders', {
+  orderId:   text('order_id').primaryKey(),
+  accountFk: uuid('account_fk').notNull().references(() => accounts.id, { onDelete: 'cascade' }),
+  planFk:    uuid('plan_fk').notNull().references(() => plans.id),
+  planCode:  text('plan_code').notNull(),
+  createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+}, (t) => [
+  index('idx_payment_orders_account').on(t.accountFk),
+]);
 
 // ─── Devices ─────────────────────────────────────────────────────────────────
 
@@ -477,12 +561,16 @@ export const storeDeviceAccess = pgTable(
                      }),
     createdAt:       timestamp('created_at',  { withTimezone: true }).notNull().defaultNow(),
     modifiedAt:      timestamp('modified_at', { withTimezone: true }).notNull().defaultNow(),
+    // Sync key (sync-engine.md §3 order 2) — pulled so a device can see its own
+    // and sibling slots offline; never pushed.
+    guuid:           uuid('guuid').notNull().defaultRandom().unique(),
   },
   (t) => [
     // One active slot per (store, device) — the concurrency guard for slot claims.
     uniqueIndex('uk_sda_active').on(t.storeFk, t.deviceFk).where(sql`${t.status} = 'active'`),
     index('idx_sda_store').on(t.storeFk),
     index('idx_sda_device').on(t.deviceFk),
+    index('idx_sda_user').on(t.userFk),
   ],
 );
 
@@ -502,7 +590,10 @@ export const refreshTokens = pgTable(
     revokedAt:       timestamp('revoked_at', { withTimezone: true }),
     revokedReason:   text('revoked_reason'),
   },
-  (t) => [uniqueIndex('refresh_tokens_token_hash_uq').on(t.tokenHash)],
+  (t) => [
+    uniqueIndex('refresh_tokens_token_hash_uq').on(t.tokenHash),
+    index('idx_refresh_tokens_session').on(t.deviceSessionFk),
+  ],
 );
 
 // ─── OTP Requests ─────────────────────────────────────────────────────────────
@@ -679,10 +770,17 @@ export const lookup = pgTable(
     updatedBy:    uuid('updated_by'),
     createdAt:    timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
     updatedAt:    timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
+    // Sync: lookup is a writable synced entity (sync-engine.md §3 order 5) —
+    // optimistic-lock version + trigger-maintained delta watermark. guuid above
+    // predates the sync engine and already serves as the sync key (D5).
+    rowVersion:   integer('row_version').notNull().default(1),
+    modifiedAt:   timestamp('modified_at', { withTimezone: true }).notNull().defaultNow(),
   },
   (t) => [
     // Per-type, not global (D3) — different lookup types may reuse the same code.
     uniqueIndex('uk_lookup_type_code').on(t.lookupTypeFk, t.code),
+    // Delta-pull keyset (modified_at, id) — store filter is (null OR store_fk).
+    index('idx_lookup_sync').on(t.modifiedAt, t.id),
     index('idx_lookup_type').on(t.lookupTypeFk),
     index('idx_lookup_store').on(t.storeFk),
     // Composite-FK target (D2, PRD §3.4/§11): a real UNIQUE CONSTRAINT (not
@@ -824,6 +922,317 @@ export const communication = pgTable(
     ...auditColumns,
   },
   (t) => [index('idx_communication_entity_record').on(t.entityTypeFk, t.recordGuuid)],
+);
+
+// ═══ POS master data (sync-engine.md §3, WS-1) ═══════════════════════════════
+// Every table here is store-partitioned (BR-SYNC-001) and carries syncColumns
+// (guuid / row_version / modified_at). modified_at + row_version are maintained
+// by the sync_touch_row trigger — application code never sets them. The
+// (store_fk, modified_at, id) index is the delta-pull keyset (§7).
+
+// ─── Units (order 2) — pull-only for now ─────────────────────────────────────
+
+export const units = pgTable(
+  'units',
+  {
+    id:              uuid('id').primaryKey().defaultRandom(),
+    storeFk:         uuid('store_fk').notNull().references(() => stores.id, { onDelete: 'cascade' }),
+    name:            text('name').notNull(),           // 'Kilogram'
+    abbreviation:    text('abbreviation').notNull(),   // 'kg'
+    allowsFractions: boolean('allows_fractions').notNull().default(false),
+    isActive:        boolean('is_active').notNull().default(true),
+    ...syncColumns(),
+    ...auditColumns,
+  },
+  (t) => [
+    index('idx_units_sync').on(t.storeFk, t.modifiedAt, t.id),
+  ],
+);
+
+// ─── Tax rates (order 6) — pull-only for now ─────────────────────────────────
+
+export const taxRates = pgTable(
+  'taxrates',
+  {
+    id:          uuid('id').primaryKey().defaultRandom(),
+    storeFk:     uuid('store_fk').notNull().references(() => stores.id, { onDelete: 'cascade' }),
+    name:        text('name').notNull(),               // 'GST 18%'
+    ratePercent: numeric('rate_percent', { precision: 6, scale: 3 }).notNull(),
+    isInclusive: boolean('is_inclusive').notNull().default(false),
+    isActive:    boolean('is_active').notNull().default(true),
+    ...syncColumns(),
+    ...auditColumns,
+  },
+  (t) => [
+    index('idx_taxrates_sync').on(t.storeFk, t.modifiedAt, t.id),
+  ],
+);
+
+// ─── Payment methods (order 5) — pull-only for now ───────────────────────────
+
+export const paymentMethods = pgTable(
+  'payment_methods',
+  {
+    id:        uuid('id').primaryKey().defaultRandom(),
+    storeFk:   uuid('store_fk').notNull().references(() => stores.id, { onDelete: 'cascade' }),
+    code:      text('code').notNull(),                 // 'CASH', 'UPI', …
+    label:     text('label').notNull(),
+    kind:      text('kind', { enum: ['cash', 'card', 'upi', 'bank', 'credit', 'other'] }).notNull().default('other'),
+    sortOrder: integer('sort_order').notNull().default(0),
+    isSystem:  boolean('is_system').notNull().default(false),
+    isActive:  boolean('is_active').notNull().default(true),
+    ...syncColumns(),
+    ...auditColumns,
+  },
+  (t) => [
+    uniqueIndex('uk_payment_methods_store_code').on(t.storeFk, t.code),
+    index('idx_payment_methods_sync').on(t.storeFk, t.modifiedAt, t.id),
+  ],
+);
+
+// ─── Payment accounts (order 15) — writable via sync ─────────────────────────
+
+export const paymentAccounts = pgTable(
+  'payment_accounts',
+  {
+    id:              uuid('id').primaryKey().defaultRandom(),
+    storeFk:         uuid('store_fk').notNull().references(() => stores.id, { onDelete: 'cascade' }),
+    name:            text('name').notNull(),           // 'Counter cash', 'HDFC current'
+    paymentMethodFk: uuid('payment_method_fk').references(() => paymentMethods.id),
+    // Method-specific settlement details (UPI id, account number tail, …).
+    details:         jsonb('details'),
+    isDefault:       boolean('is_default').notNull().default(false),
+    isActive:        boolean('is_active').notNull().default(true),
+    ...syncColumns(),
+    ...auditColumns,
+  },
+  (t) => [
+    index('idx_payment_accounts_sync').on(t.storeFk, t.modifiedAt, t.id),
+  ],
+);
+
+// ─── Products (order 10) — writable via sync ─────────────────────────────────
+// Deliberately NO stock_quantity column: live stock is the stock_event ledger's
+// projection (§14, S-32) — the read cache lands in a separate non-synced table
+// with the WS-5 stock schema so recomputes never bump this watermark.
+
+export const products = pgTable(
+  'products',
+  {
+    id:               uuid('id').primaryKey().defaultRandom(),
+    storeFk:          uuid('store_fk').notNull().references(() => stores.id, { onDelete: 'cascade' }),
+    name:             text('name').notNull(),
+    sku:              text('sku'),
+    barcode:          text('barcode'),
+    categoryLookupFk: uuid('category_lookup_fk').references(() => lookup.id),
+    unitFk:           uuid('unit_fk').references(() => units.id),
+    taxrateFk:        uuid('taxrate_fk').references(() => taxRates.id),
+    sellingPrice:     numeric('selling_price', { precision: 12, scale: 2 }).notNull().default('0'),
+    costPrice:        numeric('cost_price',    { precision: 12, scale: 2 }),
+    mrp:              numeric('mrp',           { precision: 12, scale: 2 }),
+    hsnCode:          text('hsn_code'),
+    trackInventory:   boolean('track_inventory').notNull().default(true),
+    isActive:         boolean('is_active').notNull().default(true),
+    ...syncColumns(),
+    ...auditColumns,
+  },
+  (t) => [
+    index('idx_products_sync').on(t.storeFk, t.modifiedAt, t.id),
+    index('idx_products_barcode').on(t.storeFk, t.barcode),
+    // Backstops the app-level PRODUCT_SKU_EXISTS check against offline-sync
+    // races — scoped to live rows so a deleted product frees its SKU.
+    uniqueIndex('uk_products_store_sku').on(t.storeFk, t.sku)
+      .where(sql`${t.sku} IS NOT NULL AND ${t.deletedAt} IS NULL`),
+  ],
+);
+
+// ─── Product cases (order 10) — pack sizes ('Box of 12') ─────────────────────
+
+export const productCases = pgTable(
+  'product_cases',
+  {
+    id:           uuid('id').primaryKey().defaultRandom(),
+    storeFk:      uuid('store_fk').notNull().references(() => stores.id, { onDelete: 'cascade' }),
+    productFk:    uuid('product_fk').notNull().references(() => products.id, { onDelete: 'cascade' }),
+    name:         text('name').notNull(),
+    quantity:     numeric('quantity', { precision: 12, scale: 3 }).notNull(),   // base units per case
+    barcode:      text('barcode'),
+    sellingPrice: numeric('selling_price', { precision: 12, scale: 2 }),
+    isActive:     boolean('is_active').notNull().default(true),
+    ...syncColumns(),
+    ...auditColumns,
+  },
+  (t) => [
+    index('idx_product_cases_sync').on(t.storeFk, t.modifiedAt, t.id),
+    index('idx_product_cases_product').on(t.productFk),
+  ],
+);
+
+// ─── Customers (order 20) — writable via sync ────────────────────────────────
+
+export const customers = pgTable(
+  'customers',
+  {
+    id:                   uuid('id').primaryKey().defaultRandom(),
+    storeFk:              uuid('store_fk').notNull().references(() => stores.id, { onDelete: 'cascade' }),
+    name:                 text('name').notNull(),
+    phone:                text('phone'),
+    email:                text('email'),
+    gstNumber:            text('gst_number'),
+    customerTypeLookupFk: uuid('customer_type_lookup_fk').references(() => lookup.id),
+    creditLimit:          numeric('credit_limit', { precision: 12, scale: 2 }),
+    isActive:             boolean('is_active').notNull().default(true),
+    ...syncColumns(),
+    ...auditColumns,
+  },
+  (t) => [
+    index('idx_customers_sync').on(t.storeFk, t.modifiedAt, t.id),
+    index('idx_customers_phone').on(t.storeFk, t.phone),
+  ],
+);
+
+// ─── Suppliers (order 21) — writable via sync ────────────────────────────────
+
+export const suppliers = pgTable(
+  'suppliers',
+  {
+    id:        uuid('id').primaryKey().defaultRandom(),
+    storeFk:   uuid('store_fk').notNull().references(() => stores.id, { onDelete: 'cascade' }),
+    name:      text('name').notNull(),
+    phone:     text('phone'),
+    email:     text('email'),
+    gstNumber: text('gst_number'),
+    isActive:  boolean('is_active').notNull().default(true),
+    ...syncColumns(),
+    ...auditColumns,
+  },
+  (t) => [
+    index('idx_suppliers_sync').on(t.storeFk, t.modifiedAt, t.id),
+  ],
+);
+
+// ═══ Sync engine infrastructure (sync-engine.md §5/§8/§10/§11) ════════════════
+
+// ─── Tombstones (§8) — the shared delete stream ──────────────────────────────
+// Written in the SAME tx as the business delete (TombstoneRepository takes a
+// mandatory tx). One (deleted_at, id) keyset per store; re-delete updates
+// deleted_at so it re-surfaces through the keyset. Retention 195d > the 180d
+// cursor horizon (S-22 — retention must EXCEED the horizon).
+
+export const syncTombstones = pgTable(
+  'sync_tombstones',
+  {
+    id:              uuid('id').primaryKey().defaultRandom(),
+    storeFk:         uuid('store_fk').notNull().references(() => stores.id, { onDelete: 'cascade' }),
+    entityType:      text('entity_type').notNull(),    // registry key, e.g. 'product'
+    entityGuuid:     uuid('entity_guuid').notNull(),
+    entityId:        uuid('entity_id'),
+    deletedAt:       timestamp('deleted_at', { withTimezone: true }).notNull().defaultNow(),
+    deletedByUserFk: uuid('deleted_by_user_fk'),
+    hardDelete:      boolean('hard_delete').notNull().default(false),
+  },
+  (t) => [
+    // Idempotent — re-delete updates deleted_at on this key instead of duplicating.
+    uniqueIndex('uk_tombstone_entity').on(t.entityType, t.entityGuuid),
+    index('idx_tombstones_stream').on(t.storeFk, t.deletedAt, t.id),
+  ],
+);
+
+// ─── Cold-start progress (§5) ────────────────────────────────────────────────
+// PK (store, device, entity) — two devices cold-start independently. cursor is
+// the last-delivered row id (`${entity_type}:` prefixed on the wire). Each row
+// carries ITS OWN session anchor (S-4): a new entity type cold-started on an
+// otherwise-complete device anchors its delta cursor at its own session start,
+// never at a months-old inherited one.
+
+export const syncInitProgress = pgTable(
+  'sync_init_progress',
+  {
+    storeFk:          uuid('store_fk').notNull().references(() => stores.id, { onDelete: 'cascade' }),
+    deviceFk:         uuid('device_fk').notNull().references(() => devices.id, { onDelete: 'cascade' }),
+    entityType:       text('entity_type').notNull(),
+    phase:            text('phase', { enum: ['in_progress', 'completed'] }).notNull().default('in_progress'),
+    cursor:           text('cursor'),                  // last row id of the previous page
+    sessionStartedAt: timestamp('session_started_at', { withTimezone: true }).notNull().defaultNow(),
+    updatedAt:        timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [
+    primaryKey({ columns: [t.storeFk, t.deviceFk, t.entityType] }),
+  ],
+);
+
+// ─── Mutation idempotency (§10) ──────────────────────────────────────────────
+// Compound PK (mutation_id, user_fk) — cross-tenant-safe at the DB. The row is
+// written in the SAME tx as the business write (the engine's single most
+// important correctness property). Only terminal outcomes live here; TTLs are
+// enforced at read time (conflict = 5 min, applied/rejected = 45 d ≥ the client
+// DLQ max-dwell, S-35) so the cleanup cron is space-only.
+
+export const syncMutationIdempotency = pgTable(
+  'sync_mutation_idempotency',
+  {
+    mutationId: text('mutation_id').notNull(),         // client ULID
+    userFk:     uuid('user_fk').notNull().references(() => users.id, { onDelete: 'cascade' }),
+    storeFk:    uuid('store_fk').notNull(),
+    entityType: text('entity_type').notNull(),
+    action:     text('action').notNull(),
+    status:     text('status', { enum: ['applied', 'rejected', 'conflict'] }).notNull(),
+    result:     jsonb('result').notNull(),             // cached wire result, replayed on duplicate
+    createdAt:  timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [
+    primaryKey({ columns: [t.mutationId, t.userFk] }),
+    index('idx_sync_idem_created').on(t.createdAt),    // cleanup scan
+  ],
+);
+
+// ─── Poison-mutation failure tracking (S-7) ──────────────────────────────────
+// Upserted OUTSIDE the (rolled-back) business tx when a handler 5xxes. Past
+// POISON_MUTATION_MAX_FAILURES the mutation is terminally rejected instead of
+// re-running its handler on every sync forever.
+
+export const syncMutationFailures = pgTable(
+  'sync_mutation_failures',
+  {
+    mutationId:       text('mutation_id').notNull(),
+    userFk:           uuid('user_fk').notNull().references(() => users.id, { onDelete: 'cascade' }),
+    failureCount:     integer('failure_count').notNull().default(1),
+    lastErrorMessage: text('last_error_message'),
+    firstFailedAt:    timestamp('first_failed_at', { withTimezone: true }).notNull().defaultNow(),
+    lastFailedAt:     timestamp('last_failed_at',  { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [
+    primaryKey({ columns: [t.mutationId, t.userFk] }),
+  ],
+);
+
+// ─── Sync conflicts (§11) ────────────────────────────────────────────────────
+// Bookkeeping only: the server never merges. conflict_type routes client UX
+// (§11.1): MASTER_DATA → rebase, VALIDATION → fix input, BUSINESS_RULE → explain.
+
+export const syncConflicts = pgTable(
+  'sync_conflicts',
+  {
+    id:            uuid('id').primaryKey().defaultRandom(),
+    mutationId:    text('mutation_id').notNull(),
+    userFk:        uuid('user_fk').notNull().references(() => users.id, { onDelete: 'cascade' }),
+    storeFk:       uuid('store_fk').notNull().references(() => stores.id, { onDelete: 'cascade' }),
+    entityType:    text('entity_type').notNull(),
+    entityGuuid:   uuid('entity_guuid'),
+    conflictType:  text('conflict_type', { enum: ['MASTER_DATA', 'VALIDATION', 'BUSINESS_RULE'] }).notNull(),
+    serverRow:     jsonb('server_row'),
+    clientPayload: jsonb('client_payload').notNull(),
+    message:       text('message'),
+    status:        text('status', { enum: ['open', 'resolved', 'discarded'] }).notNull().default('open'),
+    note:          text('note'),
+    resolvedBy:    uuid('resolved_by'),
+    resolvedAt:    timestamp('resolved_at', { withTimezone: true }),
+    createdAt:     timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [
+    uniqueIndex('uk_sync_conflicts_mutation').on(t.mutationId, t.userFk),
+    index('idx_sync_conflicts_store_status').on(t.storeFk, t.status),
+  ],
 );
 
 export const contactPerson = pgTable(

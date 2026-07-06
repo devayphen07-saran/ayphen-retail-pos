@@ -1,4 +1,4 @@
-import { ActivityIndicator, KeyboardAvoidingView, Platform, ScrollView, useWindowDimensions } from 'react-native';
+import { ActivityIndicator, KeyboardAvoidingView, Platform, ScrollView, TouchableOpacity, useWindowDimensions } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { LinearGradient } from 'expo-linear-gradient';
 import styled from 'styled-components/native';
@@ -8,6 +8,7 @@ import { router, useLocalSearchParams } from 'expo-router';
 import { useMobileTheme } from '@ayphen/mobile-theme';
 import {
   Column,
+  Flex,
   LucideIcon,
   OtpInput,
   Row,
@@ -21,9 +22,9 @@ import {
   loginOtpSchema,
   signupOtpSchema,
   DEFAULT_OTP_VERIFY_VALUES,
+  normalizeName,
   type OtpVerifyForm,
-} from '@features/auth/schema';
-import { normalizeName } from '@features/auth/transform';
+} from '@features/auth';
 import { buildDeviceRequest } from '@core/auth/device-request';
 import { useAuth } from '@core/providers/AuthProvider';
 import { handleFormError } from '../../utils/handleFormError';
@@ -129,7 +130,14 @@ export default function OtpScreen() {
             keyboardDismissMode="interactive"
             showsVerticalScrollIndicator={false}
           >
-            <Header>
+            <Row
+              align="center"
+              gap="small"
+              style={{
+                paddingHorizontal: theme.sizing.large,
+                paddingTop: theme.sizing.large,
+              }}
+            >
               <LogoBox>
                 <LucideIcon name="Store" size={20} color={theme.colorWhite} />
               </LogoBox>
@@ -141,32 +149,39 @@ export default function OtpScreen() {
                   Enterprise POS Platform
                 </Typography.Caption>
               </Column>
-            </Header>
+            </Row>
 
-            <Hero>
+            <Column
+              style={{
+                paddingHorizontal: theme.sizing.large,
+                paddingVertical: theme.sizing.xxLarge,
+              }}
+            >
               <Typography.Overline color={theme.colorAccentLavender}>VERIFICATION</Typography.Overline>
-              <Gap $h={6} />
+              <Flex height={6} />
               <Typography.H1 color={theme.colorWhite}>Check your{'\n'}messages.</Typography.H1>
-              <Gap $h={8} />
+              <Flex height={8} />
               <Typography.Body color={W55}>{`6-digit code sent to ${phone}`}</Typography.Body>
-            </Hero>
+            </Column>
 
             <Card style={{ minHeight: SH * 0.5 }}>
-              <BackBtn
+              <TouchableOpacity
                 onPress={() => router.back()}
                 activeOpacity={0.7}
                 disabled={isSubmitting}
+                accessibilityRole="button"
                 accessibilityLabel="Change phone number"
+                style={{ alignSelf: 'flex-start', paddingVertical: theme.sizing.xSmall }}
               >
-                <Row align="center" gap={4}>
-                  <LucideIcon name="ChevronLeft" size={16} color={theme.colorPrimary} />
-                  <Typography.Body color={theme.colorPrimary} weight="semiBold">
+                <Row align="center" gap={theme.sizing.xxSmall}>
+                  <LucideIcon name="ChevronLeft" size={18} color={theme.colorPrimary} />
+                  <Typography.Body weight="semiBold" color={theme.colorPrimary}>
                     Change number
                   </Typography.Body>
                 </Row>
-              </BackBtn>
+              </TouchableOpacity>
 
-              <Gap $h={16} />
+              <Flex height={16} />
 
               <OtpInput<OtpVerifyForm>
                 name="otp"
@@ -175,7 +190,7 @@ export default function OtpScreen() {
                 disabled={isSubmitting}
               />
 
-              <Gap $h={20} />
+              <Flex height={20} />
 
               <CtaBtn
                 onPress={handleSubmit(onSubmit, onValidationError)}
@@ -248,14 +263,6 @@ const Orb2 = styled.View`
   background-color: rgba(255, 255, 255, 0.04);
 `;
 
-const Header = styled.View`
-  flex-direction: row;
-  align-items: center;
-  gap: ${({ theme }) => theme.sizing.small}px;
-  padding-horizontal: ${({ theme }) => theme.sizing.large}px;
-  padding-top: ${({ theme }) => theme.sizing.large}px;
-`;
-
 const LogoBox = styled.View`
   width: 36px;
   height: 36px;
@@ -265,16 +272,6 @@ const LogoBox = styled.View`
   justify-content: center;
 `;
 
-const Hero = styled.View`
-  padding-horizontal: ${({ theme }) => theme.sizing.large}px;
-  padding-top: ${({ theme }) => theme.sizing.xxLarge}px;
-  padding-bottom: ${({ theme }) => theme.sizing.xxLarge}px;
-`;
-
-const Gap = styled.View<{ $h: number }>`
-  height: ${({ $h }) => $h}px;
-`;
-
 const Card = styled.View`
   flex: 1;
   background-color: ${({ theme }) => theme.colorBgContainer};
@@ -282,13 +279,6 @@ const Card = styled.View`
   border-top-right-radius: ${({ theme }) => theme.borderRadius.xxLarge}px;
   padding: ${({ theme }) => theme.sizing.large}px;
   padding-bottom: ${({ theme }) => theme.sizing.xxLarge}px;
-`;
-
-const BackBtn = styled.TouchableOpacity`
-  flex-direction: row;
-  align-items: center;
-  align-self: flex-start;
-  padding-vertical: ${({ theme }) => theme.sizing.xSmall}px;
 `;
 
 const CtaBtn = styled.TouchableOpacity`

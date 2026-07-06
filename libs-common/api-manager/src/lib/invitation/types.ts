@@ -3,9 +3,20 @@
  * (snake_case) exactly — see `apps/backend/src/stores/invitation.controller.ts`.
  */
 
-export interface MyInvitationResponse {
+export interface CreateInvitationRequest {
+  role_id: string;
+  phone?: string;
+  email?: string;
+  location_ids: string[];
+}
+
+export interface CreateInvitationResponse {
   id: string;
   token: string;
+}
+
+export interface MyInvitationResponse {
+  id: string;
   store_id: string;
   store_name: string;
   role_name: string;

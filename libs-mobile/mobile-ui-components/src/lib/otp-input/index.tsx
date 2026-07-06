@@ -188,9 +188,5 @@ const OtpBoxField = styled(TextInput)<{
       : $filled
         ? theme.colorPrimary
         : theme.colorBorder};
-  shadow-color: ${({ $filled, theme }) => ($filled ? theme.colorPrimary : theme.colorText)};
-  shadow-offset: 0px 2px;
-  shadow-opacity: ${({ $filled }) => ($filled ? 0.18 : 0.04)};
-  shadow-radius: 6px;
-  elevation: ${({ $filled }) => ($filled ? 3 : 1)};
+  ${({ $filled, theme }) => ($filled ? theme.shadow.md : theme.shadow.sm)}
 `;

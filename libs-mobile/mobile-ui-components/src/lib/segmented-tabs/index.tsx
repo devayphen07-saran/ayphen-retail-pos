@@ -1,6 +1,6 @@
 import React from "react";
-import { Platform, ViewStyle } from "react-native";
-import styled, { css } from "styled-components/native";
+import { ViewStyle } from "react-native";
+import styled from "styled-components/native";
 import { Typography } from "../typography";
 import { useBreakpoint } from "@ayphen/mobile-theme";
 
@@ -105,7 +105,8 @@ const Container = styled.View<{
   width: ${({ $fullWidth }) => ($fullWidth ? "100%" : "auto")};
   background-color: ${({ theme, $showBottomLine }) =>
     !$showBottomLine ? theme.colorBgLayout : "transparent"};
-  border-bottom-width: ${({ $showBottomLine }) => ($showBottomLine ? 1 : 0)}px;
+  border-bottom-width: ${({ theme, $showBottomLine }) =>
+    $showBottomLine ? theme.borderWidth.thin : 0}px;
   border-bottom-color: ${({ theme, $showBottomLine }) =>
     $showBottomLine ? theme.colorBorder : "transparent"};
   border-radius: ${({ theme, $showBottomLine }) =>
@@ -145,20 +146,7 @@ const Inner = styled.View<{
   opacity: ${({ $disabled }) => ($disabled ? 0.5 : 1)};
 
   ${({ theme, $selected, $disabled, $showBottomLine }) =>
-    $selected &&
-    !$disabled &&
-    !$showBottomLine &&
-    Platform.select({
-      ios: css`
-        shadow-color: ${theme.colorText};
-        shadow-opacity: 0.1;
-        shadow-radius: 4px;
-        shadow-offset: 0px 2px;
-      `,
-      android: css`
-        elevation: 2;
-      `,
-    })}
+    $selected && !$disabled && !$showBottomLine ? theme.shadow.sm : ""}
 `;
 
 const TabLabel = styled(Typography.Caption)<{

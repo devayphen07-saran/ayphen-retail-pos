@@ -1,6 +1,6 @@
 import { Redirect, Stack } from 'expo-router';
 import { useMobileTheme } from '@ayphen/mobile-theme';
-import { useAuthStore } from '@features/auth/authStore';
+import { useAuthStore } from '@store';
 
 /** Protected stack — only reachable when authenticated. */
 export default function AppLayout() {

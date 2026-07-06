@@ -10,15 +10,17 @@ import {
 import { SafeAreaView } from 'react-native-safe-area-context';
 import styled from 'styled-components/native';
 import { router } from 'expo-router';
-import { Controller, useFieldArray, useForm } from 'react-hook-form';
+import { Controller, useFieldArray, useForm, useWatch } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
 import { useMobileTheme } from '@ayphen/mobile-theme';
 import {
+  Alert,
   Column,
   DateTimeField,
   Input,
   LucideIcon,
   RadioGroup,
+  Row,
   Switch,
   TextArea,
   TimeField,
@@ -33,15 +35,16 @@ import {
 import {
   createStoreSchema,
   DEFAULT_CREATE_STORE_VALUES,
+  toCreateStorePayload,
+  BUSINESS_CATEGORY_TYPE,
+  BusinessTypeSelect,
+  StateSelect,
+  CurrencySelect,
   type CreateStoreForm,
-} from '@features/store/schema';
-import { toCreateStorePayload } from '@features/store/transform';
-import { BUSINESS_CATEGORY_TYPE, BusinessTypeSelect } from '@features/store/selects/BusinessTypeSelect';
-import { StateSelect } from '@features/store/selects/StateSelect';
-import { CurrencySelect } from '@features/store/selects/CurrencySelect';
+} from '@features/store';
 import { handleFormError } from '../../../utils/handleFormError';
 import { onValidationError } from '../../../utils/onValidationError';
-import { setLastOpenedStoreId } from '@features/store/prefs';
+import { setLastOpenedStoreId } from '@features/store/shared/utils/prefs';
 import { useAuth } from '@core/providers/AuthProvider';
 
 const STEP_META = [
@@ -92,8 +95,8 @@ export function CreateStoreScreen() {
     setError,
     setValue,
     trigger,
-    watch,
-    formState: { isSubmitting },
+    reset,
+    formState: { isSubmitting, dirtyFields },
   } = useForm<CreateStoreForm>({
     resolver: zodResolver(createStoreSchema),
     // onBlur: a field validates when the user leaves it, so an untouched
@@ -104,20 +107,25 @@ export function CreateStoreScreen() {
   });
 
   const { fields: openingHourFields } = useFieldArray({ control, name: 'openingHours' });
-  const gstin = (watch('gstin') ?? '').trim();
+  // Scoped subscriptions — useWatch re-renders only on these fields, not the
+  // whole form on every keystroke (forms-agent.md §8/§14).
+  const gstin = (useWatch({ control, name: 'gstin' }) ?? '').trim();
 
   // Most stores keep one set of hours across the days they're open — default
   // to a single Open/Close pair + day picker instead of 7 separate rows, with
   // an escape hatch to the full per-day editor for stores that need it.
   const [sameHoursEveryDay, setSameHoursEveryDay] = useState(true);
-  const masterOpenTime = watch('openingHours.0.openTime');
-  const masterCloseTime = watch('openingHours.0.closeTime');
+  const masterOpenTime = useWatch({ control, name: 'openingHours.0.openTime' });
+  const masterCloseTime = useWatch({ control, name: 'openingHours.0.closeTime' });
 
   useEffect(() => {
     if (!sameHoursEveryDay) return;
+    // Cascade must mark the mirrored days dirty AND validated/touched, or the
+    // form stays unaware of the auto-filled values (forms-agent.md §8).
+    const opts = { shouldDirty: true, shouldValidate: true, shouldTouch: true } as const;
     for (let i = 1; i < 7; i++) {
-      setValue(`openingHours.${i}.openTime`, masterOpenTime, { shouldDirty: true });
-      setValue(`openingHours.${i}.closeTime`, masterCloseTime, { shouldDirty: true });
+      setValue(`openingHours.${i}.openTime`, masterOpenTime, opts);
+      setValue(`openingHours.${i}.closeTime`, masterCloseTime, opts);
     }
   }, [sameHoursEveryDay, masterOpenTime, masterCloseTime, setValue]);
 
@@ -164,8 +172,27 @@ export function CreateStoreScreen() {
   const handleNext = NEXT_HANDLERS[step - 1];
   const handleBack = () => setStep((s) => s - 1);
   const isLastStep = step === 5;
+  const hasUnsavedChanges = Object.keys(dirtyFields).length > 0;
 
-  const handleClose = () => router.back();
+  // Closing a partially-filled wizard is destructive — confirm before discarding
+  // (forms-agent.md §5/§13.7). Nothing entered → close straight away.
+  const handleClose = () => {
+    if (!hasUnsavedChanges) {
+      router.back();
+      return;
+    }
+    Alert.show('Discard store setup?', 'Your progress will be lost.', [
+      { text: 'Keep editing', style: 'cancel' },
+      {
+        text: 'Discard',
+        style: 'destructive',
+        onPress: () => {
+          reset();
+          router.back();
+        },
+      },
+    ]);
+  };
 
   return (
     <Root edges={['top', 'bottom']}>
@@ -173,14 +200,22 @@ export function CreateStoreScreen() {
         style={{ flex: 1 }}
         behavior={Platform.OS === 'ios' ? 'padding' : undefined}
       >
-        <TopBar>
+        <Row
+          align="center"
+          justify="space-between"
+          style={{
+            paddingLeft: theme.sizing.large,
+            paddingRight: theme.sizing.regular,
+            paddingTop: theme.sizing.xSmall,
+          }}
+        >
           <Typography.Caption weight="semiBold" color={theme.colorTextSecondary}>
             Set up your store
           </Typography.Caption>
           <CloseButton onPress={handleClose} disabled={isSubmitting} activeOpacity={0.7}>
             <LucideIcon name="X" size={15} color={theme.colorTextSecondary} />
           </CloseButton>
-        </TopBar>
+        </Row>
 
         <ProgressTrack>
           {STEP_META.map((_, i) => (
@@ -189,13 +224,28 @@ export function CreateStoreScreen() {
         </ProgressTrack>
 
         <ScrollView
-          contentContainerStyle={{ paddingHorizontal: 24, paddingTop: 24, paddingBottom: theme.sizing.large }}
+          contentContainerStyle={{
+            paddingHorizontal: theme.sizing.large,
+            paddingTop: theme.sizing.large,
+            paddingBottom: 80,
+          }}
           keyboardShouldPersistTaps="handled"
+          keyboardDismissMode="interactive"
           showsVerticalScrollIndicator={false}
         >
-          <StepCounter>Step {step} of {STEP_META.length}</StepCounter>
-          <QuestionHeading>{STEP_META[step - 1].question}</QuestionHeading>
-          <QuestionSubtitle>{STEP_META[step - 1].subtitle}</QuestionSubtitle>
+          <Typography.Caption
+            weight={700}
+            color={theme.colorPrimary}
+            style={{ letterSpacing: 1.2, textTransform: 'uppercase', marginBottom: 14 }}
+          >
+            Step {step} of {STEP_META.length}
+          </Typography.Caption>
+          <Typography.H1 color={theme.colorText} style={{ marginBottom: 8 }}>
+            {STEP_META[step - 1].question}
+          </Typography.H1>
+          <Typography.Body color={theme.colorTextSecondary} style={{ marginBottom: 28 }}>
+            {STEP_META[step - 1].subtitle}
+          </Typography.Body>
 
           {/* ─── Step 1: Identity ─── */}
           {step === 1 && (
@@ -387,14 +437,14 @@ export function CreateStoreScreen() {
                 disabled={isSubmitting}
               />
               <ToggleRow>
-                <ToggleText>
+                <Column flex={1}>
                   <Typography.Body weight="semiBold">
                     Make this my default store
                   </Typography.Body>
                   <Typography.Caption color={theme.colorTextSecondary}>
                     Opens automatically the next time you launch the app.
                   </Typography.Caption>
-                </ToggleText>
+                </Column>
                 <Switch name="makeDefault" control={control} disabled={isSubmitting} />
               </ToggleRow>
             </Column>
@@ -404,14 +454,14 @@ export function CreateStoreScreen() {
           {step === 5 && (
             <Column gap={theme.sizing.medium}>
               <ToggleRow>
-                <ToggleText>
+                <Column flex={1}>
                   <Typography.Body weight="semiBold">
                     Same hours every day
                   </Typography.Body>
                   <Typography.Caption color={theme.colorTextSecondary}>
                     One opening time for every day you're open
                   </Typography.Caption>
-                </ToggleText>
+                </Column>
                 <Switch
                   checked={sameHoursEveryDay}
                   onValueChange={setSameHoursEveryDay}
@@ -421,7 +471,11 @@ export function CreateStoreScreen() {
 
               {sameHoursEveryDay ? (
                 <>
-                  <TimeGroup>
+                  <Row
+                    gap={theme.sizing.xSmall}
+                    flex={1}
+                    style={{ marginHorizontal: theme.sizing.xSmall }}
+                  >
                     <TimeField<CreateStoreForm>
                       name="openingHours.0.openTime"
                       control={control}
@@ -434,12 +488,12 @@ export function CreateStoreScreen() {
                       placeholder="Close"
                       disabled={isSubmitting}
                     />
-                  </TimeGroup>
+                  </Row>
 
                   <Typography.Caption color={theme.colorTextSecondary}>
                     Open on
                   </Typography.Caption>
-                  <DayChipsRow>
+                  <Row wrap="wrap" gap={theme.sizing.xSmall}>
                     {openingHourFields.map((field, index) => (
                       <Controller
                         key={field.id}
@@ -462,48 +516,59 @@ export function CreateStoreScreen() {
                         )}
                       />
                     ))}
-                  </DayChipsRow>
+                  </Row>
                 </>
               ) : (
-                openingHourFields.map((field, index) => {
-                  const isClosed = watch(`openingHours.${index}.isClosed`);
-                  return (
-                    <DayRow key={field.id}>
-                      <DayName>{DAY_NAMES[field.dayOfWeek]}</DayName>
+                openingHourFields.map((field, index) => (
+                  // A single Controller both reads isClosed (for the conditional)
+                  // and drives the Switch — no top-level watch() (§14).
+                  <Controller
+                    key={field.id}
+                    control={control}
+                    name={`openingHours.${index}.isClosed`}
+                    render={({ field: { value: isClosed, onChange } }) => (
+                      <DayRow>
+                        <Typography.Body weight={600} style={{ width: 90 }}>
+                          {DAY_NAMES[field.dayOfWeek]}
+                        </Typography.Body>
 
-                      {!isClosed ? (
-                        <TimeGroup>
-                          <TimeField<CreateStoreForm>
-                            name={`openingHours.${index}.openTime`}
-                            control={control}
-                            placeholder="Open"
-                            disabled={isSubmitting}
-                          />
-                          <TimeField<CreateStoreForm>
-                            name={`openingHours.${index}.closeTime`}
-                            control={control}
-                            placeholder="Close"
-                            disabled={isSubmitting}
-                          />
-                        </TimeGroup>
-                      ) : (
-                        <ClosedText color={theme.colorTextSecondary}>Closed</ClosedText>
-                      )}
-
-                      <Controller
-                        control={control}
-                        name={`openingHours.${index}.isClosed`}
-                        render={({ field: { value, onChange } }) => (
-                          <Switch
-                            checked={!value}
-                            onValueChange={(isOpen) => onChange(!isOpen)}
-                            disabled={isSubmitting}
-                          />
+                        {!isClosed ? (
+                          <Row
+                            gap={theme.sizing.xSmall}
+                            flex={1}
+                            style={{ marginHorizontal: theme.sizing.xSmall }}
+                          >
+                            <TimeField<CreateStoreForm>
+                              name={`openingHours.${index}.openTime`}
+                              control={control}
+                              placeholder="Open"
+                              disabled={isSubmitting}
+                            />
+                            <TimeField<CreateStoreForm>
+                              name={`openingHours.${index}.closeTime`}
+                              control={control}
+                              placeholder="Close"
+                              disabled={isSubmitting}
+                            />
+                          </Row>
+                        ) : (
+                          <Typography.Caption
+                            color={theme.colorTextSecondary}
+                            style={{ flex: 1, marginHorizontal: theme.sizing.xSmall }}
+                          >
+                            Closed
+                          </Typography.Caption>
                         )}
-                      />
-                    </DayRow>
-                  );
-                })
+
+                        <Switch
+                          checked={!isClosed}
+                          onValueChange={(isOpen) => onChange(!isOpen)}
+                          disabled={isSubmitting}
+                        />
+                      </DayRow>
+                    )}
+                  />
+                ))
               )}
             </Column>
           )}
@@ -515,19 +580,35 @@ export function CreateStoreScreen() {
               <LucideIcon name="ArrowLeft" size={18} color={theme.colorText} />
             </BackSquare>
           ) : (
-            <NavGap />
+            <Column width={52} />
           )}
-          <NextPill onPress={handleNext} disabled={isSubmitting} activeOpacity={0.85}>
+          <NextPill
+            onPress={handleNext}
+            disabled={isSubmitting || (isLastStep && !hasUnsavedChanges)}
+            activeOpacity={0.85}
+          >
             {isSubmitting && isLastStep ? (
               <ActivityIndicator size="small" color={theme.colorBgContainer} />
             ) : isLastStep ? (
               <>
-                <NavPillText>Create Store</NavPillText>
+                <Typography.Body
+                  weight={600}
+                  color={theme.colorBgContainer}
+                  style={{ letterSpacing: 0.2 }}
+                >
+                  Create Store
+                </Typography.Body>
                 <LucideIcon name="Check" size={15} color={theme.colorBgContainer} />
               </>
             ) : (
               <>
-                <NavPillText>Next</NavPillText>
+                <Typography.Body
+                  weight={600}
+                  color={theme.colorBgContainer}
+                  style={{ letterSpacing: 0.2 }}
+                >
+                  Next
+                </Typography.Body>
                 <LucideIcon name="ArrowRight" size={15} color={theme.colorBgContainer} />
               </>
             )}
@@ -543,15 +624,6 @@ export function CreateStoreScreen() {
 const Root = styled(SafeAreaView)`
   flex: 1;
   background-color: ${({ theme }) => theme.colorBgContainer};
-`;
-
-const TopBar = styled(View)`
-  flex-direction: row;
-  align-items: center;
-  justify-content: space-between;
-  padding-left: ${({ theme }) => theme.sizing.large}px;
-  padding-right: ${({ theme }) => theme.sizing.regular}px;
-  padding-top: ${({ theme }) => theme.sizing.xSmall}px;
 `;
 
 const CloseButton = styled(TouchableOpacity)`
@@ -578,24 +650,6 @@ const ProgressSegment = styled(View)<{ $filled: boolean }>`
   background-color: ${({ theme, $filled }) => ($filled ? theme.colorPrimary : theme.colorBorderSecondary)};
 `;
 
-const StepCounter = styled(Typography.Caption)`
-  font-weight: 700;
-  color: ${({ theme }) => theme.colorPrimary};
-  letter-spacing: 1.2px;
-  text-transform: uppercase;
-  margin-bottom: 14px;
-`;
-
-const QuestionHeading = styled(Typography.H1)`
-  color: ${({ theme }) => theme.colorText};
-  margin-bottom: 8px;
-`;
-
-const QuestionSubtitle = styled(Typography.Body)`
-  color: ${({ theme }) => theme.colorTextSecondary};
-  margin-bottom: 28px;
-`;
-
 const NavBar = styled(View)`
   flex-direction: row;
   align-items: center;
@@ -620,10 +674,6 @@ const BackSquare = styled(TouchableOpacity)`
   justify-content: center;
 `;
 
-const NavGap = styled(View)`
-  width: 52px;
-`;
-
 const NextPill = styled(TouchableOpacity)`
   flex-direction: row;
   align-items: center;
@@ -638,12 +688,6 @@ const NextPill = styled(TouchableOpacity)`
   min-width: 110px;
 `;
 
-const NavPillText = styled(Typography.Body)`
-  font-weight: 600;
-  color: ${({ theme }) => theme.colorBgContainer};
-  letter-spacing: 0.2px;
-`;
-
 const ToggleRow = styled(View)`
   flex-direction: row;
   align-items: center;
@@ -655,10 +699,6 @@ const ToggleRow = styled(View)`
   border-color: ${({ theme }) => theme.colorBorderSecondary};
 `;
 
-const ToggleText = styled(View)`
-  flex: 1;
-`;
-
 const DayRow = styled(View)`
   flex-direction: row;
   align-items: center;
@@ -667,31 +707,6 @@ const DayRow = styled(View)`
   border-radius: ${({ theme }) => theme.borderRadius.large}px;
   border-width: ${({ theme }) => theme.borderWidth.thin}px;
   border-color: ${({ theme }) => theme.colorBorderSecondary};
-`;
-
-const DayName = styled(Typography.Body)`
-  width: 90px;
-  font-weight: 600;
-`;
-
-const TimeGroup = styled(View)`
-  flex-direction: row;
-  gap: ${({ theme }) => theme.sizing.xSmall}px;
-  flex: 1;
-  margin-left: ${({ theme }) => theme.sizing.xSmall}px;
-  margin-right: ${({ theme }) => theme.sizing.xSmall}px;
-`;
-
-const ClosedText = styled(Typography.Caption)`
-  flex: 1;
-  margin-left: ${({ theme }) => theme.sizing.xSmall}px;
-  margin-right: ${({ theme }) => theme.sizing.xSmall}px;
-`;
-
-const DayChipsRow = styled(View)`
-  flex-direction: row;
-  flex-wrap: wrap;
-  gap: ${({ theme }) => theme.sizing.xSmall}px;
 `;
 
 const DayChip = styled(TouchableOpacity)<{ $active: boolean }>`

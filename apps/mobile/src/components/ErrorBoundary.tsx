@@ -1,5 +1,6 @@
 import React, { type ReactNode, type ErrorInfo } from 'react';
 import { View, Text, TouchableOpacity, StyleSheet } from 'react-native';
+import * as SplashScreen from 'expo-splash-screen';
 
 interface Props {
   children: ReactNode;
@@ -20,6 +21,10 @@ export class ErrorBoundary extends React.Component<Props, State> {
 
   override componentDidCatch(error: Error, info: ErrorInfo) {
     console.error('[ErrorBoundary]', error, info.componentStack);
+    // A crash during boot (before RootNavigator hides the splash) would leave
+    // the native splash covering this fallback — a stuck splash. Dismiss it so
+    // the recoverable error UI is actually visible. Safe to call if already hidden.
+    void SplashScreen.hideAsync().catch(() => undefined);
   }
 
   reset = () => this.setState({ hasError: false, error: null });

@@ -1,0 +1,1 @@
+export { CreateLocationScreen as default } from '@features/store/locations/screens/CreateLocationScreen';

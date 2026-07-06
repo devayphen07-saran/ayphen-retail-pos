@@ -2,6 +2,8 @@ import type { NestExpressApplication } from '@nestjs/platform-express';
 import { ValidationPipe, RequestMethod } from '@nestjs/common';
 import { Reflector } from '@nestjs/core';
 import { SwaggerModule } from '@nestjs/swagger';
+import helmet from 'helmet';
+import compression from 'compression';
 import { env } from '#config/env.js';
 import { corsConfig } from '#config/cors.config.js';
 import { swaggerDocConfig, swaggerUiOptions } from '#config/swagger.config.js';
@@ -22,6 +24,15 @@ export function applyGlobalConfig(app: NestExpressApplication): void {
   // 0. Harden Express defaults
   app.disable('x-powered-by');
   app.set('trust proxy', 1);
+
+  // 0a. Security headers (HSTS + deny framing) and response compression.
+  app.use(
+    helmet({
+      hsts: { maxAge: 31_536_000, includeSubDomains: true },
+      frameguard: { action: 'deny' },
+    }),
+  );
+  app.use(compression({ threshold: 1024 }));
 
   // 0b. 30-second hard request timeout
   app.use((req: import('express').Request, res: import('express').Response, next: import('express').NextFunction) => {
@@ -48,9 +59,10 @@ export function applyGlobalConfig(app: NestExpressApplication): void {
   // 2. Global prefix — exclude /health and /docs so probes and Swagger hit bare paths
   app.setGlobalPrefix('api', {
     exclude: [
-      { path: 'health',    method: RequestMethod.GET },
-      { path: 'docs',      method: RequestMethod.GET },
-      { path: 'docs/(.*)', method: RequestMethod.GET },
+      { path: 'health',      method: RequestMethod.GET },
+      { path: 'health/(.*)', method: RequestMethod.GET },
+      { path: 'docs',        method: RequestMethod.GET },
+      { path: 'docs/(.*)',   method: RequestMethod.GET },
     ],
   });
 

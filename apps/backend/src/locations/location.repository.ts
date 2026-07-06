@@ -1,11 +1,17 @@
 import { Inject, Injectable } from '@nestjs/common';
-import { and, eq, ne, sql, isNull } from 'drizzle-orm';
+import { and, eq, inArray, ne, sql, isNull } from 'drizzle-orm';
 import type { PostgresJsDatabase } from 'drizzle-orm/postgres-js';
 import { DRIZZLE, type DbExecutor } from '#db/db.module.js';
+import { requireRow } from '#db/require-row.js';
 import * as schema from '#db/schema.js';
-import { locations } from '#db/schema.js';
+import { locations, stores } from '#db/schema.js';
 
 export type Location = typeof locations.$inferSelect;
+
+// Raw insert/rename can violate uk_location_name (schema.ts) under a create/
+// rename race — the repository just lets that PostgresError propagate
+// unmodified (translating it to a business exception is the service's job,
+// per layered-architecture.md §3.6: repositories never apply business rules).
 
 /** Data access for store locations (adoption §8.2, rbac.md §26.1). */
 @Injectable()
@@ -37,6 +43,21 @@ export class LocationRepository {
         eq(locations.isActive, true),
       ));
     return row ?? null;
+  }
+
+  /**
+   * Lock the store row for the duration of the transaction (SELECT ... FOR
+   * UPDATE). Serializes concurrent location-creation attempts against the
+   * same store so the max_locations_per_store recheck below it can't race —
+   * mirrors StoreRepository.lockAccount / InvitationRepository.lockStore (the
+   * same check-then-insert gate on a plan entitlement, closed the same way).
+   */
+  async lockStore(storeId: string, tx: DbExecutor): Promise<void> {
+    await tx
+      .select({ id: stores.id })
+      .from(stores)
+      .where(eq(stores.id, storeId))
+      .for('update');
   }
 
   /** Active-location count — the max_locations_per_store denominator. */
@@ -79,7 +100,7 @@ export class LocationRepository {
     tx?: DbExecutor,
   ): Promise<Location> {
     const [row] = await this.client(tx).insert(locations).values(data).returning();
-    return row!;
+    return requireRow(row);
   }
 
   async update(
@@ -111,6 +132,35 @@ export class LocationRepository {
       .update(locations)
       .set({ isActive: false, archivedAt: new Date(), updatedAt: new Date() })
       .where(eq(locations.id, locationId));
+  }
+
+  /** Lock locations as downgrade-excess (reconciliation §5.2). Head Office is
+   *  never passed in here — it's immune, never a candidate for locking. */
+  async lockMany(locationIds: string[], tx: DbExecutor): Promise<void> {
+    if (locationIds.length === 0) return;
+    await tx
+      .update(locations)
+      .set({ locked: true, lockedReason: 'downgrade', updatedAt: new Date() })
+      .where(inArray(locations.id, locationIds));
+  }
+
+  /** Unlock specific locations — the reconciliation "swap active store"
+   *  endpoint's targeted counterpart to `unlockDowngraded`'s per-store bulk restore. */
+  async unlockMany(locationIds: string[], tx: DbExecutor): Promise<void> {
+    if (locationIds.length === 0) return;
+    await tx
+      .update(locations)
+      .set({ locked: false, lockedReason: null, updatedAt: new Date() })
+      .where(inArray(locations.id, locationIds));
+  }
+
+  /** Re-upgrade mirror (reconciliation §9) — unlock every location in this
+   *  store that was locked for a downgrade. */
+  async unlockDowngraded(storeId: string, tx: DbExecutor): Promise<void> {
+    await tx
+      .update(locations)
+      .set({ locked: false, lockedReason: null, updatedAt: new Date() })
+      .where(and(eq(locations.storeFk, storeId), eq(locations.lockedReason, 'downgrade')));
   }
 
   /** Locations a user is assigned to in a store (owner path passes all). */

@@ -44,7 +44,7 @@ export const Tag: React.FC<TagProps> = ({
       case "primary":
         return {
           bg: theme.color.primary.main,
-          text: theme.color.primary.text ?? '#FFFFFF',
+          text: theme.colorWhite,
           border: theme.color.primary.border,
         };
       case "success":

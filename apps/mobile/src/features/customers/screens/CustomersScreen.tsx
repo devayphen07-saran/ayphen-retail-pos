@@ -1,11 +1,9 @@
 import { useMemo, useState } from 'react';
-import { TouchableOpacity } from 'react-native';
-import styled from 'styled-components/native';
 import { useMobileTheme } from '@ayphen/mobile-theme';
 import {
   AppLayout,
+  IconButton,
   ListScaffold,
-  LucideIcon,
   SearchBar,
 } from '@ayphen/mobile-ui-components';
 
@@ -30,14 +28,16 @@ export function CustomersScreen() {
 
   const addButton = useMemo(
     () => (
-      <IconBtn
+      <IconButton
+        variant="ghost"
+        size={36}
+        iconName="Plus"
+        color={theme.colorPrimary}
         activeOpacity={0.7}
         accessibilityRole="button"
         accessibilityLabel="Add customer"
         hitSlop={8}
-      >
-        <LucideIcon name="Plus" size={22} color={theme.colorPrimary} />
-      </IconBtn>
+      />
     ),
     [theme.colorPrimary],
   );
@@ -75,10 +75,3 @@ export function CustomersScreen() {
     </AppLayout>
   );
 }
-
-const IconBtn = styled(TouchableOpacity)`
-  width: 36px;
-  height: 36px;
-  align-items: center;
-  justify-content: center;
-`;

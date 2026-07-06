@@ -2,6 +2,7 @@ import { Inject, Injectable } from '@nestjs/common';
 import { and, eq } from 'drizzle-orm';
 import type { PostgresJsDatabase } from 'drizzle-orm/postgres-js';
 import { DRIZZLE, type DbExecutor } from '#db/db.module.js';
+import { requireRow } from '#db/require-row.js';
 import * as schema from '#db/schema.js';
 import { devices } from '#db/schema.js';
 
@@ -35,7 +36,7 @@ export class DeviceRepository {
     tx?: DbExecutor,
   ): Promise<Device> {
     const [row] = await (tx ?? this.db).insert(devices).values(data).returning();
-    return row!;
+    return requireRow(row);
   }
 
   async update(

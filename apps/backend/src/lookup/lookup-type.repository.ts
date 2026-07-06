@@ -2,6 +2,7 @@ import { Inject, Injectable } from '@nestjs/common';
 import { eq } from 'drizzle-orm';
 import type { PostgresJsDatabase } from 'drizzle-orm/postgres-js';
 import { DRIZZLE, type DbExecutor } from '#db/db.module.js';
+import { requireRow } from '#db/require-row.js';
 import * as schema from '#db/schema.js';
 import { lookupType } from '#db/schema.js';
 
@@ -40,6 +41,6 @@ export class LookupTypeRepository {
     tx?: DbExecutor,
   ): Promise<LookupTypeRow> {
     const [row] = await this.client(tx).insert(lookupType).values(data).returning();
-    return row!;
+    return requireRow(row);
   }
 }

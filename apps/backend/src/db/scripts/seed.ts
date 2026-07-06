@@ -27,7 +27,9 @@ if (!url) {
   process.exit(1);
 }
 
-const client = createPgClient(url, { max: 1 });
+// statementTimeoutMs: 0 — seeding runs large idempotent upserts that can exceed
+// the app-level statement timeout.
+const client = createPgClient(url, { max: 1, statementTimeoutMs: 0 });
 const db = drizzle(client, { schema });
 
 // ─── System roles ─────────────────────────────────────────────────────────────
@@ -51,15 +53,19 @@ const PLANS = [
     entitlements: {
       max_stores:              1,
       max_locations_per_store: 1,
-      max_devices_per_store:   2,
-      max_users_per_store:     3,
+      max_devices_per_store:   1,
+      max_users_per_store:     1,
       max_products:            100,
     },
     features: {
       barcode_scanning: false,
-      multi_store:      false,
       advanced_reports: false,
       offline_mode:     true,
+      // Free's max_locations_per_store is already 1, so this gate is belt-
+      // and-suspenders, not the primary limiter — but it must still be an
+      // explicit `false` row, not an absent one (LocationService.createLocation
+      // treats a missing plan_features row as "not entitled", same as `false`).
+      multi_store:      false,
     },
   },
   {
@@ -74,9 +80,9 @@ const PLANS = [
     },
     features: {
       barcode_scanning: true,
-      multi_store:      false,
       advanced_reports: false,
       offline_mode:     true,
+      multi_store:      true,
     },
   },
   {
@@ -91,9 +97,9 @@ const PLANS = [
     },
     features: {
       barcode_scanning: true,
-      multi_store:      true,
       advanced_reports: true,
       offline_mode:     true,
+      multi_store:      true,
     },
   },
 ] as const;

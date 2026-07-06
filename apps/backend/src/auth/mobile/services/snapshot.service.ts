@@ -16,38 +16,13 @@ import {
 import { CryptoService } from '../../core/crypto.service.js';
 import { AuthConstantsService } from '../../core/auth-constants.service.js';
 import { MOBILE_REDIS } from './redis.provider.js';
+import type {
+  PermissionSnapshot,
+  SnapshotResult,
+  StoreLocationsEntry,
+} from '../types/permission-snapshot.js';
 
 const snapshotKey = (userId: string) => `snapshot:${userId}`;
-
-/** A location the user may open within a store (adoption §8.2, rbac.md §26.8). */
-export interface LocationSnapshotEntry {
-  id:         string;
-  name:       string;
-  is_primary: boolean;  // Head Office
-  is_default: boolean;
-  is_locked:  boolean;
-}
-
-/** Per-store location access, so an offline device can pick a startup location. */
-export interface StoreLocationsEntry {
-  store_id:            string;
-  name:                string;
-  default_location_id: string | null;
-  locations:           LocationSnapshotEntry[];
-}
-
-export interface PermissionSnapshot {
-  userId:             string;
-  permissionsVersion: number;
-  generatedAt:        string;
-  globalPermissions:  string[];
-  storeLocations:     StoreLocationsEntry[];
-}
-
-export interface SnapshotResult {
-  snapshot:  PermissionSnapshot;
-  signature: string;
-}
 
 @Injectable()
 export class SnapshotService {
@@ -58,6 +33,10 @@ export class SnapshotService {
     private readonly constants: AuthConstantsService,
   ) {}
 
+  // Without a clientVersion the result is always built (never the "up to date"
+  // null case); with one, null signals the client is already current.
+  getOrBuild(userId: string): Promise<SnapshotResult>;
+  getOrBuild(userId: string, clientVersion: number | undefined): Promise<SnapshotResult | null>;
   async getOrBuild(userId: string, clientVersion?: number): Promise<SnapshotResult | null> {
     const cached = await this.redis.get(snapshotKey(userId));
     if (cached) {

@@ -13,7 +13,7 @@ import { RequestIdMiddleware } from '#common/middleware/request-id.middleware.js
 import { AuthCoreModule } from '#auth/core/auth-core.module.js';
 import { MobileAuthModule } from '#auth/mobile/mobile-auth.module.js';
 import { RbacModule } from '#common/rbac/rbac.module.js';
-import { RbacRouteValidatorModule } from '#common/rbac/rbac-route-validator.module.js';
+import { RouteCoverageModule } from '#common/rbac/route-coverage.module.js';
 import { RedisModule } from '#common/redis/redis.module.js';
 import { StoresModule } from '../stores/stores.module.js';
 import { SubscriptionModule } from '../subscription/subscription.module.js';
@@ -22,6 +22,7 @@ import { LocationsModule } from '../locations/locations.module.js';
 import { EntityTypesModule } from '../entity-types/entity-types.module.js';
 import { LookupModule } from '../lookup/lookup.module.js';
 import { ReferenceDataModule } from '../reference-data/reference-data.module.js';
+import { SyncModule } from '../sync/sync.module.js';
 
 @Module({
   imports: [
@@ -42,7 +43,8 @@ import { ReferenceDataModule } from '../reference-data/reference-data.module.js'
     EntityTypesModule,
     LookupModule,
     ReferenceDataModule,
-    RbacRouteValidatorModule,   // last — runs route-config validation after all routes wired
+    SyncModule,
+    RouteCoverageModule,   // last — runs route-config validation after all routes wired
   ],
   controllers: [AppController],
   providers: [

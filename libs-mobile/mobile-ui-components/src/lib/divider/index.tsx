@@ -121,11 +121,10 @@ export const Divider: React.FC<DividerProps> = ({
 }) => {
   const { theme } = useMobileTheme();
 
-  // Fallback chain: explicit prop → theme border → hardcoded default
-  // The hardcoded fallback is a last resort only if theme.colorBorder is
-  // also undefined, which should not happen in a correctly configured theme.
-  const activeColor =
-    color ?? theme.colorBorder ?? theme.colorBorderSecondary ?? '#E2E2E2';
+  // Colour resolution: explicit prop wins, otherwise the theme border token.
+  // theme.colorBorder is always defined by the theme, so no literal fallback
+  // is needed.
+  const activeColor = color ?? theme.colorBorder;
 
   // Accessibility: dividers are purely decorative. Both properties are
   // required together:

@@ -1,16 +1,19 @@
 import { Inject, Injectable } from '@nestjs/common';
-import { and, desc, eq, sql } from 'drizzle-orm';
+import { and, desc, eq, inArray, sql } from 'drizzle-orm';
 import type { PostgresJsDatabase } from 'drizzle-orm/postgres-js';
 import { DRIZZLE, type DbExecutor } from '#db/db.module.js';
+import { requireRow } from '#db/require-row.js';
 import * as schema from '#db/schema.js';
 import {
   storeDeviceAccess,
   devices,
   deviceSessions,
   users,
+  stores,
 } from '#db/schema.js';
 
 export type StoreDeviceAccess = typeof storeDeviceAccess.$inferSelect;
+export type DeviceRow = typeof devices.$inferSelect;
 
 export interface StoreDeviceRow {
   id:             string;
@@ -55,6 +58,21 @@ export class DeviceAccessRepository {
     return row ?? null;
   }
 
+  /**
+   * Lock the store row for the duration of the transaction (SELECT ... FOR
+   * UPDATE). Serializes concurrent slot-claim attempts against the same store
+   * so the max_devices_per_store recount below it can't race — mirrors
+   * `StoreRepository.lockAccount` / `InvitationRepository.lockStore` (the same
+   * check-then-insert gate on a plan entitlement, closed the same way).
+   */
+  async lockStore(storeId: string, tx: DbExecutor): Promise<void> {
+    await tx
+      .select({ id: stores.id })
+      .from(stores)
+      .where(eq(stores.id, storeId))
+      .for('update');
+  }
+
   /** Count active slots in a store (the max_devices_per_store denominator). */
   async countActiveSlots(storeId: string, tx?: DbExecutor): Promise<number> {
     const [row] = await this.client(tx)
@@ -88,7 +106,7 @@ export class DeviceAccessRepository {
       .insert(storeDeviceAccess)
       .values({ ...data, status: 'active' })
       .returning();
-    return row!;
+    return requireRow(row);
   }
 
   /** Store device list (active + recently revoked), joined with device + user. */
@@ -135,6 +153,47 @@ export class DeviceAccessRepository {
     return rows.length;
   }
 
+  /**
+   * Re-upgrade mirror (reconciliation §9) — re-activate every slot in this
+   * store that was revoked for a downgrade. Skips a slot whose device already
+   * claimed a *fresh* active row in the meantime (e.g. it re-opened the store
+   * after being revoked and there was room) — restoring the old row too would
+   * either violate uk_sda_active or resurrect a stale duplicate; that device
+   * has already moved on, so its old revoked row just stays revoked/historical.
+   */
+  async restoreDowngradedSlots(storeId: string, tx?: DbExecutor): Promise<void> {
+    const revoked = await this.client(tx)
+      .select({ id: storeDeviceAccess.id, deviceFk: storeDeviceAccess.deviceFk })
+      .from(storeDeviceAccess)
+      .where(and(
+        eq(storeDeviceAccess.storeFk, storeId),
+        eq(storeDeviceAccess.status, 'revoked'),
+        eq(storeDeviceAccess.revokedReason, 'plan_downgrade'),
+      ));
+
+    for (const row of revoked) {
+      await this.restoreSlot(storeId, row.deviceFk, tx);
+    }
+  }
+
+  /**
+   * Re-activate one specific device's revoked slot in a store — the
+   * reconciliation "swap active store" endpoint's targeted counterpart to
+   * `restoreDowngradedSlots`'s per-store bulk restore. No-ops if the device
+   * already holds a fresh active slot (see `restoreDowngradedSlots` for why).
+   */
+  async restoreSlot(storeId: string, deviceId: string, tx?: DbExecutor): Promise<void> {
+    const stillClaimed = await this.findActiveSlot(storeId, deviceId, tx);
+    if (stillClaimed) return;
+    await this.client(tx)
+      .update(storeDeviceAccess)
+      .set({ status: 'active', revokedAt: null, revokedBy: null, revokedReason: null, modifiedAt: new Date() })
+      .where(and(
+        eq(storeDeviceAccess.storeFk, storeId),
+        eq(storeDeviceAccess.deviceFk, deviceId),
+      ));
+  }
+
   /** Revoke ALL of a device's slots across every store (block, F8). */
   async revokeAllSlotsForDevice(
     deviceId: string,
@@ -167,7 +226,7 @@ export class DeviceAccessRepository {
   }
 
   /** All devices registered to a user (My Devices, F7). */
-  async listUserDevices(userId: string, tx?: DbExecutor) {
+  async listUserDevices(userId: string, tx?: DbExecutor): Promise<DeviceRow[]> {
     return this.client(tx)
       .select()
       .from(devices)
@@ -191,21 +250,48 @@ export class DeviceAccessRepository {
       .where(eq(devices.id, deviceId));
   }
 
-  /** Revoke all active sessions for a device (block, F8). */
-  async revokeDeviceSessions(deviceId: string, reason: string, tx?: DbExecutor): Promise<void> {
-    await this.client(tx)
+  /**
+   * Revoke all active sessions for a device (block, F8; owner removal, F5).
+   * Returns each revoked session's current access-JWT identity so the caller
+   * can blacklist it — revoking the DB row alone doesn't invalidate a token
+   * that's still unexpired and cached in MobileJwtGuard's session cache.
+   */
+  async revokeDeviceSessions(
+    deviceId: string,
+    reason: string,
+    tx?: DbExecutor,
+  ): Promise<{ id: string; currentJti: string | null; currentJtiExp: Date | null }[]> {
+    return this.client(tx)
       .update(deviceSessions)
       .set({ revokedAt: new Date(), revokedReason: reason })
-      .where(and(eq(deviceSessions.deviceFk, deviceId), sql`${deviceSessions.revokedAt} IS NULL`));
+      .where(and(eq(deviceSessions.deviceFk, deviceId), sql`${deviceSessions.revokedAt} IS NULL`))
+      .returning({
+        id: deviceSessions.id,
+        currentJti: deviceSessions.currentJti,
+        currentJtiExp: deviceSessions.currentJtiExp,
+      });
   }
 
-  /** Stores where this device currently holds an active slot (for My Devices). */
-  async activeStoresForDevice(deviceId: string, tx?: DbExecutor): Promise<string[]> {
+  /** Stores where each of these devices currently holds an active slot (for
+   *  My Devices) — one query grouped by device instead of one per device. */
+  async activeStoresForDevices(
+    deviceIds: string[],
+    tx?: DbExecutor,
+  ): Promise<Map<string, string[]>> {
+    const result = new Map<string, string[]>();
+    if (deviceIds.length === 0) return result;
+
     const rows = await this.client(tx)
-      .select({ storeFk: storeDeviceAccess.storeFk })
+      .select({ deviceFk: storeDeviceAccess.deviceFk, storeFk: storeDeviceAccess.storeFk })
       .from(storeDeviceAccess)
-      .where(and(eq(storeDeviceAccess.deviceFk, deviceId), eq(storeDeviceAccess.status, 'active')));
-    return rows.map((r) => r.storeFk);
+      .where(and(inArray(storeDeviceAccess.deviceFk, deviceIds), eq(storeDeviceAccess.status, 'active')));
+
+    for (const row of rows) {
+      const existing = result.get(row.deviceFk);
+      if (existing) existing.push(row.storeFk);
+      else result.set(row.deviceFk, [row.storeFk]);
+    }
+    return result;
   }
 
   /** Set a per-store device label (F4). */

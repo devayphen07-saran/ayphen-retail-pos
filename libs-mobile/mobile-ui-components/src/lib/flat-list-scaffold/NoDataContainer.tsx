@@ -1,6 +1,5 @@
 import React, { memo, useMemo } from 'react';
-import { Platform } from 'react-native';
-import styled, { css } from 'styled-components/native';
+import styled from 'styled-components/native';
 
 import { Button } from '../button';
 import { LucideIcon, LucideIconNameType } from '../lucide-icon';
@@ -188,22 +187,6 @@ export const NoDataContainer = memo(
 );
 
 // ─────────────────────────────────────────────────────────────────────────────
-// Shared Shadow
-// ─────────────────────────────────────────────────────────────────────────────
-
-const CARD_SHADOW = Platform.select({
-  ios: css`
-    shadow-color: #000;
-    shadow-opacity: 0.08;
-    shadow-radius: 8px;
-    shadow-offset: 0px 4px;
-  `,
-  android: css`
-    elevation: 3;
-  `,
-});
-
-// ─────────────────────────────────────────────────────────────────────────────
 // Styles
 // ─────────────────────────────────────────────────────────────────────────────
 
@@ -236,7 +219,7 @@ const IconWrapper = styled.View`
   margin-bottom: ${({ theme }) =>
     theme.sizing.medium}px;
 
-  ${CARD_SHADOW}
+  ${({ theme }) => theme.shadow.md}
 `;
 
 const Title = styled(Typography.Body)`
@@ -259,7 +242,7 @@ const Description = styled(Typography.Caption)`
 
   max-width: 320px;
 
-  line-height: 20px;
+  line-height: ${({ theme }) => theme.sizing.regular}px;
 
   padding-horizontal: ${({ theme }) =>
     theme.sizing.small}px;

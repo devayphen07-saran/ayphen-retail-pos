@@ -7,10 +7,11 @@ import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { MobileThemeProvider, useMobileTheme } from '@ayphen/mobile-theme';
 import { BottomSheetProvider } from '@ayphen/mobile-ui-components';
 import { AuthProvider } from '@core/providers/AuthProvider';
-import { useAuthStore } from '@features/auth/authStore';
+import { useAuthStore } from '@store';
 import { GestureHandlerRootView } from 'react-native-gesture-handler';
 import { SafeAreaProvider } from 'react-native-safe-area-context';
 import { BootstrapLoader } from '../components/BootstrapLoader';
+import { ErrorBoundary } from '../components/ErrorBoundary';
 
 // Keep splash visible until fonts + auth state are ready
 SplashScreen.preventAutoHideAsync();
@@ -34,6 +35,7 @@ function RootNavigator({ fontsReady }: { fontsReady: boolean }) {
   const isAuthReady = useAuthStore((s) => s.isAuthReady);
   const isAuthenticated = useAuthStore((s) => s.isAuthenticated);
   const isBootstrapped = useAuthStore((s) => s.isBootstrapped);
+  const bootstrapFailed = useAuthStore((s) => s.bootstrapFailed);
   const isLastOpenedResolved = useAuthStore((s) => s.isLastOpenedResolved);
   // An authenticated launch routes through (app)/index.tsx's AppGate, which
   // needs both bootstrap AND the last-opened-store cache resolved before it
@@ -41,9 +43,11 @@ function RootNavigator({ fontsReady }: { fontsReady: boolean }) {
   // and the user sees AppGate's own loading fallback right after — hold the
   // splash through both instead (loading-agent.md §3: splash → real content,
   // zero intermediate states). Unauthenticated launches never set either, so
-  // they're not blocked by them.
+  // they're not blocked by them. `bootstrapFailed` also releases the hold —
+  // AppGate renders a retry screen for it, which the splash must not cover.
   const routingReady =
-    isAuthReady && (!isAuthenticated || (isBootstrapped && isLastOpenedResolved));
+    isAuthReady &&
+    (!isAuthenticated || ((isBootstrapped || bootstrapFailed) && isLastOpenedResolved));
 
   useEffect(() => {
     if (fontsReady && routingReady) {
@@ -89,15 +93,22 @@ export default function RootLayout() {
   return (
     <GestureHandlerRootView style={{ flex: 1 }}>
       <SafeAreaProvider>
-        <MobileThemeProvider>
-          <BottomSheetProvider>
-            <QueryClientProvider client={queryClient}>
-              <AuthProvider>
-                <RootNavigator fontsReady={fontsReady} />
-              </AuthProvider>
-            </QueryClientProvider>
-          </BottomSheetProvider>
-        </MobileThemeProvider>
+        {/* Catches any render-time throw in the providers or screen tree and
+            shows a recoverable "Something went wrong" screen instead of
+            unmounting to a blank white screen (loading-agent.md §4). Placed
+            above the theme provider so a theme/provider crash is caught too;
+            the fallback uses no theme/context of its own. */}
+        <ErrorBoundary>
+          <MobileThemeProvider>
+            <BottomSheetProvider>
+              <QueryClientProvider client={queryClient}>
+                <AuthProvider>
+                  <RootNavigator fontsReady={fontsReady} />
+                </AuthProvider>
+              </QueryClientProvider>
+            </BottomSheetProvider>
+          </MobileThemeProvider>
+        </ErrorBoundary>
       </SafeAreaProvider>
     </GestureHandlerRootView>
   );

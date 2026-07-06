@@ -25,12 +25,6 @@ import { Typography } from '../typography';
 import { useMobileTheme, useBreakpoint } from '@ayphen/mobile-theme';
 
 const ANIMATION_DURATION_MS = 180;
-const BRAND_FALLBACK = '#2563eb';
-const TRACK_OFF_FALLBACK = '#e5e7eb';
-// THUMB_BORDER_FALLBACK: no token exists for this specific translucent thumb
-// border — kept as-is to preserve the subtle depth effect on the switch thumb.
-const THUMB_BORDER_FALLBACK = 'rgba(15, 23, 42, 0.08)';
-const ERROR_FALLBACK = '#dc2626';
 
 export interface SwitchProps<T extends FieldValues = FieldValues> {
   /** Uncontrolled initial value. Ignored when `checked` is provided. */
@@ -177,12 +171,12 @@ function SwitchControl<T extends FieldValues>(props: SwitchProps<T>) {
     onValueChange?.(next);
   }, [disabled, currentChecked, isControlled, onValueChange]);
 
-  // ─── Colors with proper fallback ─────────────────────────────────────
-  const trackColorOn = theme.colorPrimary ?? BRAND_FALLBACK;
-  const trackColorOff = theme.color?.grey?.active ?? TRACK_OFF_FALLBACK;
-  const thumbColor = theme.colorWhite ?? '#ffffff';
-  const thumbBorder = theme.color?.grey?.border ?? THUMB_BORDER_FALLBACK;
-  const errorColor = theme.color?.red?.main ?? ERROR_FALLBACK;
+  // ─── Colors ───────────────────────────────────────────────────────────
+  const trackColorOn = theme.colorPrimary;
+  const trackColorOff = theme.color.grey.active;
+  const thumbColor = theme.colorWhite;
+  const thumbBorder = theme.color.grey.border;
+  const errorColor = theme.color.red.main;
 
   const trackColor = currentChecked ? trackColorOn : trackColorOff;
 
@@ -305,12 +299,7 @@ const Thumb = styled(Animated.View)<{
   background-color: ${({ $color }) => $color};
   border-width: ${({ theme }) => theme.borderWidth.thin}px;
   border-color: ${({ $borderColor }) => $borderColor};
-  elevation: 2;
-  /* shadow-color: no token for translucent overlay — kept as rgba per design spec */
-  shadow-color: rgba(15, 23, 42, 0.25);
-  shadow-offset: 0px 2px;
-  shadow-opacity: 0.3;
-  shadow-radius: 3px;
+  ${({ theme }) => theme.shadow.sm}
 `;
 
 const RequiredMark = styled(Typography.Caption)<{ $color: string }>`

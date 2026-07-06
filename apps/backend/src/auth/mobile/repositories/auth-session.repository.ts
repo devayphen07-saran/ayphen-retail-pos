@@ -2,6 +2,7 @@ import { Inject, Injectable } from '@nestjs/common';
 import { and, desc, eq, isNull, type SQL } from 'drizzle-orm';
 import type { PostgresJsDatabase } from 'drizzle-orm/postgres-js';
 import { DRIZZLE, type DbExecutor } from '#db/db.module.js';
+import { requireRow } from '#db/require-row.js';
 import * as schema from '#db/schema.js';
 import { deviceSessions, devices } from '#db/schema.js';
 import { paginateByCursor, type CursorPage } from '#common/pagination/paginate.js';
@@ -34,7 +35,7 @@ export class AuthSessionRepository {
       .insert(deviceSessions)
       .values(data)
       .returning();
-    return row!;
+    return requireRow(row);
   }
 
   async findById(id: string): Promise<DeviceSession | null> {
@@ -71,12 +72,17 @@ export class AuthSessionRepository {
       .where(eq(deviceSessions.id, id));
   }
 
-  async updateStepUp(id: string, method: string, at: Date, tx?: DbExecutor): Promise<void> {
+  async updateStepUp(
+    id: string,
+    method: NonNullable<DeviceSession['lastStepUpMethod']>,
+    at: Date,
+    tx?: DbExecutor,
+  ): Promise<void> {
     await (tx ?? this.db)
       .update(deviceSessions)
       .set({
         lastStepUpAt: at,
-        lastStepUpMethod: method as DeviceSession['lastStepUpMethod'],
+        lastStepUpMethod: method,
       })
       .where(eq(deviceSessions.id, id));
   }

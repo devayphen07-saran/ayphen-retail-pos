@@ -13,6 +13,9 @@ async function bootstrap() {
   applyGlobalConfig(app);
   setupSwagger(app);
 
+  // Drain the pg pool / Redis and run OnApplicationShutdown hooks on SIGTERM/SIGINT.
+  app.enableShutdownHooks();
+
   await app.listen(env.PORT);
 
   app.get(Logger).log(
@@ -20,4 +23,9 @@ async function bootstrap() {
   );
 }
 
-bootstrap();
+bootstrap().catch((err) => {
+  // Startup failed before the logger is wired — fall back to console and exit
+  // non-zero so the orchestrator restarts / halts the rollout.
+  console.error('Fatal: application failed to start', err);
+  process.exit(1);
+});

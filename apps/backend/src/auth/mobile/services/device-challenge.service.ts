@@ -1,6 +1,8 @@
-import { Inject, Injectable, UnauthorizedException } from '@nestjs/common';
+import { Inject, Injectable } from '@nestjs/common';
 import { randomUUID } from 'crypto';
 import Redis from 'ioredis';
+import { UnauthorizedError } from '#common/exceptions/app.exception.js';
+import { ErrorCodes } from '#common/error-codes.js';
 import { MOBILE_REDIS } from './redis.provider.js';
 import { AuthConstantsService } from '../../core/auth-constants.service.js';
 
@@ -26,7 +28,7 @@ export class DeviceChallengeService {
   async consumeChallenge(challengeId: string): Promise<string> {
     const deviceId = await this.redis.getdel(challengeKey(challengeId));
     if (!deviceId) {
-      throw new UnauthorizedException('CHALLENGE_NOT_FOUND');
+      throw new UnauthorizedError(ErrorCodes.CHALLENGE_NOT_FOUND, 'Device challenge not found or expired');
     }
     return deviceId;
   }

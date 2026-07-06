@@ -9,6 +9,8 @@ import { revokedTokens } from '#db/schema.js';
 import { MOBILE_REDIS } from './redis.provider.js';
 
 const jtiKey = (jti: string) => `jti:${jti}`;
+const negKey = (jti: string) => `jti:neg:${jti}`;
+const NEG_CACHE_TTL_SECONDS = 30;
 
 @Injectable()
 export class BlacklistCacheService {
@@ -28,6 +30,10 @@ export class BlacklistCacheService {
       .insert(revokedTokens)
       .values({ jti, expiresAt: exp })
       .onConflictDoNothing();
+
+    // Drop any negative-cache entry so this now-revoked jti isn't masked by a
+    // stale "not revoked" marker within its short TTL.
+    try { await this.redis.del(negKey(jti)); } catch { /* best-effort */ }
 
     // Expired tokens are already invalid by JWT verification. Do not write
     // them to Redis because SETEX rejects ttl <= 0.
@@ -51,12 +57,21 @@ export class BlacklistCacheService {
       return true;
     }
 
+    // Negative cache: a recent DB miss means "not revoked" — skip the DB hit on
+    // the hot path (the common valid-token case). addToBlacklist() clears this.
+    try {
+      if (await this.redis.get(negKey(jti))) return false;
+    } catch { /* fall through to DB */ }
+
     const [row] = await this.db
       .select()
       .from(revokedTokens)
       .where(eq(revokedTokens.jti, jti));
 
-    if (!row) return false;
+    if (!row) {
+      try { await this.redis.setex(negKey(jti), NEG_CACHE_TTL_SECONDS, '0'); } catch { /* best-effort */ }
+      return false;
+    }
 
     const ttl = this.secondsUntil(row.expiresAt);
 

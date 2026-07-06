@@ -12,6 +12,8 @@
     "paths": {
       "@core/*": ["./src/core/*"],
       "@features/*": ["./src/features/*"],
+      "@store": ["./src/store/index.ts"],
+      "@store/*": ["./src/store/*"],
       "@ui/*": ["./src/components/*"]
     }
   },

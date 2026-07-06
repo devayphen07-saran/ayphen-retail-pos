@@ -4,11 +4,10 @@ import {
   Get,
   HttpCode,
   Param,
+  ParseUUIDPipe,
   Post,
-  Req,
   UseGuards,
 } from '@nestjs/common';
-import type { Request } from 'express';
 import { MobileJwtGuard } from '#auth/mobile/guards/mobile-jwt.guard.js';
 import { TenantGuard } from '#common/rbac/guards/tenant.guard.js';
 import { PermissionsGuard } from '#common/rbac/guards/permissions.guard.js';
@@ -17,11 +16,16 @@ import {
   StoreContext,
   RequirePermissions,
   CurrentUser,
+  CurrentStoreContext,
 } from '#common/rbac/decorators/rbac.decorators.js';
 import type { MobilePrincipal } from '#auth/mobile/types/mobile-principal.js';
 import type { ResolvedStoreContext } from '#common/rbac/resolved-store-context.js';
 import { DeviceAccessService } from './device-access.service.js';
-import { StoreDeviceMapper } from './device.mapper.js';
+import {
+  StoreDeviceMapper,
+  type StoreDeviceResponse,
+  type SlotClaimResponse,
+} from './device.mapper.js';
 
 /**
  * Store-scoped device management (device-management §7 F2, §9 F4, §10 F5).
@@ -38,7 +42,10 @@ export class StoreDeviceController {
   /** List devices that have accessed this store (owner/manager view, F4). */
   @Get()
   @RequirePermissions({ entity: 'Device', action: 'view' })
-  async list(@Param('storeId') storeId: string, @CurrentUser() user: MobilePrincipal) {
+  async list(
+    @Param('storeId', ParseUUIDPipe) storeId: string,
+    @CurrentUser() user: MobilePrincipal,
+  ): Promise<StoreDeviceResponse[]> {
     const rows = await this.access.listStoreDevices(storeId);
     return StoreDeviceMapper.toStoreDeviceList(rows, user.deviceId);
   }
@@ -48,8 +55,8 @@ export class StoreDeviceController {
   @HttpCode(204)
   @RequirePermissions({ entity: 'Device', action: 'delete' })
   async remove(
-    @Param('storeId') storeId: string,
-    @Param('deviceId') deviceId: string,
+    @Param('storeId', ParseUUIDPipe) storeId: string,
+    @Param('deviceId', ParseUUIDPipe) deviceId: string,
     @CurrentUser() user: MobilePrincipal,
   ): Promise<void> {
     await this.access.removeDevice(storeId, user.userId, user.deviceId, deviceId);
@@ -69,8 +76,16 @@ export class StoreAccessController {
 
   /** Claim (or refresh) this device's slot. Empty body — device from auth context. */
   @Post()
-  async open(@CurrentUser() user: MobilePrincipal, @Req() req: Request) {
-    const ctx = (req as Request & { context?: ResolvedStoreContext }).context!;
-    return this.access.claimSlot(ctx.storeId, ctx.accountId, user.deviceId, user.userId);
+  async open(
+    @CurrentUser() user: MobilePrincipal,
+    @CurrentStoreContext() ctx: ResolvedStoreContext,
+  ): Promise<SlotClaimResponse> {
+    const result = await this.access.claimSlot(
+      ctx.storeId,
+      ctx.accountId,
+      user.deviceId,
+      user.userId,
+    );
+    return StoreDeviceMapper.toSlotClaimResponse(result);
   }
 }

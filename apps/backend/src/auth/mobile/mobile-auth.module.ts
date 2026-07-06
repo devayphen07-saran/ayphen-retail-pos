@@ -23,6 +23,9 @@ import { OtpRequestRepository } from './repositories/otp-request.repository.js';
 import { DeviceRepository } from './repositories/device.repository.js';
 import { AuthSessionRepository } from './repositories/auth-session.repository.js';
 import { RefreshTokenRepository } from './repositories/refresh-token.repository.js';
+import { UserRepository } from './repositories/user.repository.js';
+import { InvitationLookupRepository } from './repositories/invitation-lookup.repository.js';
+import { AccountBootstrapRepository } from './repositories/account-bootstrap.repository.js';
 
 // Guard, Interceptor, Controller
 import { MobileJwtGuard } from './guards/mobile-jwt.guard.js';
@@ -38,6 +41,9 @@ import { MeController } from './me.controller.js';
     DeviceRepository,
     AuthSessionRepository,
     RefreshTokenRepository,
+    UserRepository,
+    InvitationLookupRepository,
+    AccountBootstrapRepository,
 
     // Services
     SessionCacheInvalidatorService,
@@ -73,6 +79,10 @@ import { MeController } from './me.controller.js';
     // must invalidate the cached bootstrap snapshot, or the client keeps
     // seeing stale data until SNAPSHOT_CACHE_TTL_SECONDS expires.
     SnapshotService,
+    // Device block/remove (DevicesModule) must drop the session cache after
+    // revoking sessions, or a "removed" device's session stays live in Redis
+    // for up to SESSION_CACHE_TTL seconds.
+    SessionCacheInvalidatorService,
   ],
 })
 export class MobileAuthModule {}

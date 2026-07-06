@@ -152,6 +152,7 @@ const StyledSafeArea = styled(SafeAreaView)`
 `;
 
 const Header = styled.View`
+  /* 64px header height — touch-target/layout constant, no sizing token */
   min-height: 64px;
   flex-direction: row;
   align-items: center;
@@ -159,16 +160,17 @@ const Header = styled.View`
   background-color: ${({ theme }) => theme.colorBgContainer};
 `;
 
-/* 20px left padding when there's no left element, aligning title to content */
+/* sizing.regular (20px) left padding when there's no left element, aligning title to content */
 const LeadingGap = styled.View`
-  width: 20px;
+  width: ${({ theme }) => theme.sizing.regular}px;
 `;
 
 const TrailingGap = styled.View`
-  width: 20px;
+  width: ${({ theme }) => theme.sizing.regular}px;
 `;
 
 const SideSlot = styled.View`
+  /* 44px — standard minimum touch target, no sizing token (48 would change it) */
   min-width: 44px;
   min-height: 44px;
   align-items: center;
@@ -186,9 +188,11 @@ const ContentContainer = styled.View`
 `;
 
 const ProgressTrack = styled.View`
+  /* 3px: thin indeterminate progress bar — off the sizing scale (0 → 4 gap), no clean token */
   height: 3px;
   overflow: hidden;
-  background-color: ${({ theme }) => theme.colorPrimary}33;
+  /* colorPrimaryBg approximates the former primary@~20%-alpha track tint (no primary-alpha token exists) */
+  background-color: ${({ theme }) => theme.colorPrimaryBg};
 `;
 
 const ProgressFill = styled(Animated.View)`
@@ -196,7 +200,8 @@ const ProgressFill = styled(Animated.View)`
   top: 0;
   left: 0;
   width: 50%;
+  /* 3px: matches ProgressTrack height — off-scale hairline, no sizing token */
   height: 3px;
-  border-radius: 2px;
+  border-radius: ${({ theme }) => theme.borderRadius.xSmall}px;
   background-color: ${({ theme }) => theme.colorPrimary};
 `;

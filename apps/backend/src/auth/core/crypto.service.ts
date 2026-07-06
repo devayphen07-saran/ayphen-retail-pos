@@ -1,7 +1,18 @@
 import { Injectable, OnModuleInit } from '@nestjs/common';
-import { createHash, createHmac, timingSafeEqual, randomUUID } from 'crypto';
+import {
+  createCipheriv,
+  createDecipheriv,
+  createHash,
+  createHmac,
+  randomBytes,
+  randomUUID,
+  timingSafeEqual,
+} from 'crypto';
 import { SignJWT, jwtVerify } from 'jose';
+import { z } from 'zod';
 import { AppConfigService } from '#config/app-config.service.js';
+import { UnauthorizedError } from '#common/exceptions/app.exception.js';
+import { ErrorCodes } from '#common/error-codes.js';
 
 export interface AccessTokenPayload {
   sub: string;
@@ -13,14 +24,37 @@ export interface AccessTokenPayload {
   exp: number;
 }
 
+/**
+ * `jose` verifies the signature but not the claim shape. This schema validates
+ * the decoded payload so downstream code isn't trusting a blind cast. `type` is
+ * kept loose here so the guard can raise its distinct `INVALID_TOKEN_TYPE`.
+ */
+const VerifiedClaimsSchema = z.object({
+  sub:             z.string(),
+  jti:             z.string(),
+  type:            z.string(),
+  deviceSessionId: z.string(),
+  pv:              z.number(),
+  iat:             z.number(),
+  exp:             z.number(),
+});
+
+export type VerifiedAccessClaims = z.infer<typeof VerifiedClaimsSchema>;
+
 @Injectable()
 export class CryptoService implements OnModuleInit {
   private currentSecret!: Uint8Array;
+  private cacheEncKey!: Buffer;
 
   constructor(private readonly config: AppConfigService) {}
 
   onModuleInit(): void {
     this.currentSecret = new TextEncoder().encode(this.config.jwtAccessSecret);
+    // Domain-separated key for encrypting cached secrets at rest (e.g. the
+    // refresh-idempotency result record in Redis) — derived, never stored.
+    this.cacheEncKey = createHash('sha256')
+      .update(`cache-encryption:${this.config.jwtRefreshSecret}`)
+      .digest();
   }
 
   // ── JWT ────────────────────────────────────────────────────────────────────
@@ -44,11 +78,23 @@ export class CryptoService implements OnModuleInit {
       .sign(this.currentSecret);
   }
 
-  async verifyJwt(token: string): Promise<AccessTokenPayload> {
-    const { payload } = await jwtVerify(token, this.currentSecret, {
-      algorithms: ['HS256'],
-    });
-    return payload as unknown as AccessTokenPayload;
+  async verifyJwt(token: string): Promise<VerifiedAccessClaims> {
+    let payload: unknown;
+    try {
+      ({ payload } = await jwtVerify(token, this.currentSecret, {
+        algorithms: ['HS256'],
+      }));
+    } catch {
+      // Expired / bad-signature / tampered / malformed → 401, not an uncaught
+      // JOSEError that the global filter turns into a 500 with a stack trace.
+      // Token expiry is the single most common auth event.
+      throw new UnauthorizedError(ErrorCodes.TOKEN_INVALID, 'Invalid or expired access token');
+    }
+    const parsed = VerifiedClaimsSchema.safeParse(payload);
+    if (!parsed.success) {
+      throw new UnauthorizedError(ErrorCodes.TOKEN_INVALID, 'Malformed access token');
+    }
+    return parsed.data;
   }
 
   // ── Snapshot signing (Ed25519 placeholder — uses HMAC-SHA256 until key pair provisioned) ──
@@ -95,6 +141,30 @@ export class CryptoService implements OnModuleInit {
     } catch {
       return false;
     }
+  }
+
+  // ── Cache encryption (AES-256-GCM) ─────────────────────────────────────────
+  // For values that must transit Redis but contain live secrets (token pairs
+  // in the refresh-idempotency record). A Redis dump/MONITOR alone must not
+  // yield usable sessions (flow-critic Phase 3).
+
+  encryptJson(value: unknown): string {
+    const iv     = randomBytes(12);
+    const cipher = createCipheriv('aes-256-gcm', this.cacheEncKey, iv);
+    const ct     = Buffer.concat([cipher.update(JSON.stringify(value), 'utf8'), cipher.final()]);
+    return Buffer.concat([iv, cipher.getAuthTag(), ct]).toString('base64');
+  }
+
+  /** Throws on tamper/key-rotation — callers treat that as a cache miss. */
+  decryptJson(payload: string): unknown {
+    const buf = Buffer.from(payload, 'base64');
+    const iv  = buf.subarray(0, 12);
+    const tag = buf.subarray(12, 28);
+    const ct  = buf.subarray(28);
+    const decipher = createDecipheriv('aes-256-gcm', this.cacheEncKey, iv);
+    decipher.setAuthTag(tag);
+    const pt = Buffer.concat([decipher.update(ct), decipher.final()]);
+    return JSON.parse(pt.toString('utf8'));
   }
 
   // ── Utilities ──────────────────────────────────────────────────────────────

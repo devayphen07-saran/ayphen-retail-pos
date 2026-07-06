@@ -1,11 +1,11 @@
 import { Inject, Injectable } from '@nestjs/common';
-import { and, eq, gt, inArray, isNull, lte, or, sql } from 'drizzle-orm';
+import { and, eq, gt, inArray, isNotNull, isNull, lte, or, sql } from 'drizzle-orm';
 import type { PostgresJsDatabase } from 'drizzle-orm/postgres-js';
 
 import { DRIZZLE, type DbExecutor } from '#db/db.module.js';
 import * as schema from '#db/schema.js';
 import {
-  accountUsers,
+  accounts,
   rolePermissions,
   roleSpecialPermissions,
   roles,
@@ -137,7 +137,10 @@ export class RbacRepository {
         ),
       );
 
-    return rows as CrudGrantRow[];
+    // No cast needed: the select projects exactly { entityCode, action } and
+    // `rolePermissions.action` is a Drizzle enum column typed as CrudAction, so
+    // `rows` already satisfies CrudGrantRow[] — with full type-checking restored.
+    return rows;
   }
 
   /**
@@ -166,27 +169,47 @@ export class RbacRepository {
   }
 
   /**
-   * All store IDs accessible to a user through account membership.
+   * All store IDs a user may act in. A store is accessible iff the user holds an
+   * active (non-revoked, unexpired) store-scoped role in it, OR the user owns the
+   * store's account. Account membership alone is deliberately NOT sufficient
+   * (P0-2): a plain account member with no role in a sibling store must not clear
+   * the tenant boundary. Account owners always retain access to their own stores
+   * (the ownerUserFk OR is defensive — they normally also hold STORE_OWNER on every
+   * store they create, but this survives a revoked owner mapping).
    */
   async findAccessibleStoreIds(
     userId: string,
     tx?: DbExecutor,
   ): Promise<string[]> {
     const client = this.getClient(tx);
+    const now = new Date();
 
     const rows = await client
       .selectDistinct({ id: stores.id })
       .from(stores)
-      .innerJoin(accountUsers, eq(accountUsers.accountFk, stores.accountFk))
+      .innerJoin(accounts, eq(accounts.id, stores.accountFk))
+      .leftJoin(
+        userRoleMappings,
+        and(
+          eq(userRoleMappings.storeFk, stores.id),
+          eq(userRoleMappings.userFk, userId),
+          isNull(userRoleMappings.revokedAt),
+          or(
+            isNull(userRoleMappings.expiresAt),
+            gt(userRoleMappings.expiresAt, now),
+          ),
+        ),
+      )
       .where(
         and(
-          eq(accountUsers.userFk, userId),
           isNull(stores.deletedAt),
+          or(
+            eq(accounts.ownerUserFk, userId),
+            isNotNull(userRoleMappings.id),
+          ),
         ),
       );
 
-    // Dedupe defensively even though selectDistinct + the account_users unique
-    // index on (accountFk, userFk) should already guarantee uniqueness.
     return [...new Set(rows.map((row) => row.id))];
   }
 

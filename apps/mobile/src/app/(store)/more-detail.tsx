@@ -1,1 +1,1 @@
-export { MoreDetailScreen as default } from '@features/store/screens/MoreDetailScreen';
+export { MoreDetailScreen as default } from '@features/store/more/screens/MoreDetailScreen';

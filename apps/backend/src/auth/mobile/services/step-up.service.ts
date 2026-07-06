@@ -1,25 +1,31 @@
-import { Inject, Injectable, UnauthorizedException } from '@nestjs/common';
-import { eq } from 'drizzle-orm';
-import type { PostgresJsDatabase } from 'drizzle-orm/postgres-js';
+import { Inject, Injectable } from '@nestjs/common';
 import Redis from 'ioredis';
-import { AppException } from '#common/exceptions/app.exception.js';
+import { AppException, UnauthorizedError } from '#common/exceptions/app.exception.js';
 import { ErrorCodes } from '#common/error-codes.js';
-import { DRIZZLE } from '#db/db.module.js';
-import * as schema from '#db/schema.js';
-import { devices, users } from '#db/schema.js';
 import { AuthConstantsService } from '../../core/auth-constants.service.js';
 import { CryptoService } from '../../core/crypto.service.js';
 import { OtpService } from './otp.service.js';
 import { OtpRequestRepository } from '../repositories/otp-request.repository.js';
-import { AuthSessionRepository } from '../repositories/auth-session.repository.js';
+import { AuthSessionRepository, type DeviceSession } from '../repositories/auth-session.repository.js';
+import { UserRepository } from '../repositories/user.repository.js';
+import { DeviceRepository } from '../repositories/device.repository.js';
 import { DeviceChallengeService } from './device-challenge.service.js';
 import { SessionCacheInvalidatorService } from './session-cache-invalidator.service.js';
 import { MOBILE_REDIS } from './redis.provider.js';
 
 const stepUpKey = (sessionId: string) => `stepup:attempts:${sessionId}`;
 
+/** DTO method → DB column vocabulary. Deliberately not a blind cast: the two
+ *  enums have drifted ('otp_sms' vs 'otp'). */
+const DTO_TO_DB_STEP_UP_METHOD: Record<
+  StepUpDto['method'], NonNullable<DeviceSession['lastStepUpMethod']>
+> = {
+  otp_sms: 'otp',
+  biometric: 'biometric',
+};
+
 export interface StepUpDto {
-  method:                  'otp_sms' | 'biometric' | 'totp' | 'password_reentry';
+  method:                  'otp_sms' | 'biometric';
   credential:              string;
   otpRequestId?:           string;
   challengeId?:            string;
@@ -37,7 +43,8 @@ export interface StepUpResult {
 export class StepUpService {
   constructor(
     @Inject(MOBILE_REDIS)         private readonly redis:      Redis,
-    @Inject(DRIZZLE)              private readonly db:         PostgresJsDatabase<typeof schema>,
+    private readonly userRepo:    UserRepository,
+    private readonly deviceRepo:  DeviceRepository,
     private readonly constants:   AuthConstantsService,
     private readonly crypto:      CryptoService,
     private readonly otpService:  OtpService,
@@ -53,15 +60,15 @@ export class StepUpService {
     dto:             StepUpDto,
   ): Promise<StepUpResult> {
     const session = await this.sessionRepo.findById(deviceSessionId);
-    if (!session) throw new UnauthorizedException('SESSION_REVOKED');
+    if (!session) throw new UnauthorizedError(ErrorCodes.SESSION_REVOKED, 'Session has been revoked');
 
     // Resolve phone and publicKey from DB — never trust caller-supplied values
-    const [[user], [device]] = await Promise.all([
-      this.db.select({ phone: users.phone }).from(users).where(eq(users.id, userId)),
-      this.db.select({ publicKey: devices.publicKey }).from(devices).where(eq(devices.id, session.deviceFk)),
+    const [user, device] = await Promise.all([
+      this.userRepo.findById(userId),
+      this.deviceRepo.findById(session.deviceFk),
     ]);
-    if (!user?.phone)      throw new UnauthorizedException('USER_NOT_FOUND');
-    if (!device?.publicKey) throw new UnauthorizedException('DEVICE_NOT_FOUND');
+    if (!user?.phone)      throw new UnauthorizedError(ErrorCodes.USER_NOT_FOUND, 'User account not found');
+    if (!device?.publicKey) throw new UnauthorizedError(ErrorCodes.DEVICE_NOT_FOUND, 'Device not found');
     const phone     = user.phone;
     const publicKey = device.publicKey;
 
@@ -94,7 +101,8 @@ export class StepUpService {
     const window     = dto.intendedWindowSeconds ?? this.constants.STEP_UP_VALIDITY_SECONDS;
     const validUntil = new Date(now.getTime() + window * 1000);
 
-    await this.sessionRepo.updateStepUp(deviceSessionId, dto.method, now);
+    const dbMethod = DTO_TO_DB_STEP_UP_METHOD[dto.method];
+    await this.sessionRepo.updateStepUp(deviceSessionId, dbMethod, now);
     await this.cacheInvalidator.invalidate(deviceSessionId);
 
     return { ok: true, method: dto.method, completedAt: now, validUntil };
@@ -113,7 +121,7 @@ export class StepUpService {
         if (!dto.challengeId) throw new AppException(ErrorCodes.VALIDATION_FAILED, 'challenge_id required', 422);
         await this.challenge.consumeChallenge(dto.challengeId);
         const ok = await this.crypto.verifyDeviceSignature(publicKey, dto.challengeId, dto.credential);
-        if (!ok) throw new UnauthorizedException('DEVICE_SIGNATURE_INVALID');
+        if (!ok) throw new UnauthorizedError(ErrorCodes.DEVICE_SIGNATURE_INVALID, 'Device signature verification failed');
         break;
       }
       default:

@@ -22,29 +22,6 @@ export class RateLimitRepository {
     return row?.cnt ?? 0;
   }
 
-  async countAccountFailures(userId: string): Promise<number> {
-    const [row] = await this.db
-      .select({ cnt: count() })
-      .from(loginAttempts)
-      .where(and(
-        eq(loginAttempts.userId, userId),
-        eq(loginAttempts.success, false),
-        gt(loginAttempts.createdAt, sql`NOW() - INTERVAL '1 hour'`),
-      ));
-    return row?.cnt ?? 0;
-  }
-
-  async countEmailAttempts(email: string): Promise<number> {
-    const [row] = await this.db
-      .select({ cnt: count() })
-      .from(loginAttempts)
-      .where(and(
-        eq(loginAttempts.email, email),
-        gt(loginAttempts.createdAt, sql`NOW() - INTERVAL '5 minutes'`),
-      ));
-    return row?.cnt ?? 0;
-  }
-
   async countPhoneOtpAttempts(phone: string): Promise<number> {
     const [row] = await this.db
       .select({ cnt: count() })

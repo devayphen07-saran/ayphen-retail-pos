@@ -460,7 +460,7 @@ function InputInner<T extends FieldValues>({
           >
             {hasPrefixOrSuffix ? (
               <StyledFormFieldFrame
-                hasError={!!fieldState.error}
+                $hasError={!!fieldState.error}
                 $scale={scale}
                 style={{
                   columnGap: PREFIX_SUFFIX_GAP,
@@ -487,7 +487,7 @@ function InputInner<T extends FieldValues>({
             ) : (
               <StyledFormInput
                 {...commonProps}
-                hasError={!!fieldState.error}
+                $hasError={!!fieldState.error}
                 $scale={scale}
                 $fontScale={fontScale}
                 style={{ marginBottom: FIELD_BOTTOM_GAP }}

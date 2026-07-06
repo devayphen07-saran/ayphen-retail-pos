@@ -1,4 +1,5 @@
-import { BadRequestException } from '@nestjs/common';
+import { BadRequestError } from '#common/exceptions/app.exception.js';
+import { ErrorCodes } from '#common/error-codes.js';
 
 /**
  * Opaque pagination cursor. Encodes the sort key of the last item on a page so
@@ -24,6 +25,6 @@ export function decodeCursor(cursor: string): Cursor {
     }
     return { id: parsed.id, v: parsed.v };
   } catch {
-    throw new BadRequestException('INVALID_CURSOR');
+    throw new BadRequestError(ErrorCodes.INVALID_CURSOR, 'The pagination cursor is invalid');
   }
 }

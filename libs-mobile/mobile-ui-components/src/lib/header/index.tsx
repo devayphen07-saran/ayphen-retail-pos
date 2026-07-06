@@ -1,6 +1,6 @@
 import React from "react";
-import { Platform, View, StyleProp, ViewStyle } from "react-native";
-import styled, { css } from "styled-components/native";
+import { View, StyleProp, ViewStyle } from "react-native";
+import styled from "styled-components/native";
 import { Typography } from "../typography";
 import { SafeAreaView } from "react-native-safe-area-context";
 
@@ -55,17 +55,7 @@ const HeaderContainer = styled(View)`
   padding-right: ${({ theme }) => theme.padding.small}px;
   background-color: ${({ theme }) => theme.colorBgContainer};
   z-index: 10;
-  ${Platform.select({
-    ios: css`
-      shadow-color: #000;
-      shadow-opacity: 0.08;
-      shadow-radius: 4px;
-      shadow-offset: 0px 2px;
-    `,
-    android: css`
-      elevation: 4;
-    `,
-  })}
+  ${({ theme }) => theme.shadow.md}
 `;
 
 const TitleBlock = styled(View)`

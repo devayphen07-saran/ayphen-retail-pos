@@ -1,5 +1,5 @@
 import { Injectable } from '@nestjs/common';
-import { env, Env } from './env';
+import { env, type Env } from './env';
 
 @Injectable()
 export class AppConfigService {
@@ -12,6 +12,8 @@ export class AppConfigService {
   get jwtAccessExpiry():   string  { return this.c.JWT_ACCESS_EXPIRY; }
   get jwtRefreshExpiry():  string  { return this.c.JWT_REFRESH_EXPIRY; }
   get redisUrl():          string  { return this.c.REDIS_URL ?? ''; }
+  /** Sync root secret — derivation inputs are domain-separated, so the JWT fallback never signs cursors directly. */
+  get syncRootSecret():    string  { return this.c.SYNC_ROOT_SECRET ?? this.c.JWT_ACCESS_SECRET; }
   get smtpHost():          string  { return this.c.SMTP_HOST ?? ''; }
   get smtpPort():          number  { return this.c.SMTP_PORT; }
   get smtpUser():          string  { return this.c.SMTP_USER ?? ''; }
@@ -21,6 +23,7 @@ export class AppConfigService {
   get otpTtlSeconds():                  number    { return this.c.OTP_TTL_SECONDS; }
   get otpResendCooldownSeconds():       number    { return this.c.OTP_RESEND_COOLDOWN_SECONDS; }
   get otpMaxAttempts():                 number    { return this.c.OTP_MAX_ATTEMPTS; }
+  get ipMaxAttempts():                  number    { return this.c.IP_MAX_ATTEMPTS; }
   get deviceChallengeTtlSeconds():      number    { return this.c.DEVICE_CHALLENGE_TTL_SECONDS; }
   get sessionCacheTtlSeconds():         number    { return this.c.SESSION_CACHE_TTL_SECONDS; }
   get refreshTokenTtlSeconds():         number    { return this.c.REFRESH_TOKEN_TTL_SECONDS; }

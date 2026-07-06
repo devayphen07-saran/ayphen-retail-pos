@@ -1,9 +1,7 @@
-import {
-  ForbiddenException,
-  Injectable,
-  NotFoundException,
-} from '@nestjs/common';
+import { Injectable } from '@nestjs/common';
 import { UnitOfWork } from '#db/db.module.js';
+import { ForbiddenError, NotFoundError } from '#common/exceptions/app.exception.js';
+import { ErrorCodes } from '#common/error-codes.js';
 import { RbacService } from '#common/rbac/rbac.service.js';
 import { AuditService } from '#auth/core/audit.service.js';
 import { LocationRepository } from './location.repository.js';
@@ -27,7 +25,7 @@ export class UserLocationService {
 
   async listMembers(storeId: string, locationId: string): Promise<LocationMember[]> {
     const loc = await this.locationRepo.findInStore(locationId, storeId);
-    if (!loc) throw new NotFoundException('LOCATION_NOT_FOUND');
+    if (!loc) throw new NotFoundError(ErrorCodes.LOCATION_NOT_FOUND, 'Location not found');
     return this.repo.listMembers(locationId);
   }
 
@@ -39,12 +37,16 @@ export class UserLocationService {
     userIds: string[],
   ): Promise<void> {
     const loc = await this.locationRepo.findInStore(locationId, storeId);
-    if (!loc) throw new NotFoundException('LOCATION_NOT_FOUND');
-    if (!loc.enable) throw new ForbiddenException('LOCATION_DISABLED');
+    if (!loc) throw new NotFoundError(ErrorCodes.LOCATION_NOT_FOUND, 'Location not found');
+    if (!loc.enable)
+      throw new ForbiddenError(ErrorCodes.LOCATION_DISABLED, 'This location is disabled');
 
     for (const userId of userIds) {
       if (!(await this.repo.isStoreMember(userId, storeId))) {
-        throw new ForbiddenException('USER_NOT_STORE_MEMBER');
+        throw new ForbiddenError(
+          ErrorCodes.USER_NOT_STORE_MEMBER,
+          'User is not a member of this store',
+        );
       }
     }
 
@@ -75,10 +77,13 @@ export class UserLocationService {
     targetUserId: string,
   ): Promise<void> {
     const loc = await this.locationRepo.findInStore(locationId, storeId);
-    if (!loc) throw new NotFoundException('LOCATION_NOT_FOUND');
+    if (!loc) throw new NotFoundError(ErrorCodes.LOCATION_NOT_FOUND, 'Location not found');
 
     if (await this.repo.isStoreOwner(targetUserId, storeId)) {
-      throw new ForbiddenException('OWNER_LOCATION_CANNOT_REMOVE');
+      throw new ForbiddenError(
+        ErrorCodes.OWNER_LOCATION_CANNOT_REMOVE,
+        'The store owner cannot be removed from a location',
+      );
     }
 
     const revoked = await this.uow.execute(async (tx) => {
@@ -86,7 +91,11 @@ export class UserLocationService {
       if (n > 0) await this.rbac.bumpPermissionsVersionForUser(targetUserId, tx);
       return n;
     });
-    if (!revoked) throw new NotFoundException('LOCATION_ASSIGNMENT_NOT_FOUND');
+    if (!revoked)
+      throw new NotFoundError(
+        ErrorCodes.LOCATION_ASSIGNMENT_NOT_FOUND,
+        'Location assignment not found',
+      );
 
     await this.rbac.invalidateUserStoreCache(targetUserId, storeId);
     await this.audit.log({

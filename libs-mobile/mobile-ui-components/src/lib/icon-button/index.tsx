@@ -11,6 +11,8 @@ export interface IconButtonProps extends TouchableOpacityProps {
   label?: string;
   size?: number;
   backgroundColor?: string;
+  /** Overrides the variant-derived icon color (e.g. a neutral icon on a ghost button). */
+  color?: string;
   variant?: IconButtonVariant;
 }
 
@@ -20,6 +22,7 @@ export const IconButton: FC<IconButtonProps> = ({
   label,
   size: sizeProp,
   backgroundColor,
+  color,
   variant = "primary",
   disabled,
   ...rest
@@ -28,7 +31,7 @@ export const IconButton: FC<IconButtonProps> = ({
   const { scale } = useBreakpoint();
   const size = sizeProp ?? Math.round(40 * scale);
 
-  const iconColor = variant === "primary" ? theme.colorWhite : theme.colorPrimary;
+  const iconColor = color ?? (variant === "primary" ? theme.colorWhite : theme.colorPrimary);
 
   return (
     <ButtonContainer
@@ -59,7 +62,7 @@ const ButtonContainer = styled.TouchableOpacity<{
 
   width: ${({ $size }) => $size}px;
   height: ${({ $size }) => $size}px;
-  border-radius: 7px;
+  border-radius: ${({ theme }) => theme.borderRadius.regular}px;
 
   align-items: center;
   justify-content: center;
@@ -69,8 +72,8 @@ const ButtonContainer = styled.TouchableOpacity<{
 `;
 
 const Label = styled.Text`
-  margin-left: 8px;
-  font-size: 14px;
+  margin-left: ${({ theme }) => theme.sizing.xSmall}px;
+  font-size: ${({ theme }) => theme.fontSize.small}px;
   color: ${({ theme }) => theme.colorText};
 `;
 

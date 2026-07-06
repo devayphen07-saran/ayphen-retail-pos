@@ -1,13 +1,19 @@
-import {
-  ConflictException,
-  ForbiddenException,
-  Injectable,
-  NotFoundException,
-} from '@nestjs/common';
+import { Injectable } from '@nestjs/common';
 import { UnitOfWork } from '#db/db.module.js';
+import { rethrowUniqueViolationAs } from '#db/rethrow-unique-violation.js';
+import {
+  ConflictError,
+  ForbiddenError,
+  NotFoundError,
+} from '#common/exceptions/app.exception.js';
+import { ErrorCodes } from '#common/error-codes.js';
 import { EntitlementService } from '../subscription/entitlement.service.js';
 import { AuditService } from '#auth/core/audit.service.js';
 import { LocationRepository, type Location } from './location.repository.js';
+import { UserLocationRepository } from './user-location.repository.js';
+
+const nameConflict = () =>
+  new ConflictError(ErrorCodes.LOCATION_NAME_EXISTS, 'A location with this name already exists');
 
 export interface CreateLocationInput {
   name:       string;
@@ -28,6 +34,7 @@ export interface UpdateLocationInput {
 export class LocationService {
   constructor(
     private readonly repo: LocationRepository,
+    private readonly userLocationRepo: UserLocationRepository,
     private readonly entitlements: EntitlementService,
     private readonly audit: AuditService,
     private readonly uow: UnitOfWork,
@@ -42,32 +49,68 @@ export class LocationService {
     accountId: string,
     actorId: string,
     input: CreateLocationInput,
-  ): Promise<{ id: string; name: string }> {
-    // Multi-location must be enabled on the plan (seeded feature key: multi_store).
-    if (!(await this.entitlements.feature(accountId, 'multi_store'))) {
-      throw new ForbiddenException('MULTI_LOCATION_NOT_AVAILABLE');
-    }
-
-    // max_locations_per_store gate (Head Office counts as slot 1).
-    const limit  = await this.entitlements.get(accountId, 'max_locations_per_store');
-    const active = await this.repo.countActive(storeId);
-    if (!this.entitlements.canCreate(limit, active)) {
-      throw new ForbiddenException('LOCATION_LIMIT_REACHED');
-    }
-
-    if (await this.repo.nameTaken(storeId, input.name)) {
-      throw new ConflictException('LOCATION_NAME_EXISTS');
-    }
-
-    const created = await this.uow.execute(async (tx) => {
-      const loc = await this.repo.insert(
-        { storeFk: storeId, name: input.name, isDefault: input.isDefault ?? false },
-        tx,
+  ): Promise<Location> {
+    // max_locations_per_store gate (Head Office counts as slot 1). This single
+    // numeric entitlement is the only multi-location gate — a separate
+    // 'multi_store' feature flag used to duplicate this check and could
+    // disagree with it (e.g. a plan sold with limit=3 but the flag off,
+    // making the entitlement unreachable). Removed rather than reconciled:
+    // two sources of truth for one rule was the actual defect.
+    // Fast pre-check outside the transaction for quick feedback on the
+    // common case.
+    const precheckLimit  = await this.entitlements.get(accountId, 'max_locations_per_store');
+    const precheckActive = await this.repo.countActive(storeId);
+    if (!this.entitlements.canCreate(precheckLimit, precheckActive)) {
+      throw new ForbiddenError(
+        ErrorCodes.LOCATION_LIMIT_REACHED,
+        'Location limit reached for this store',
+        { limit: precheckLimit, current: precheckActive },
       );
-      // Setting a new default clears any other default (one per store).
-      if (loc.isDefault) await this.repo.clearOtherDefaults(storeId, loc.id, tx);
-      return loc;
-    });
+    }
+
+    // Fast-path pre-check — the DB unique index (uk_location_name) is the
+    // actual guard against a concurrent create/rename race (see below).
+    if (await this.repo.nameTaken(storeId, input.name)) {
+      throw nameConflict();
+    }
+
+    const created = await rethrowUniqueViolationAs(
+      this.uow.execute(async (tx) => {
+        // Lock the store row so concurrent creates serialize, then recheck the
+        // gate inside the transaction — the pre-check above is TOCTOU-able by
+        // itself (two concurrent requests can both pass it before either
+        // inserts) — mirrors StoreService.createStore / InvitationService.create.
+        await this.repo.lockStore(storeId, tx);
+        const limit  = await this.entitlements.get(accountId, 'max_locations_per_store', tx);
+        const active = await this.repo.countActive(storeId, tx);
+        if (!this.entitlements.canCreate(limit, active)) {
+          throw new ForbiddenError(
+            ErrorCodes.LOCATION_LIMIT_REACHED,
+            'Location limit reached for this store',
+            { limit, current: active },
+          );
+        }
+        if (await this.repo.nameTaken(storeId, input.name, undefined, tx)) {
+          throw nameConflict();
+        }
+
+        const loc = await this.repo.insert(
+          { storeFk: storeId, name: input.name, isDefault: input.isDefault ?? false },
+          tx,
+        );
+        // Setting a new default clears any other default (one per store).
+        if (loc.isDefault) await this.repo.clearOtherDefaults(storeId, loc.id, tx);
+        // The creator isn't implicitly a member of every location the way
+        // STORE_OWNER is (location.guard.ts owner bypass) — without this, a
+        // non-owner with a granted Location:create permission would create a
+        // location it then can't access (LOCATION_ACCESS_DENIED on its own
+        // creation).
+        await this.userLocationRepo.assign(actorId, loc.id, actorId, tx);
+        return loc;
+      }),
+      nameConflict,
+      'uk_location_name',
+    );
 
     await this.audit.log({
       event: 'LOCATION_CREATED', activityType: 'PERMISSION_CHANGED',
@@ -75,7 +118,7 @@ export class LocationService {
       userId: actorId, storeFk: storeId, isSuccess: true,
       entityType: 'Location', entityId: created.id,
     });
-    return { id: created.id, name: created.name };
+    return created;
   }
 
   async updateLocation(
@@ -85,21 +128,33 @@ export class LocationService {
     input: UpdateLocationInput,
   ): Promise<void> {
     const loc = await this.repo.findInStore(locationId, storeId);
-    if (!loc) throw new NotFoundException('LOCATION_NOT_FOUND');
+    if (!loc) throw new NotFoundError(ErrorCodes.LOCATION_NOT_FOUND, 'Location not found');
 
     // Head Office and the default location can never be disabled (§8.2).
     if (input.enable === false) {
-      if (loc.isPrimary) throw new ForbiddenException('LOCATION_HEAD_OFFICE_NOT_DISABLE');
-      if (loc.isDefault) throw new ForbiddenException('LOCATION_DEFAULT_NOT_DISABLE');
+      if (loc.isPrimary)
+        throw new ForbiddenError(
+          ErrorCodes.LOCATION_HEAD_OFFICE_NOT_DISABLE,
+          'The head office location cannot be disabled',
+        );
+      if (loc.isDefault)
+        throw new ForbiddenError(
+          ErrorCodes.LOCATION_DEFAULT_NOT_DISABLE,
+          'The default location cannot be disabled',
+        );
     }
 
     if (input.name && input.name !== loc.name) {
       if (await this.repo.nameTaken(storeId, input.name, locationId)) {
-        throw new ConflictException('LOCATION_NAME_EXISTS');
+        throw nameConflict();
       }
     }
 
-    await this.repo.update(locationId, { name: input.name, enable: input.enable });
+    await rethrowUniqueViolationAs(
+      this.repo.update(locationId, { name: input.name, enable: input.enable }),
+      nameConflict,
+      'uk_location_name',
+    );
     await this.audit.log({
       event: 'LOCATION_UPDATED', activityType: 'PERMISSION_CHANGED',
       prefix: 'Location', suffix: 'updated',
@@ -111,7 +166,7 @@ export class LocationService {
   /** Make this location the store default (clears the previous one). */
   async setDefault(storeId: string, actorId: string, locationId: string): Promise<void> {
     const loc = await this.repo.findInStore(locationId, storeId);
-    if (!loc) throw new NotFoundException('LOCATION_NOT_FOUND');
+    if (!loc) throw new NotFoundError(ErrorCodes.LOCATION_NOT_FOUND, 'Location not found');
     if (loc.isDefault) return; // already default — no-op
 
     await this.uow.execute(async (tx) => {
@@ -128,11 +183,18 @@ export class LocationService {
 
   async deleteLocation(storeId: string, actorId: string, locationId: string): Promise<void> {
     const loc = await this.repo.findInStore(locationId, storeId);
-    if (!loc) throw new NotFoundException('LOCATION_NOT_FOUND');
-    if (loc.isPrimary) throw new ForbiddenException('LOCATION_HEAD_OFFICE_NOT_DELETABLE');
+    if (!loc) throw new NotFoundError(ErrorCodes.LOCATION_NOT_FOUND, 'Location not found');
+    if (loc.isPrimary)
+      throw new ForbiddenError(
+        ErrorCodes.LOCATION_HEAD_OFFICE_NOT_DELETABLE,
+        'The head office location cannot be deleted',
+      );
     // Deleting the sole default would leave the store with none.
     if (loc.isDefault && (await this.repo.countDefaults(storeId)) <= 1) {
-      throw new ForbiddenException('LOCATION_ONLY_DEFAULT');
+      throw new ForbiddenError(
+        ErrorCodes.LOCATION_ONLY_DEFAULT,
+        'Cannot delete the only default location',
+      );
     }
 
     await this.repo.softDelete(locationId);

@@ -2,13 +2,15 @@ import {
   CanActivate,
   ExecutionContext,
   ForbiddenException,
+  HttpException,
+  HttpStatus,
   Inject,
   Injectable,
 } from '@nestjs/common';
 import { Reflector } from '@nestjs/core';
 import { eq } from 'drizzle-orm';
 import type { PostgresJsDatabase } from 'drizzle-orm/postgres-js';
-import type { Request } from 'express';
+import type { Request, Response } from 'express';
 import type { Redis } from 'ioredis';
 import { DRIZZLE } from '#db/db.module.js';
 import * as schema from '#db/schema.js';
@@ -27,17 +29,28 @@ export const ALLOW_EXPIRED_SUBSCRIPTION_KEY = 'allowExpiredSubscription';
 export const AllowExpiredSubscription = () =>
   Reflect.metadata(ALLOW_EXPIRED_SUBSCRIPTION_KEY, true);
 
-/** Statuses that block writes regardless of the access window. */
-const BLOCKING_STATUSES = new Set(['expired']);
+/**
+ * `paused` (admin/abuse suspension) blocks writes regardless of the cached
+ * access window — subscription.md §4/§7. Wire code `subscription_suspended`, 403.
+ */
+const SUSPENDED_STATUSES = new Set(['paused']);
+
+/**
+ * Definitively inactive regardless of the access window (grace-over / cancelled
+ * period-over reuse `expired` per this codebase's status enum — no separate
+ * `lapsed` value exists). Wire code `subscription_payment_required`, 402.
+ */
+const PAYMENT_REQUIRED_STATUSES = new Set(['expired']);
 
 /** HTTP methods that never touch the write-gate (reads are never blocked). */
 const READ_METHODS = new Set(['GET', 'HEAD', 'OPTIONS']);
 
 /** Snapshot of the fields the guard needs — cached in Redis, keyed per account. */
 interface SubscriptionSnapshot {
-  status:              string;
-  accessValidUntil:    string | null; // ISO
-  subscriptionVersion: number;
+  status:               string;
+  accessValidUntil:     string | null; // ISO
+  subscriptionVersion:  number;
+  reconciliationStatus: string;
 }
 
 /**
@@ -102,22 +115,55 @@ export class SubscriptionStatusGuard implements CanActivate {
 
     // Freshness is emitted on every request (even reads / allow-expired) so the
     // client keeps its cached window current.
-    req.subscriptionFreshness = {
+    const freshness: SubscriptionFreshness = {
       version: sub.subscriptionVersion,
       warning: this.buildWarning(sub),
     };
+    req.subscriptionFreshness = freshness;
+
+    // Stamp the headers here too, not only via SubscriptionHeadersInterceptor:
+    // when this guard throws below, NestJS never invokes that interceptor
+    // (guards run before interceptors; a guard rejection skips the handler
+    // pipeline entirely) — so the 402/403 responses that most need the client
+    // to learn the current version/warning would otherwise carry neither.
+    // Harmless on the allow-through path: the interceptor sets the identical
+    // values again once the handler completes.
+    this.stampHeaders(context, freshness);
 
     const isRead = READ_METHODS.has(req.method);
     if (isRead || allowExpired) return true;
 
-    // Hard block: status is definitively inactive.
-    if (BLOCKING_STATUSES.has(sub.status)) {
-      throw new ForbiddenException('SUBSCRIPTION_INACTIVE');
+    // Suspended (admin/abuse) — always blocked, regardless of access window.
+    if (SUSPENDED_STATUSES.has(sub.status)) {
+      throw new ForbiddenException('SUBSCRIPTION_SUSPENDED');
     }
 
-    // Soft block: access window closed (trial ended / paid period over).
+    // Definitively inactive (grace-over / cancelled period-over).
+    if (PAYMENT_REQUIRED_STATUSES.has(sub.status)) {
+      throw new HttpException('SUBSCRIPTION_PAYMENT_REQUIRED', HttpStatus.PAYMENT_REQUIRED);
+    }
+
+    // Soft block: access window closed (trial ended / paid period over) but the
+    // status hasn't flipped yet (reconciliation cron lag) — same wire contract.
     if (sub.accessValidUntil && new Date(sub.accessValidUntil) < new Date()) {
-      throw new ForbiddenException('SUBSCRIPTION_ACCESS_EXPIRED');
+      throw new HttpException('SUBSCRIPTION_PAYMENT_REQUIRED', HttpStatus.PAYMENT_REQUIRED);
+    }
+
+    // A downgrade left some resource (stores/locations/devices) over its new
+    // limit — every write is blocked account-wide until the owner resolves
+    // which to keep (POST /subscription/reconciliation). Reads always work.
+    if (sub.reconciliationStatus === 'pending') {
+      throw new ForbiddenException('SUBSCRIPTION_RECONCILIATION_REQUIRED');
+    }
+
+    // Store-level lock (downgrade-reconciliation §5, applied and permanent
+    // until the owner unlocks or upgrades — independent of the account-wide
+    // pending gate above, which only covers the *unresolved* window). Checked
+    // here rather than a separate guard since this is already the single
+    // write-gate chokepoint every mutating store-scoped route passes through.
+    const storeContext = (req as Request & { context?: ResolvedStoreContext }).context;
+    if (storeContext?.isLocked) {
+      throw new ForbiddenException('STORE_LOCKED');
     }
 
     return true;
@@ -126,6 +172,17 @@ export class SubscriptionStatusGuard implements CanActivate {
   private resolveAccountId(req: Request): string | undefined {
     const resolved = (req as Request & { context?: ResolvedStoreContext }).context;
     return resolved?.accountId;
+  }
+
+  /** Same header contract as `SubscriptionHeadersInterceptor` — duplicated
+   *  here only for the guard-throws path that interceptor can't reach. */
+  private stampHeaders(context: ExecutionContext, freshness: SubscriptionFreshness): void {
+    const res = context.switchToHttp().getResponse<Response>();
+    if (res.headersSent) return;
+    res.setHeader('X-Subscription-Version', String(freshness.version));
+    if (freshness.warning) {
+      res.setHeader('X-Subscription-Warning', freshness.warning);
+    }
   }
 
   /**
@@ -149,9 +206,10 @@ export class SubscriptionStatusGuard implements CanActivate {
 
     const [row] = await this.db
       .select({
-        status:              accountSubscriptions.status,
-        accessValidUntil:    accountSubscriptions.accessValidUntil,
-        subscriptionVersion: accountSubscriptions.subscriptionVersion,
+        status:               accountSubscriptions.status,
+        accessValidUntil:     accountSubscriptions.accessValidUntil,
+        subscriptionVersion:  accountSubscriptions.subscriptionVersion,
+        reconciliationStatus: accountSubscriptions.reconciliationStatus,
       })
       .from(accountSubscriptions)
       .where(eq(accountSubscriptions.accountFk, accountId));
@@ -159,9 +217,10 @@ export class SubscriptionStatusGuard implements CanActivate {
     if (!row) return null;
 
     const snapshot: SubscriptionSnapshot = {
-      status:              row.status,
-      accessValidUntil:    row.accessValidUntil?.toISOString() ?? null,
-      subscriptionVersion: row.subscriptionVersion,
+      status:               row.status,
+      accessValidUntil:     row.accessValidUntil?.toISOString() ?? null,
+      subscriptionVersion:  row.subscriptionVersion,
+      reconciliationStatus: row.reconciliationStatus,
     };
 
     try {
@@ -179,10 +238,13 @@ export class SubscriptionStatusGuard implements CanActivate {
 
   /** Build the `X-Subscription-Warning` value, or undefined when nothing to warn. */
   private buildWarning(sub: SubscriptionSnapshot): string | undefined {
-    // Only the trial countdown remains a warning in this flow (no recurrence/
-    // grace/cancel states). Lets the client show the trial-ending banner.
     if (sub.status === 'trialing' && sub.accessValidUntil) {
       return `trialing:ends_at_${sub.accessValidUntil}`;
+    }
+    // In the 7-day past_due grace window — full access, but warn so the client
+    // can show "renew before {grace_until}" (subscription §11, device §30.5).
+    if (sub.status === 'past_due' && sub.accessValidUntil) {
+      return `past_due:grace_until_${sub.accessValidUntil}`;
     }
     return undefined;
   }

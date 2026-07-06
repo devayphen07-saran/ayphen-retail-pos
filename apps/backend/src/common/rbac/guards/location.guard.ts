@@ -26,6 +26,9 @@ import {
 } from '../decorators/rbac.decorators.js';
 import type { ResolvedStoreContext } from '../resolved-store-context.js';
 
+/** HTTP methods that never touch the write-gate (reads are never blocked). */
+const READ_METHODS = new Set(['GET', 'HEAD', 'OPTIONS']);
+
 /**
  * LocationGuard (adoption §8.1). Runs AFTER TenantGuard. When @LocationContext is
  * present, resolves the location id, verifies it belongs to the request's store,
@@ -38,6 +41,12 @@ import type { ResolvedStoreContext } from '../resolved-store-context.js';
  * Non-existent and unassigned locations both surface distinctly:
  *   404 LOCATION_NOT_ACCESSIBLE  — not in this store / archived
  *   403 LOCATION_ACCESS_DENIED   — exists but the user isn't assigned
+ *
+ * A downgrade-locked location (`locations.locked`) additionally blocks WRITES
+ * only — reads (history/reports) keep working, same contract as a locked
+ * store in SubscriptionStatusGuard. Unlike that account-wide pending gate,
+ * a location lock is permanent until the owner unlocks it or upgrades, so
+ * it's checked here regardless of `reconciliation_status`.
  *
  * Routes without @LocationContext pass through untouched.
  */
@@ -76,7 +85,7 @@ export class LocationGuard implements CanActivate {
 
     // 1. Location must belong to this store and be active.
     const [loc] = await this.db
-      .select({ id: locations.id })
+      .select({ id: locations.id, locked: locations.locked })
       .from(locations)
       .where(and(
         eq(locations.id, raw),
@@ -84,6 +93,10 @@ export class LocationGuard implements CanActivate {
         eq(locations.isActive, true),
       ));
     if (!loc) throw new NotFoundException('LOCATION_NOT_ACCESSIBLE');
+
+    if (loc.locked && !READ_METHODS.has(req.method)) {
+      throw new ForbiddenException('LOCATION_LOCKED');
+    }
 
     // 2. Owner bypass — STORE_OWNER is implicitly at every location.
     const owner = await this.isStoreOwner(principal.userId, context.storeId);

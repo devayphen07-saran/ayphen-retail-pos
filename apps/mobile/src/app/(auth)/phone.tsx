@@ -5,7 +5,6 @@ import {
   Linking,
   Platform,
   ScrollView,
-  Text,
   TouchableOpacity,
   useWindowDimensions,
 } from 'react-native';
@@ -19,6 +18,7 @@ import { useMobileTheme } from '@ayphen/mobile-theme';
 import {
   CheckBox,
   Column,
+  Flex,
   Input,
   LucideIcon,
   Row,
@@ -32,9 +32,10 @@ import {
   loginPhoneSchema,
   signupPhoneSchema,
   DEFAULT_PHONE_VALUES,
+  normalizePhone,
+  normalizeName,
   type PhoneForm,
-} from '@features/auth/schema';
-import { normalizePhone, normalizeName } from '@features/auth/transform';
+} from '@features/auth';
 import { handleFormError } from '../../utils/handleFormError';
 import { onValidationError } from '../../utils/onValidationError';
 
@@ -172,7 +173,14 @@ export default function PhoneScreen() {
             keyboardDismissMode="interactive"
             showsVerticalScrollIndicator={false}
           >
-            <Header>
+            <Row
+              align="center"
+              gap="small"
+              style={{
+                paddingHorizontal: theme.sizing.large,
+                paddingTop: theme.sizing.large,
+              }}
+            >
               <LogoBox>
                 <LucideIcon name="Store" size={20} color={theme.colorWhite} />
               </LogoBox>
@@ -184,23 +192,28 @@ export default function PhoneScreen() {
                   Enterprise POS Platform
                 </Typography.Caption>
               </Column>
-            </Header>
+            </Row>
 
-            <Hero>
+            <Column
+              style={{
+                paddingHorizontal: theme.sizing.large,
+                paddingVertical: theme.sizing.xxLarge,
+              }}
+            >
               <Typography.Overline color={theme.colorAccentLavender}>
                 SIGN IN
               </Typography.Overline>
-              <Gap $h={6} />
+              <Flex height={6} />
               <Typography.H1 color={theme.colorWhite}>
                 {mode === 'login' ? 'Welcome\nback.' : 'Create your\naccount.'}
               </Typography.H1>
-              <Gap $h={8} />
+              <Flex height={8} />
               <Typography.Body color={W55}>
                 {mode === 'login'
                   ? 'Enter your phone number to receive a one-time passcode.'
                   : "We'll text you a 6-digit code to get started."}
               </Typography.Body>
-            </Hero>
+            </Column>
 
             <Card style={{ minHeight: SH * 0.5 }}>
               {isSignup && (
@@ -232,30 +245,27 @@ export default function PhoneScreen() {
                 onSubmitEditing={handleSubmit(onSubmit, onValidationError)}
                 accessibilityLabel="Phone number"
                 prefix={
-                  <CountryPrefix>
-                    <Text
-                      style={{ fontSize: theme.fontSize.large, lineHeight: 22 }}
-                    >
-                      🇮🇳
-                    </Text>
+                  <Row
+                    align="center"
+                    gap={6}
+                    style={{ paddingRight: theme.sizing.xSmall }}
+                  >
+                    <Typography.H5 style={{ lineHeight: 22 }}>🇮🇳</Typography.H5>
                     <PrefixDivider />
-                    <Text
-                      style={{
-                        fontSize: theme.fontSize.small,
-                        fontWeight: '600',
-                        color: theme.colorText,
-                        letterSpacing: 0.2,
-                      }}
+                    <Typography.Body
+                      weight="semiBold"
+                      color={theme.colorText}
+                      style={{ letterSpacing: 0.2 }}
                     >
                       +91
-                    </Text>
-                  </CountryPrefix>
+                    </Typography.Body>
+                  </Row>
                 }
               />
 
               {isSignup && (
                 <>
-                  <Gap $h={20} />
+                  <Flex height={20} />
                   <CheckBox<PhoneForm>
                     name="marketingOptIn"
                     control={control}
@@ -273,7 +283,7 @@ export default function PhoneScreen() {
                 </>
               )}
 
-              <Gap $h={20} />
+              <Flex height={20} />
 
               <CtaBtn
                 onPress={handleSubmit(onSubmit, onValidationError)}
@@ -350,7 +360,13 @@ export default function PhoneScreen() {
                 </Typography.Caption>
               </SwitchModeBtn>
 
-              <Disclaimer>
+              <Row
+                wrap="wrap"
+                align="center"
+                justify="center"
+                gap={2}
+                style={{ marginTop: theme.sizing.medium }}
+              >
                 <Typography.Caption color={theme.colorTextSecondary}>
                   By continuing you agree to our{' '}
                 </Typography.Caption>
@@ -382,7 +398,7 @@ export default function PhoneScreen() {
                     Privacy Policy
                   </Typography.Caption>
                 </TouchableOpacity>
-              </Disclaimer>
+              </Row>
             </Card>
           </ScrollView>
         </KeyboardAvoidingView>
@@ -415,14 +431,6 @@ const Orb2 = styled.View`
   background-color: rgba(255, 255, 255, 0.04);
 `;
 
-const Header = styled.View`
-  flex-direction: row;
-  align-items: center;
-  gap: ${({ theme }) => theme.sizing.small}px;
-  padding-horizontal: ${({ theme }) => theme.sizing.large}px;
-  padding-top: ${({ theme }) => theme.sizing.large}px;
-`;
-
 const LogoBox = styled.View`
   width: 36px;
   height: 36px;
@@ -432,16 +440,6 @@ const LogoBox = styled.View`
   justify-content: center;
 `;
 
-const Hero = styled.View`
-  padding-horizontal: ${({ theme }) => theme.sizing.large}px;
-  padding-top: ${({ theme }) => theme.sizing.xxLarge}px;
-  padding-bottom: ${({ theme }) => theme.sizing.xxLarge}px;
-`;
-
-const Gap = styled.View<{ $h: number }>`
-  height: ${({ $h }) => $h}px;
-`;
-
 const Card = styled.View`
   flex: 1;
   background-color: ${({ theme }) => theme.colorBgContainer};
@@ -449,13 +447,6 @@ const Card = styled.View`
   border-top-right-radius: ${({ theme }) => theme.borderRadius.xxLarge}px;
   padding: ${({ theme }) => theme.sizing.large}px;
   padding-bottom: ${({ theme }) => theme.sizing.xxLarge}px;
-`;
-
-const CountryPrefix = styled.View`
-  flex-direction: row;
-  align-items: center;
-  gap: 6px;
-  padding-right: ${({ theme }) => theme.sizing.xSmall}px;
 `;
 
 const PrefixDivider = styled.View`
@@ -474,11 +465,3 @@ const SwitchModeBtn = styled.TouchableOpacity`
   margin-top: ${({ theme }) => theme.sizing.medium}px;
 `;
 
-const Disclaimer = styled.View`
-  flex-direction: row;
-  flex-wrap: wrap;
-  align-items: center;
-  justify-content: center;
-  margin-top: ${({ theme }) => theme.sizing.medium}px;
-  gap: 2px;
-`;

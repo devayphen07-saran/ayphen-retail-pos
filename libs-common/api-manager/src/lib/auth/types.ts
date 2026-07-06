@@ -140,14 +140,27 @@ export interface AccountModeRequest {
 
 // ── Sessions ─────────────────────────────────────────────────────────────────
 
+// Cursor-paginated envelope — matches the backend `PaginatedResponse<T>`
+// (common/pagination/paginated-response.ts). `GET /auth/mobile/sessions`
+// returns this shape inside the response envelope's `data`, not a bare array.
+export interface Paginated<T> {
+  data: T[];
+  next_cursor: string | null;
+  has_more: boolean;
+}
+
+// Field names mirror the backend SessionMapper.toSessionResponse output exactly.
 export interface SessionResponse {
   id: string;
-  device_model?: string | null;
-  device_platform?: string | null;
-  is_current: boolean;
-  created_at: string;
+  device_name: string | null;
+  os: string | null;
+  platform: string | null;
+  app_version: string | null;
+  ip_at_creation: string | null;
   last_used_at: string;
-  ip_at_creation?: string | null;
+  last_step_up_at: string | null;
+  created_at: string;
+  is_current: boolean;
 }
 
 // ── Device challenge / step-up ───────────────────────────────────────────────
@@ -156,17 +169,20 @@ export interface ChallengeResponse {
   challenge_id: string;
 }
 
-export type StepUpMethod = 'otp' | 'biometric' | 'totp' | 'password';
+// Matches the backend StepUpVerifyDto method enum exactly.
+export type StepUpMethod = 'otp_sms' | 'biometric' | 'totp' | 'password_reentry';
 
 export interface StepUpVerifyRequest {
   method: StepUpMethod;
-  credential?: string;
+  credential: string;
   otp_request_id?: string;
   challenge_id?: string;
   intended_window_seconds?: number;
 }
 
 export interface StepUpResponse {
-  stepped_up: true;
+  ok: true;
+  method: StepUpMethod;
+  completed_at: string;
   valid_until: string;
 }

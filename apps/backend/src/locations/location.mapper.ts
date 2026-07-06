@@ -1,4 +1,5 @@
 import type { Location } from './location.repository.js';
+import type { LocationMember } from './user-location.repository.js';
 
 export interface LocationResponse {
   id:            string;
@@ -8,6 +9,12 @@ export interface LocationResponse {
   enable:        boolean;
   is_locked:     boolean;   // downgrade-locked
   display_order: number;
+}
+
+export interface LocationMemberResponse {
+  user_id:     string;
+  user_name:   string;
+  assigned_at: string;
 }
 
 /** Pure domain → snake_case mapper (layered-architecture §3.7). */
@@ -25,5 +32,15 @@ export const LocationMapper = {
   },
   toList(rows: Location[]): LocationResponse[] {
     return rows.map((l) => LocationMapper.toResponse(l));
+  },
+  toMemberResponse(m: LocationMember): LocationMemberResponse {
+    return {
+      user_id:     m.userId,
+      user_name:   m.userName,
+      assigned_at: m.assignedAt.toISOString(),
+    };
+  },
+  toMemberList(rows: LocationMember[]): LocationMemberResponse[] {
+    return rows.map((m) => LocationMapper.toMemberResponse(m));
   },
 };

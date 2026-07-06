@@ -11,16 +11,17 @@
  * later without touching callers.
  */
 export interface PlanPrice {
-  planName: string;   // must equal a plans.name value (the plan being switched to)
-  amount:   number;   // paise
-  currency: string;
+  planName:     string;   // must equal a plans.name value (the plan being switched to)
+  billingCycle: 'monthly' | 'annual';
+  amount:       number;   // paise
+  currency:     string;
 }
 
 export const PLAN_PRICING: Record<string, PlanPrice> = {
-  starter_monthly: { planName: 'starter', amount:  49900, currency: 'INR' },
-  starter_annual:  { planName: 'starter', amount: 499900, currency: 'INR' },
-  growth_monthly:  { planName: 'growth',  amount:  99900, currency: 'INR' },
-  growth_annual:   { planName: 'growth',  amount: 999900, currency: 'INR' },
+  starter_monthly: { planName: 'starter', billingCycle: 'monthly', amount:  49900, currency: 'INR' },
+  starter_annual:  { planName: 'starter', billingCycle: 'annual',  amount: 499900, currency: 'INR' },
+  growth_monthly:  { planName: 'growth',  billingCycle: 'monthly', amount:  99900, currency: 'INR' },
+  growth_annual:   { planName: 'growth',  billingCycle: 'annual',  amount: 999900, currency: 'INR' },
 };
 
 export function resolvePlanPrice(planCode: string): PlanPrice | null {

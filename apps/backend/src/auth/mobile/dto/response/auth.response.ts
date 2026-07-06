@@ -1,4 +1,4 @@
-import type { PermissionSnapshot } from '../../services/snapshot.service.js';
+import type { PermissionSnapshot } from '../../types/permission-snapshot.js';
 
 /** Response after successful login/signup (stage 2). */
 export interface LoginResponse {

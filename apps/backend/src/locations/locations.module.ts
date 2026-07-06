@@ -10,8 +10,8 @@ import { LocationController } from './location.controller.js';
 
 /**
  * Store location management (adoption §8.1/§8.2). Reuses EntitlementService
- * (max_locations_per_store, multi_store feature) from SubscriptionModule and the
- * auth/RBAC guards from MobileAuthModule / global RbacModule.
+ * (max_locations_per_store) from SubscriptionModule and the auth/RBAC guards
+ * from MobileAuthModule / global RbacModule.
  */
 @Module({
   imports: [AuthCoreModule, MobileAuthModule, SubscriptionModule],

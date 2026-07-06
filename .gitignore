@@ -4,6 +4,7 @@
 dist
 tmp
 out-tsc
+*.tsbuildinfo
 
 # dependencies
 node_modules
@@ -36,6 +37,7 @@ node_modules
 /coverage
 /libpeerconnection.log
 npm-debug.log
+pnpm-debug.log*
 yarn-error.log
 testem.log
 /typings
@@ -56,10 +58,8 @@ Thumbs.db
 .nx/migrate-runs
 
 # Expo
-node_modules/
 .expo/
 .yarn/
-dist/
 npm-debug.*
 *.jks
 *.p8

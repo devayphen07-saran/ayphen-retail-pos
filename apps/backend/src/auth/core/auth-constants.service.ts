@@ -8,6 +8,7 @@ export class AuthConstantsService {
   get OTP_TTL_SECONDS():                  number { return this.config.otpTtlSeconds; }
   get OTP_RESEND_COOLDOWN_SECONDS():      number { return this.config.otpResendCooldownSeconds; }
   get OTP_MAX_ATTEMPTS():                 number { return this.config.otpMaxAttempts; }
+  get IP_MAX_ATTEMPTS():                  number { return this.config.ipMaxAttempts; }
   get DEVICE_CHALLENGE_TTL_SECONDS():     number { return this.config.deviceChallengeTtlSeconds; }
   get SESSION_CACHE_TTL_SECONDS():        number { return this.config.sessionCacheTtlSeconds; }
   get REFRESH_TOKEN_TTL_SECONDS():        number { return this.config.refreshTokenTtlSeconds; }

@@ -72,7 +72,12 @@ export function TimeField<T extends FieldValues = FieldValues>({
   ) => (
     <Flex flex={1}>
       {label && (
-        <View style={{ paddingBottom: 4, marginLeft: 3 }}>
+        <View
+          style={{
+            paddingBottom: theme.sizing.xxSmall,
+            marginLeft: theme.sizing.xxSmall,
+          }}
+        >
           <Typography.Caption>
             {label}
             {required && (
@@ -122,7 +127,7 @@ export function TimeField<T extends FieldValues = FieldValues>({
         <Modal transparent animationType="fade">
           <Backdrop onPress={() => setShow(false)} />
           <PickerContainer>
-            <Typography.Body style={{ marginBottom: 6 }}>
+            <Typography.Body style={{ marginBottom: theme.sizing.xSmall }}>
               Select Time
             </Typography.Body>
             <DateTimePicker
@@ -136,7 +141,7 @@ export function TimeField<T extends FieldValues = FieldValues>({
               }}
             />
 
-            <View style={{ marginTop: 12 }}>
+            <View style={{ marginTop: theme.sizing.small }}>
               <Button
                 title="Done"
                 onPress={() => handleConfirm(changeFn)}
@@ -172,30 +177,32 @@ export function TimeField<T extends FieldValues = FieldValues>({
 
 const SelectTouchable = styled(TouchableOpacity)`
   padding: ${({ theme }) =>
-    Platform.OS === "ios" ? theme.padding.small : 10}px;
+    Platform.OS === "ios" ? theme.padding.small : theme.padding.xSmall}px;
   background-color: ${({ theme }) => theme.colorBgContainer};
   border-radius: ${({ theme }) => theme.borderRadius.medium}px;
-  border-width: 1px;
+  border-width: ${({ theme }) => theme.borderWidth.thin}px;
   border-color: ${({ theme }) => theme.colorBorder};
-  margin-bottom: 13px;
+  margin-bottom: ${({ theme }) => theme.margin.small}px;
 `;
 
 const TextRow = styled.View`
   flex-direction: row;
   align-items: center;
   justify-content: space-between;
-  gap: 8px;
+  gap: ${({ theme }) => theme.sizing.xSmall}px;
 `;
 
 const Backdrop = styled.TouchableOpacity`
   flex: 1;
-  background-color: rgba(0, 0, 0, 0.25);
+  background-color: ${({ theme }) => theme.overlay.scrimSoft};
   justify-content: flex-end;
 `;
 
 const PickerContainer = styled(View)`
   background-color: ${({ theme }) => theme.colorBgElevated};
-  border-top-left-radius: 16px;
-  border-top-right-radius: 16px;
-  padding: 16px;
+  border-top-left-radius: ${({ theme }) =>
+    theme.borderRadius.xLarge + theme.borderRadius.small}px;
+  border-top-right-radius: ${({ theme }) =>
+    theme.borderRadius.xLarge + theme.borderRadius.small}px;
+  padding: ${({ theme }) => theme.sizing.medium}px;
 `;

@@ -96,8 +96,8 @@ const Pill = styled.View<{ $bg: string; $border: string; $compact: boolean }>`
     $compact ? theme.sizing.xxSmall : theme.sizing.xSmall}px;
   padding-horizontal: ${({ theme, $compact }) =>
     $compact ? theme.sizing.xxSmall : theme.sizing.xSmall}px;
-  /* border-radius: 999px — intentionally a pill shape, no token equivalent */
-  border-radius: 999px;
+  /* Full pill shape */
+  border-radius: ${({ theme }) => theme.borderRadius.full}px;
   background-color: ${({ $bg }) => $bg};
   border-width: ${({ theme }) => theme.borderWidth.thin}px;
   border-color: ${({ $border }) => $border};

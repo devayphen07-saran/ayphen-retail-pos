@@ -1,11 +1,18 @@
-import { ConflictException, ForbiddenException, Injectable, NotFoundException } from '@nestjs/common';
+import { Injectable } from '@nestjs/common';
+import { rethrowUniqueViolationAs } from '#db/rethrow-unique-violation.js';
+import {
+  ConflictError,
+  ForbiddenError,
+  NotFoundError,
+} from '#common/exceptions/app.exception.js';
+import { ErrorCodes } from '#common/error-codes.js';
 import { LookupRepository, type LookupValueRow } from './lookup.repository.js';
 import { LookupTypeRepository, type LookupTypeRow } from './lookup-type.repository.js';
 import type {
-  CreateLookupValueDto,
-  UpdateLookupValueDto,
-  CreateLookupTypeDto,
-} from './dto/lookup.dto.js';
+  CreateLookupTypeCommand,
+  CreateLookupValueCommand,
+  UpdateLookupValueCommand,
+} from './lookup.request-mapper.js';
 
 /**
  * Lookup engine orchestration (lookup-entity-prd.md §6/§9). Enforces the
@@ -26,19 +33,27 @@ export class LookupService {
     return this.types.listAll();
   }
 
-  async createType(dto: CreateLookupTypeDto): Promise<LookupTypeRow> {
-    const existing = await this.types.findByCode(dto.code);
-    if (existing) throw new ConflictException('LOOKUP_CODE_EXISTS');
-    return this.types.create({
-      code:        dto.code,
-      title:       dto.title,
-      description: dto.description,
-    });
+  async createType(command: CreateLookupTypeCommand): Promise<LookupTypeRow> {
+    // The findByCode check above is TOCTOU-able by itself — two concurrent
+    // creates for the same code can both pass it before either commits. The
+    // DB's unique constraint on lookup_type.code (schema.ts) is the real
+    // guard; normalize its violation to the same LOOKUP_CODE_EXISTS shape.
+    const existing = await this.types.findByCode(command.code);
+    if (existing)
+      throw new ConflictError(ErrorCodes.LOOKUP_CODE_EXISTS, 'A lookup with this code already exists');
+    return rethrowUniqueViolationAs(
+      this.types.create({
+        code:        command.code,
+        title:       command.title,
+        description: command.description,
+      }),
+      () => new ConflictError(ErrorCodes.LOOKUP_CODE_EXISTS, 'A lookup with this code already exists'),
+    );
   }
 
   private async resolveType(typeCode: string): Promise<LookupTypeRow> {
     const type = await this.types.findByCode(typeCode);
-    if (!type) throw new NotFoundException('LOOKUP_TYPE_NOT_FOUND');
+    if (!type) throw new NotFoundError(ErrorCodes.LOOKUP_TYPE_NOT_FOUND, 'Lookup type not found');
     return type;
   }
 
@@ -66,23 +81,28 @@ export class LookupService {
     typeCode: string,
     storeId: string,
     actorUserId: string,
-    dto: CreateLookupValueDto,
+    command: CreateLookupValueCommand,
   ): Promise<LookupValueRow> {
     const type = await this.resolveType(typeCode);
-    if (await this.lookups.existsByTypeAndCode(type.id, dto.code)) {
-      throw new ConflictException('LOOKUP_CODE_EXISTS');
+    // Same TOCTOU shape as createType above — existsByTypeAndCode is a
+    // pre-check, uk_lookup_type_code (schema.ts) is the real guard.
+    if (await this.lookups.existsByTypeAndCode(type.id, command.code)) {
+      throw new ConflictError(ErrorCodes.LOOKUP_CODE_EXISTS, 'A lookup value with this code already exists');
     }
-    return this.lookups.insertValue({
-      lookupTypeFk: type.id,
-      storeFk:      storeId,
-      code:         dto.code,
-      label:        dto.label,
-      description:  dto.description,
-      sortOrder:    dto.sort_order ?? 0,
-      isSystem:     false,
-      createdBy:    actorUserId,
-      updatedBy:    actorUserId,
-    });
+    return rethrowUniqueViolationAs(
+      this.lookups.insertValue({
+        lookupTypeFk: type.id,
+        storeFk:      storeId,
+        code:         command.code,
+        label:        command.label,
+        description:  command.description,
+        sortOrder:    command.sortOrder ?? 0,
+        isSystem:     false,
+        createdBy:    actorUserId,
+        updatedBy:    actorUserId,
+      }),
+      () => new ConflictError(ErrorCodes.LOOKUP_CODE_EXISTS, 'A lookup value with this code already exists'),
+    );
   }
 
   /** Load a value and assert it belongs to this store and isn't protected. */
@@ -91,9 +111,13 @@ export class LookupService {
     // A value from another store (or a global one) is invisible here, not just
     // forbidden — don't leak cross-tenant existence (tenant isolation).
     if (!value || value.storeFk !== storeId) {
-      throw new NotFoundException('LOOKUP_VALUE_NOT_FOUND');
+      throw new NotFoundError(ErrorCodes.LOOKUP_VALUE_NOT_FOUND, 'Lookup value not found');
     }
-    if (value.isSystem) throw new ForbiddenException('LOOKUP_VALUE_PROTECTED');
+    if (value.isSystem)
+      throw new ForbiddenError(
+        ErrorCodes.LOOKUP_VALUE_PROTECTED,
+        'This lookup value is system-protected and cannot be modified',
+      );
     return value;
   }
 
@@ -101,21 +125,26 @@ export class LookupService {
     guuid: string,
     storeId: string,
     actorUserId: string,
-    dto: UpdateLookupValueDto,
+    command: UpdateLookupValueCommand,
   ): Promise<LookupValueRow> {
     await this.loadEditableValue(guuid, storeId);
-    const row = await this.lookups.updateValue(guuid, {
-      label:       dto.label,
-      description: dto.description,
-      sortOrder:   dto.sort_order,
-      isHidden:    dto.is_hidden,
+    const row = await this.lookups.updateValue(guuid, storeId, {
+      label:       command.label,
+      description: command.description,
+      sortOrder:   command.sortOrder,
+      isHidden:    command.isHidden,
       updatedBy:   actorUserId,
     });
-    return row!;
+    // loadEditableValue confirmed existence, but a concurrent soft-delete can
+    // still make the UPDATE match nothing — surface a clean 404, not a crash.
+    if (!row) {
+      throw new NotFoundError(ErrorCodes.LOOKUP_VALUE_NOT_FOUND, 'Lookup value not found');
+    }
+    return row;
   }
 
   async softDeleteValue(guuid: string, storeId: string): Promise<void> {
     await this.loadEditableValue(guuid, storeId);
-    await this.lookups.softDeleteValue(guuid);
+    await this.lookups.softDeleteValue(guuid, storeId);
   }
 }

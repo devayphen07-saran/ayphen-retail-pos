@@ -1,6 +1,6 @@
 import React from "react";
-import { TouchableOpacity, ViewStyle, Platform } from "react-native";
-import styled, { css } from "styled-components/native";
+import { TouchableOpacity, ViewStyle } from "react-native";
+import styled from "styled-components/native";
 import { useBreakpoint } from "@ayphen/mobile-theme";
 
 // ─── Types ──────────────────────────────────────────────────────────────
@@ -85,17 +85,5 @@ const CardBase = styled.View<{
     }
   }}px;
 
-  ${({ $shadow, theme }) =>
-    $shadow &&
-    Platform.select({
-      ios: css`
-        shadow-color: ${theme.colorText};
-        shadow-opacity: 0.08;
-        shadow-radius: 8px;
-        shadow-offset: 0px 4px;
-      `,
-      android: css`
-        elevation: 3;
-      `,
-    })}
+  ${({ $shadow, theme }) => ($shadow ? theme.shadow.md : "")}
 `;

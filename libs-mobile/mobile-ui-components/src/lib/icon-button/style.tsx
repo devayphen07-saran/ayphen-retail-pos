@@ -1,9 +1,15 @@
 import { NKSTheme } from "@ayphen/mobile-theme";
 
-export type IconButtonVariant = "primary" | "default" | "dashed" | "secondary";
+export type IconButtonVariant = "primary" | "default" | "dashed" | "secondary" | "ghost";
 
 const primaryStyle = (theme: NKSTheme, backgroundColor?: string) => ({
   backgroundColor: backgroundColor || theme.colorPrimary,
+  borderWidth: 0,
+});
+
+// Chrome-less: no background, no border — a plain tappable icon (header actions).
+const ghostStyle = (theme: NKSTheme, backgroundColor?: string) => ({
+  backgroundColor: backgroundColor || theme.transparent,
   borderWidth: 0,
 });
 
@@ -37,4 +43,5 @@ export const iconButtonVariant: Record<
   default: defaultStyle,
   dashed: dashedStyle,
   secondary: secondaryStyle,
+  ghost: ghostStyle,
 };

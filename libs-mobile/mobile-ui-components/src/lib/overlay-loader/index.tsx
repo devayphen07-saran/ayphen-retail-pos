@@ -43,7 +43,7 @@ const Backdrop = styled(View)`
   flex: 1;
   align-items: center;
   justify-content: center;
-  background-color: rgba(0, 0, 0, 0.5);
+  background-color: ${({ theme }) => theme.overlay.scrim};
 `;
 
 const LoaderCard = styled(View)`
@@ -57,14 +57,14 @@ const LoaderCard = styled(View)`
 
 const ProgressBarContainer = styled(View)`
   width: 100%;
-  height: 6px;
-  border-radius: 3px;
+  height: ${({ theme }) => theme.sizing.xSmall}px;
+  border-radius: ${({ theme }) => theme.borderRadius.small}px;
   background-color: ${({ theme }) => theme.colorBorderSecondary};
   overflow: hidden;
 `;
 
 const ProgressBarFill = styled(View)`
   height: 100%;
-  border-radius: 3px;
+  border-radius: ${({ theme }) => theme.borderRadius.small}px;
   background-color: ${({ theme }) => theme.color.primary.main};
 `;

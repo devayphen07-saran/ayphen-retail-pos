@@ -1,5 +1,6 @@
 import { Injectable } from '@nestjs/common';
 import { createHmac } from 'node:crypto';
+import { z } from 'zod';
 import type {
   PaymentProvider,
   CreateOrderInput,
@@ -12,6 +13,14 @@ import type {
 
 /** Shared secret used to make Fake signatures deterministic and verifiable. */
 const FAKE_SECRET = 'fake-payment-secret';
+
+/** Fake webhook body — mirrors the fields the fake flow emits. */
+const FakeWebhookBodySchema = z.object({
+  event:      z.string().optional(),
+  order_id:   z.string().optional(),
+  payment_id: z.string().optional(),
+  reason:     z.string().optional(),
+});
 
 /**
  * Deterministic in-memory provider used when no real gateway is configured (dev,
@@ -47,9 +56,15 @@ export class FakePaymentProvider implements PaymentProvider {
     if (expected !== input.signatureHeader) {
       return { ok: false, event: { type: 'ignored' } };
     }
-    const body = JSON.parse(input.rawBody.toString('utf8')) as {
-      event?: string; order_id?: string; payment_id?: string; reason?: string;
-    };
+    let raw: unknown;
+    try {
+      raw = JSON.parse(input.rawBody.toString('utf8'));
+    } catch {
+      return { ok: true, event: { type: 'ignored' } };
+    }
+    const parsed = FakeWebhookBodySchema.safeParse(raw);
+    if (!parsed.success) return { ok: true, event: { type: 'ignored' } };
+    const body = parsed.data;
     if (body.event === 'payment.captured' && body.order_id) {
       return { ok: true, event: { type: 'payment.succeeded', orderId: body.order_id, providerRef: body.payment_id ?? '' } };
     }

@@ -1,9 +1,12 @@
 import postgres, { type Sql } from 'postgres';
 
 export interface CreatePgClientOptions {
-  /** Pool size. Long-lived app handle uses postgres-js's default pool;
+  /** Pool size. Long-lived app handle passes an env-sized max;
    *  one-off scripts (seed/flush) pass max: 1 — no pool to leak. */
   max?: number;
+  /** Per-query cap in ms. Pass 0 to DISABLE — seed/flush run migrations/DDL
+   *  that legitimately exceed any app-level statement timeout. */
+  statementTimeoutMs?: number;
 }
 
 /**
@@ -14,10 +17,21 @@ export interface CreatePgClientOptions {
  * instance either fails outright or silently connects unencrypted.
  */
 export function createPgClient(url: string, opts: CreatePgClientOptions = {}): Sql {
+  const statementTimeoutMs = opts.statementTimeoutMs ?? 10_000;
   return postgres(url, {
     max:             opts.max,
-    ssl:             process.env.NODE_ENV === 'production' ? 'require' : undefined,
+    // 'verify-full' authenticates the server certificate (CA + hostname) rather
+    // than 'require', which encrypts but does not verify — closes a MITM window.
+    ssl:             process.env.NODE_ENV === 'production' ? 'verify-full' : undefined,
     idle_timeout:    20,
     connect_timeout: 10,
+    connection: {
+      // Without a statement timeout, one slow query pins its pooled connection
+      // until the DB kills it; enough of them exhaust the pool and hang the
+      // whole service. The 30s HTTP timeout 408s the client but never cancels
+      // the query. 0 disables (scripts).
+      statement_timeout:                   statementTimeoutMs,
+      idle_in_transaction_session_timeout: statementTimeoutMs ? statementTimeoutMs + 5_000 : 0,
+    },
   });
 }

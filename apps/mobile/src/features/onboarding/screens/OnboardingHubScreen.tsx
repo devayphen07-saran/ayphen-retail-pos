@@ -20,16 +20,16 @@ import styled from 'styled-components/native';
 import { useQueryClient } from '@tanstack/react-query';
 
 import { useMobileTheme } from '@ayphen/mobile-theme';
-import { Alert, LucideIcon, Typography } from '@ayphen/mobile-ui-components';
+import { Alert, Column, LucideIcon, Row, Typography } from '@ayphen/mobile-ui-components';
 import {
   prefetchGlobalLookup,
   prefetchStates,
   prefetchCurrencies,
 } from '@ayphen/api-manager';
 
-import { useAuthStore } from '@features/auth/authStore';
+import { useAuthStore } from '@store';
 import { useAuth } from '@core/providers/AuthProvider';
-import { BUSINESS_CATEGORY_TYPE } from '@features/store/selects/BusinessTypeSelect';
+import { BUSINESS_CATEGORY_TYPE } from '@features/store';
 
 type SlideTint = 'primary' | 'violet' | 'green' | 'orange';
 
@@ -224,7 +224,12 @@ export function OnboardingHubScreen() {
 
   return (
     <Root edges={['top', 'bottom']}>
-      <TopBar>
+      <Row
+        justify="flex-end"
+        align="center"
+        gap={theme.sizing.small}
+        style={{ minHeight: 44, paddingHorizontal: theme.sizing.large }}
+      >
         <TouchableOpacity
           onPress={handleLogout}
           accessibilityRole="button"
@@ -257,16 +262,20 @@ export function OnboardingHubScreen() {
 
             {hasInvites ? (
               <BadgeDot>
-                <BadgeDotText>
+                <Typography.Caption
+                  weight={700}
+                  color={theme.colorWhite}
+                  style={{ fontSize: 10, lineHeight: 12 }}
+                >
                   {pendingCount > 9 ? '9+' : pendingCount}
-                </BadgeDotText>
+                </Typography.Caption>
               </BadgeDot>
             ) : null}
           </BadgeIconWrap>
         </TouchableOpacity>
-      </TopBar>
+      </Row>
 
-      <CenterArea>
+      <Column flex={1} align="center" justify="center">
         <AnimatedCarousel
           ref={scrollRef as any}
           horizontal
@@ -327,7 +336,13 @@ export function OnboardingHubScreen() {
 
         <Gap $h={16} />
 
-        <SlideTextContainer>
+        <Column
+          align="center"
+          justify="center"
+          height={64}
+          width="100%"
+          style={{ paddingHorizontal: theme.sizing.xLarge }}
+        >
           <Typography.Body
             weight="bold"
             color={theme.colorText}
@@ -342,11 +357,11 @@ export function OnboardingHubScreen() {
           >
             {SLIDES[activeIndex].caption}
           </Typography.Caption>
-        </SlideTextContainer>
+        </Column>
 
         <Gap $h={16} />
 
-        <DotsRow>
+        <Row align="center" gap={6}>
           {SLIDES.map((slide, index) => (
             <Dot
               key={slide.title}
@@ -354,33 +369,47 @@ export function OnboardingHubScreen() {
               accessibilityRole="none"
             />
           ))}
-        </DotsRow>
-      </CenterArea>
+        </Row>
+      </Column>
 
       <Gap $h={16} />
 
-      <TextBlock>
+      <Column align="center" style={{ paddingHorizontal: theme.sizing.xLarge }}>
         <Typography.H2 style={{ textAlign: 'center' }} color={theme.colorText}>
           Let's set up your store
         </Typography.H2>
 
         <Gap $h={8} />
 
-        <Subtitle color={theme.colorTextSecondary}>
+        <Typography.Body
+          color={theme.colorTextSecondary}
+          style={{ textAlign: 'center', maxWidth: 280 }}
+        >
           Add a few details about your business and start selling in minutes.
-        </Subtitle>
-      </TextBlock>
+        </Typography.Body>
+      </Column>
 
       <Gap $h={24} />
 
-      <Footer>
+      <Column
+        style={{
+          paddingHorizontal: theme.sizing.large,
+          paddingBottom: theme.sizing.large,
+        }}
+      >
         <PillButton
           onPress={handleCreateStore}
           activeOpacity={0.85}
           accessibilityRole="button"
           accessibilityLabel="Create your store"
         >
-          <PillButtonText>Create your store</PillButtonText>
+          <Typography.Body
+            weight={600}
+            color={theme.colorBgContainer}
+            style={{ letterSpacing: 0.2 }}
+          >
+            Create your store
+          </Typography.Body>
 
           <LucideIcon
             name="ArrowRight"
@@ -388,7 +417,7 @@ export function OnboardingHubScreen() {
             color={theme.colorBgContainer}
           />
         </PillButton>
-      </Footer>
+      </Column>
     </Root>
   );
 }
@@ -400,21 +429,6 @@ const Root = styled(SafeAreaView)`
   background-color: ${({ theme }) => theme.colorBgContainer};
 `;
 
-const TopBar = styled.View`
-  flex-direction: row;
-  justify-content: flex-end;
-  align-items: center;
-  gap: ${({ theme }) => theme.sizing.small}px;
-  min-height: 44px;
-  padding-horizontal: ${({ theme }) => theme.sizing.large}px;
-`;
-
-const CenterArea = styled.View`
-  flex: 1;
-  align-items: center;
-  justify-content: center;
-`;
-
 const Carousel = styled(ScrollView)`
   flex-grow: 0;
   height: ${CARD_HEIGHT + 56}px;
@@ -423,35 +437,8 @@ const Carousel = styled(ScrollView)`
 
 const AnimatedCarousel = Animated.createAnimatedComponent(Carousel);
 
-const TextBlock = styled.View`
-  align-items: center;
-  padding-horizontal: ${({ theme }) => theme.sizing.xLarge}px;
-`;
-
-const Footer = styled.View`
-  padding-horizontal: ${({ theme }) => theme.sizing.large}px;
-  padding-bottom: ${({ theme }) => theme.sizing.large}px;
-`;
-
-const Overline = styled(Typography.Caption)`
-  font-weight: 700;
-  letter-spacing: 1.4px;
-  text-transform: uppercase;
-`;
-
 const Gap = styled.View<{ $h: number }>`
   height: ${({ $h }) => $h}px;
-`;
-
-const Subtitle = styled(Typography.Body)`
-  text-align: center;
-  max-width: 280px;
-`;
-
-const DotsRow = styled.View`
-  flex-direction: row;
-  align-items: center;
-  gap: 6px;
 `;
 
 const Dot = styled.View<{ $active: boolean }>`
@@ -473,12 +460,6 @@ const PillButton = styled(TouchableOpacity)`
   padding-vertical: 16px;
 `;
 
-const PillButtonText = styled(Typography.Body)`
-  font-weight: 600;
-  color: ${({ theme }) => theme.colorBgContainer};
-  letter-spacing: 0.2px;
-`;
-
 const SlideCard = styled.View`
   height: ${CARD_HEIGHT}px;
   border-radius: 20px;
@@ -497,14 +478,6 @@ const SlideCard = styled.View`
 const SlideImage = styled(Image)`
   width: 100%;
   height: 100%;
-`;
-
-const SlideTextContainer = styled.View`
-  align-items: center;
-  justify-content: center;
-  height: 64px;
-  padding-horizontal: ${({ theme }) => theme.sizing.xLarge}px;
-  width: 100%;
 `;
 
 const IconCircle = styled.View`
@@ -535,11 +508,4 @@ const BadgeDot = styled.View`
   background-color: ${({ theme }) => theme.colorError};
   border-width: 1.5px;
   border-color: ${({ theme }) => theme.colorBgContainer};
-`;
-
-const BadgeDotText = styled(Typography.Caption)`
-  font-size: 10px;
-  line-height: 12px;
-  color: white;
-  font-weight: 700;
 `;

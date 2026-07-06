@@ -163,7 +163,7 @@ function TextAreaInner<T extends FieldValues>(
           textAlignVertical="top"
           placeholder={placeholder}
           placeholderTextColor={theme.colorTextTertiary}
-          hasError={!!errorMsg}
+          $hasError={!!errorMsg}
           $minHeight={minHeight}
           $scale={scale}
           $fontScale={fontScale}
@@ -246,15 +246,15 @@ export default TextArea;
 
 interface StyledTextAreaProps {
   $minHeight: number;
-  hasError?:  boolean;
+  $hasError?: boolean;
   $scale:     number;
   $fontScale: number;
   $isFocused: boolean;
 }
 
 const StyledTextArea = styled(TextInput)<StyledTextAreaProps>`
-  ${({ theme, hasError, $scale, $fontScale }) => {
-    const s = inputStyles(theme, hasError);
+  ${({ theme, $hasError, $scale, $fontScale }) => {
+    const s = inputStyles(theme, $hasError);
     return `
       border-width:  ${num(s.borderWidth)}px;
       border-radius: ${num(s.borderRadius) * $scale}px;
@@ -265,8 +265,8 @@ const StyledTextArea = styled(TextInput)<StyledTextAreaProps>`
     `;
   }}
 
-  border-color: ${({ hasError, $isFocused, theme }) =>
-    hasError
+  border-color: ${({ $hasError, $isFocused, theme }) =>
+    $hasError
       ? theme.colorError
       : $isFocused
         ? theme.colorPrimary

@@ -1,5 +1,6 @@
 import React from 'react';
 import styled from 'styled-components/native';
+import { useMobileTheme } from '@ayphen/mobile-theme';
 import { Typography } from '../typography';
 
 interface InitialsTileProps {
@@ -14,6 +15,8 @@ interface InitialsTileProps {
 // Tile palette chosen for accessibility (WCAG AA against #ffffff text) and
 // brand neutrality. Pick is deterministic by a sum-of-codepoints hash so a
 // given name always lands on the same color across renders / sessions.
+// INTENTIONAL EXCEPTION to the design-token rule: this is a fixed, deterministic
+// avatar palette with no theme-token equivalent, so the hex values stay inline.
 export const INITIALS_PALETTE = [
   '#4F46E5', // indigo
   '#7C3AED', // violet
@@ -53,8 +56,10 @@ export const InitialsTile: React.FC<InitialsTileProps> = ({
   size,
   borderRadius,
   bgColor,
-  textColor = '#FFFFFF',
+  textColor,
 }) => {
+  const { theme } = useMobileTheme();
+  const resolvedTextColor = textColor ?? theme.colorWhite;
   const safeText = text && text.trim().length > 0 ? text : '?';
   const initials = extractInitials(safeText);
   const resolvedBg = bgColor ?? pickInitialsColor(safeText);
@@ -70,7 +75,7 @@ export const InitialsTile: React.FC<InitialsTileProps> = ({
     >
       <Typography.Body
         weight="semiBold"
-        color={textColor}
+        color={resolvedTextColor}
         style={{ fontSize, lineHeight: fontSize * 1.1 }}
       >
         {initials}

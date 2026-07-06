@@ -1,4 +1,4 @@
-import React, { useEffect, useRef, useState } from 'react';
+import React, { useEffect, useMemo, useRef, useState } from 'react';
 import {
   Animated,
   Dimensions,
@@ -8,15 +8,15 @@ import {
   Pressable,
   ScrollView,
   StyleSheet,
-  Text,
   TextInput,
   TouchableOpacity,
   View,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
-import { useMobileTheme } from '@ayphen/mobile-theme';
+import { useMobileTheme, type NKSTheme } from '@ayphen/mobile-theme';
 
 import { LucideIcon, LucideIconNameType } from '../lucide-icon';
+import { Typography } from '../typography';
 
 export interface FilterOption {
   key: string;
@@ -61,6 +61,7 @@ export function SearchBar({
 }: SearchBarProps) {
   const { theme } = useMobileTheme();
   const screenHeight = Dimensions.get('window').height;
+  const styles = useMemo(() => makeStyles(theme), [theme]);
 
   // ── filter sheet state ──────────────────────────────────────────────────────
   const [open, setOpen] = useState(false);
@@ -157,7 +158,13 @@ export function SearchBar({
             <LucideIcon name={resolvedActionIcon} size={22} color={theme.colorPrimary} />
             {resolvedBadge > 0 && (
               <View style={[styles.badge, { backgroundColor: theme.colorPrimary }]}>
-                <Text style={styles.badgeText}>{resolvedBadge}</Text>
+                <Typography.Caption
+                  weight="bold"
+                  color={theme.colorWhite}
+                  style={{ fontSize: theme.fontSize.xxSmall }}
+                >
+                  {resolvedBadge}
+                </Typography.Caption>
               </View>
             )}
           </TouchableOpacity>
@@ -190,14 +197,13 @@ export function SearchBar({
 
             {/* Title */}
             <View style={[styles.sheetHeader, { borderBottomColor: theme.colorBorderSecondary }]}>
-              <Text
-                style={[
-                  styles.sheetTitle,
-                  { color: theme.colorText, fontFamily: theme.fontFamily.poppinsSemiBold },
-                ]}
+              <Typography.Subtitle
+                weight="semiBold"
+                color={theme.colorText}
+                style={styles.sheetTitle}
               >
                 {filterTitle}
-              </Text>
+              </Typography.Subtitle>
             </View>
 
             {/* Options — scrollable so long lists never push past the notch */}
@@ -206,7 +212,7 @@ export function SearchBar({
               showsVerticalScrollIndicator={false}
               keyboardShouldPersistTaps="handled"
             >
-              <SafeAreaView edges={['bottom']} style={{ paddingBottom: 16 }}>
+              <SafeAreaView edges={['bottom']} style={{ paddingBottom: theme.sizing.medium }}>
                 {filterOptions.map((opt) => (
                   <TouchableOpacity
                     key={opt.key}
@@ -219,20 +225,12 @@ export function SearchBar({
                     accessibilityRole="radio"
                     accessibilityState={{ selected: filterValue === opt.key }}
                   >
-                    <Text
-                      style={[
-                        styles.optionLabel,
-                        {
-                          color: filterValue === opt.key ? theme.colorPrimary : theme.colorText,
-                          fontFamily:
-                            filterValue === opt.key
-                              ? theme.fontFamily.poppinsSemiBold
-                              : theme.fontFamily.poppinsRegular,
-                        },
-                      ]}
+                    <Typography.Body
+                      weight={filterValue === opt.key ? 'semiBold' : 'normal'}
+                      color={filterValue === opt.key ? theme.colorPrimary : theme.colorText}
                     >
                       {opt.label}
-                    </Text>
+                    </Typography.Body>
                     {filterValue === opt.key && (
                       <LucideIcon name="Check" size={18} color={theme.colorPrimary} />
                     )}
@@ -247,94 +245,90 @@ export function SearchBar({
   );
 }
 
-const styles = StyleSheet.create({
-  // ── search bar ──────────────────────────────────────────────────────────────
-  wrapper: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    paddingVertical: 8,
-    gap: 8,
-  },
-  pill: {
-    flex: 1,
-    flexDirection: 'row',
-    alignItems: 'center',
-    borderRadius: 10,
-    paddingHorizontal: 10,
-    paddingVertical: Platform.OS === 'ios' ? 8 : 6,
-    gap: 6,
-  },
-  input: {
-    flex: 1,
-    fontSize: 15,
-    padding: 0,
-    margin: 0,
-  },
-  actionBtn: {
-    width: 40,
-    height: 40,
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  badge: {
-    position: 'absolute',
-    top: 4,
-    right: 4,
-    minWidth: 16,
-    height: 16,
-    borderRadius: 8,
-    alignItems: 'center',
-    justifyContent: 'center',
-    paddingHorizontal: 3,
-  },
-  badgeText: {
-    color: '#ffffff',
-    fontSize: 10,
-    fontWeight: '700',
-    lineHeight: 14,
-  },
-  // ── filter sheet ────────────────────────────────────────────────────────────
-  backdrop: {
-    ...StyleSheet.absoluteFillObject,
-    backgroundColor: 'rgba(0, 0, 0, 0.18)',
-  },
-  sheet: {
-    position: 'absolute',
-    left: 0,
-    right: 0,
-    bottom: 0,
-    maxHeight: Dimensions.get('window').height * 0.6,
-    borderTopLeftRadius: 18,
-    borderTopRightRadius: 18,
-  },
-  handleZone: {
-    alignItems: 'center',
-    paddingTop: 12,
-    paddingBottom: 8,
-  },
-  handle: {
-    width: 36,
-    height: 4,
-    borderRadius: 2,
-  },
-  sheetHeader: {
-    paddingHorizontal: 20,
-    paddingBottom: 14,
-    borderBottomWidth: StyleSheet.hairlineWidth,
-  },
-  sheetTitle: {
-    fontSize: 17,
-    textAlign: 'center',
-  },
-  option: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
-    paddingVertical: 15,
-    paddingHorizontal: 20,
-    borderBottomWidth: StyleSheet.hairlineWidth,
-  },
-  optionLabel: {
-    fontSize: 15,
-  },
-});
+// StyleSheet holds layout-only entries (flex, alignment, position:0, %) plus
+// value-bearing entries resolved from `theme.*` tokens. It's built per-theme via
+// `makeStyles(theme)` (memoized in the component) since StyleSheet.create itself
+// is static and cannot read the theme.
+const makeStyles = (theme: NKSTheme) =>
+  StyleSheet.create({
+    // ── search bar ────────────────────────────────────────────────────────────
+    wrapper: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      paddingVertical: theme.sizing.xSmall, // 8
+      gap: theme.sizing.xSmall, // 8
+    },
+    pill: {
+      flex: 1,
+      flexDirection: 'row',
+      alignItems: 'center',
+      borderRadius: theme.borderRadius.large, // 10
+      paddingHorizontal: theme.sizing.xSmall, // 10 → 8 (tie 8/12, rounded down)
+      paddingVertical: Platform.OS === 'ios' ? theme.sizing.xSmall : theme.sizing.xxSmall, // iOS 8 / Android 6 → 4 (tie 4/8)
+      gap: theme.sizing.xxSmall, // 6 → 4 (tie 4/8, kept < wrapper gap)
+    },
+    input: {
+      flex: 1,
+      fontSize: theme.fontSize.regular, // 15 → 16 (tie 14/16; 16 avoids iOS focus-zoom)
+      padding: 0,
+      margin: 0,
+    },
+    actionBtn: {
+      width: theme.sizing.xLarge, // 40 → 32 (tie 32/48; hitSlop keeps touch area)
+      height: theme.sizing.xLarge, // 40 → 32
+      alignItems: 'center',
+      justifyContent: 'center',
+    },
+    badge: {
+      position: 'absolute',
+      top: theme.sizing.xxSmall, // 4
+      right: theme.sizing.xxSmall, // 4
+      minWidth: theme.sizing.medium, // 16
+      height: theme.sizing.medium, // 16
+      borderRadius: theme.borderRadius.regular, // 8
+      alignItems: 'center',
+      justifyContent: 'center',
+      paddingHorizontal: theme.sizing.xxSmall, // 3 → 4 (nearest)
+    },
+    // ── filter sheet ──────────────────────────────────────────────────────────
+    backdrop: {
+      ...StyleSheet.absoluteFillObject,
+      backgroundColor: theme.overlay.scrimSoft, // rgba(0,0,0,0.18) → scrimSoft (0.4); no 0.18 token
+    },
+    sheet: {
+      position: 'absolute',
+      left: 0,
+      right: 0,
+      bottom: 0,
+      maxHeight: Dimensions.get('window').height * 0.6,
+      borderTopLeftRadius: theme.borderRadius.xxLarge, // 18 → 14 (max non-pill radius)
+      borderTopRightRadius: theme.borderRadius.xxLarge, // 18 → 14
+    },
+    handleZone: {
+      alignItems: 'center',
+      paddingTop: theme.sizing.small, // 12
+      paddingBottom: theme.sizing.xSmall, // 8
+    },
+    handle: {
+      width: theme.sizing.xLarge, // 36 → 32 (nearest)
+      height: theme.sizing.xxSmall, // 4
+      borderRadius: theme.borderRadius.xSmall, // 2
+    },
+    sheetHeader: {
+      paddingHorizontal: theme.sizing.regular, // 20
+      paddingBottom: theme.sizing.small, // 14 → 12 (tie 12/16, rounded down)
+      borderBottomWidth: StyleSheet.hairlineWidth,
+    },
+    sheetTitle: {
+      fontSize: theme.fontSize.medium, // 17
+      textAlign: 'center',
+    },
+    option: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      justifyContent: 'space-between',
+      paddingVertical: theme.sizing.medium, // 15 → 16 (nearest)
+      paddingHorizontal: theme.sizing.regular, // 20
+      borderBottomWidth: StyleSheet.hairlineWidth,
+    },
+  });

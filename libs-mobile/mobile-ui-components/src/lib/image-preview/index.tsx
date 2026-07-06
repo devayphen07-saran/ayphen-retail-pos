@@ -184,7 +184,7 @@ const IconFallback = styled.View<{
 
 const ModalContainer = styled.View`
   flex: 1;
-  background-color: rgba(0, 0, 0, 0.9);
+  background-color: ${({ theme }) => theme.overlay.scrimStrong};
   justify-content: center;
   align-items: center;
 `;

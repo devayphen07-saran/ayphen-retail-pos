@@ -1,11 +1,13 @@
 import {
   Controller,
-  ForbiddenException,
   HttpCode,
   Post,
   Req,
 } from '@nestjs/common';
+import { SkipThrottle } from '@nestjs/throttler';
 import type { Request } from 'express';
+import { ForbiddenError } from '#common/exceptions/app.exception.js';
+import { ErrorCodes } from '#common/error-codes.js';
 import { Public } from '#common/rbac/decorators/rbac.decorators.js';
 import { BillingService } from './billing.service.js';
 
@@ -21,12 +23,13 @@ export class RazorpayWebhookController {
 
   @Post('razorpay')
   @Public()
+  @SkipThrottle()
   @HttpCode(200)
   async handle(@Req() req: Request & { rawBody?: Buffer }): Promise<{ handled: boolean }> {
     const signature = req.headers['x-razorpay-signature'];
     const rawBody = req.rawBody;
     if (!rawBody || typeof signature !== 'string') {
-      throw new ForbiddenException('WEBHOOK_SIGNATURE_INVALID');
+      throw new ForbiddenError(ErrorCodes.WEBHOOK_SIGNATURE_INVALID, 'Webhook signature is invalid');
     }
     return this.billing.handleWebhook(rawBody, signature);
   }

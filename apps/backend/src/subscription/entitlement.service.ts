@@ -28,7 +28,14 @@ export class EntitlementService {
     @Inject(DRIZZLE) private readonly db: PostgresJsDatabase<typeof schema>,
   ) {}
 
-  /** Entitlement integer for an account, or null (= unlimited / no row). */
+  /**
+   * Entitlement integer for an account. `null` = unlimited (an explicit NULL
+   * `value` in `plan_entitlements`). `0` = blocked — a **missing** row means
+   * the plan doesn't grant this entitlement at all, never "unlimited"
+   * (subscription.md §3.1 rule 4). Distinguishing "row absent" from "row
+   * present with value=NULL" is the whole point — collapsing both to `null`
+   * via `??` would silently grant unlimited access on a seed gap.
+   */
   async get(
     accountId: string,
     key: EntitlementKey,
@@ -45,7 +52,8 @@ export class EntitlementService {
           eq(planEntitlements.key, key),
         ),
       );
-    return row?.value ?? null;
+    if (!row) return 0;
+    return row.value;
   }
 
   /** Boolean feature flag for an account (plan_features). Missing row = false. */

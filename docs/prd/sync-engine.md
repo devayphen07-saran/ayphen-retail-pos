@@ -134,9 +134,18 @@ Opaque, signed, version-4 cursor. Wire format `base64url(payload).base64url(hmac
   which would truncate to ms and collapse the keyset tiebreaker → **infinite-loop page**). ✅ handled.
 - **Keyset boundary** — `modified_at > cursor OR (modified_at = cursor AND id > cursorId)`,
   `ORDER BY modified_at ASC, id ASC`. No skips on identical timestamps, no infinite loop.
-- **Horizon** — a cursor whose oldest stream is **> 180 days** old → **`410 SYNC_HORIZON_EXCEEDED`** →
-  client restarts at `/sync/initial`. Tombstone retention (195d, §19) **exceeds** this horizon so no
-  client with a horizon-valid cursor ever needs a purged tombstone.
+- **Horizon (keyed on `ia`, NOT per-entity watermark age)** 🔧 — the 180-day check is on the cursor's
+  **`issuedAtMs` (`ia`)**, which is **re-minted on every `/sync/changes` and `/sync/delta` response**, so
+  an actively-syncing client's cursor never ages out. Only a client **offline > 180 days** (never
+  re-issued) trips **`410 SYNC_HORIZON_EXCEEDED`** → restart at `/sync/initial`. Tombstone retention
+  (195d, §19) **exceeds** this horizon so any cursor that passes the `ia` check can still find every
+  tombstone it needs.
+  > ⚠️ **Do NOT key the horizon on the oldest per-entity watermark `ts` (S-31).** A low-churn entity
+  > (`unit`, `taxrate`, `lookup`) legitimately unchanged for months carries an ancient `ts` while the
+  > store syncs daily — keying on `ts` fires a **spurious `410` + full-catalog re-pull for a store that
+  > simply didn't edit its reference data** (the normal state of reference data). A static entity with no
+  > deletes needs no `410` at all. The "oldest stream" phrasing in earlier drafts was wrong; the horizon
+  > is `ia` only.
 - **Future-timestamp clamp** — a forged future cursor is clamped to server-now, never skips real rows.
 
 > ⚠️ The µs-format contract is **unenforced by types** — a hand-rolled filter returning ms precision
@@ -365,6 +374,11 @@ non-critical paths, cuts mutation volume ~6×, and gives the DLQ a natural unit 
 stuck", not "mutation 4 of 7"). The additive/event-sourced concurrency model (§13) is untouched —
 this is about **transaction boundaries**, not concurrency semantics.
 
+> 🆕 **Per-mutation payload cap (S-36):** the composite aggregate has a `≤100 mutations`/batch cap but
+> needs a **per-mutation payload / line-count cap** too — a 500-line B2B order is one multi-MB mutation
+> and one long tx. Bound `items[]` / `payments[]` length **and** raw body size so a wholesale order can't
+> blow the request/tx budget; split genuinely huge orders at the client.
+
 ### Parent-failed cascade (`parent_guuid`)
 A `failedGuuids` set: if a mutation's parent is in it → `rejected: PARENT_FAILED` (no tx); the child's
 own guuid is added so grandchildren cascade.
@@ -386,6 +400,11 @@ own guuid is added so grandchildren cascade.
   conflicts).
 - **TTL:** applied/rejected/duplicate = **30 days** (matched to refresh-token life); conflicts = **5 min**
   (so a post-merge resubmit isn't wrongly returned as a stale `duplicate`).
+- 🆕 **TTL floor vs the client DLQ (S-35):** the applied/rejected TTL **must exceed the maximum time a
+  mutation can sit in the client DLQ (§15) before a manual retry** — not just "≈ refresh-token life". A
+  sale quarantined in the DLQ and retried by the owner **after** its idempotency row was purged
+  **re-executes → double sale**. Size the TTL to `max(refresh-token life, DLQ max-dwell + margin)`, or
+  have the client **refuse to replay a `mutation_id` older than the server TTL**.
 - **Race (two concurrent identical mutations):** both run their handler; `ON CONFLICT DO NOTHING` on the
   idempotency insert; loser rolls back + polls for the winner's result; poll exhaustion → **`503`** (the
   client retries → hits the now-committed row → `duplicate`). ✅ correct (a `rejected` would risk silent
@@ -470,12 +489,31 @@ The strongest part of the engine — **and the template for the subscription `ac
 
 **The correct, conflict-free model — schema exists, but is currently unwired.**
 
-- **`stock_event`** = append-only signed-delta ledger. Authoritative stock = `SUM(delta)`;
-  `product.stock_quantity` is a **recomputed cache**.
+- **`stock_event`** = append-only signed-delta ledger. Authoritative stock = `SUM(delta)`.
+  🔴 **The recomputed cache does NOT live on the synced `product` row (S-32).** Storing `stock_quantity`
+  on `product` and recomputing it nightly bumps `product.modified_at` → **every product enters the delta
+  stream → all devices re-pull the entire catalog every morning** (unbounded write-amplification + a
+  3 AM sync storm straight into the small `perEntityLimit`/20-per-min drain). Keep the cache in a
+  **separate `product_stock_cache` table outside the sync registry** (or recompute the column **without
+  touching `modified_at`**), so a reconciliation pass never pollutes the change stream. The cache is a
+  server-side read convenience only; the client never trusts it (client rule below).
 - Two offline `-1` appends (different `guuid`s) **never collide** → you let stock go to `−1` and
   **reconcile**, rather than blocking/conflicting at write time. This is the CRDT-style answer to oversell.
-- **`stock-reconciliation` job** (nightly) recomputes the cache + **detects oversell** (`SUM < 0`).
+- 🆕 **The oversell window equals `stock_event` propagation latency (S-33).** "Let it go negative and
+  reconcile" is only as safe as how fast device B sees device A's appends. Those propagate via the delta
+  pull at `perEntityLimit = floor(200 / N)` (~10 rows/round-trip with many entities) under the shared
+  20/min `/delta` budget — i.e. **slowest exactly at rush hour**, which is when concurrent selling
+  happens. Give `stock_event` a **dedicated drain lane / higher per-entity floor** (not the shared
+  fair-share divisor) so live stock across counters stays fresh when it matters most; rate-limiting must
+  not widen the very window the ledger exists to reconcile.
+- **`stock-reconciliation` job** recomputes the cache + **detects oversell** (`SUM < 0`).
   ⚠️ today it only **logs** oversell — should **surface it actionably** (alert/flag the owner).
+  🆕 **Detection must run against a "synced-through" watermark, not a wall clock (S-34).** `SUM(delta)`
+  is only authoritative once **all** devices' events are collected; an offline device can carry days of
+  events, so a fixed nightly `SUM < 0` check races device sync → **false oversells** for stores with a
+  lagging device and **missed real ones** until that device syncs. Gate detection on
+  `T = min(last_sync_at across the store's active devices)` and evaluate oversell only for events
+  `≤ T`; surface "pending — device offline" for the rest instead of a false alarm.
 - **⚠️ `StockEventService.recordDelta` has ZERO callers today** — the ledger is dormant. Live stock is a
   **mutable `product.stock_quantity` + optimistic lock**, which **conflict-rejects** the 2nd concurrent
   offline sell instead of summing both. **Wire the ledger when building the order/stock handlers** (§24).
@@ -628,6 +666,11 @@ resurrections).
 | Row created **and** deleted in one delta window | ✅ upserts apply before deletes within a page → ends deleted (§7) |
 | Pulled `product` row overwrites local stock projection | 🟠 displayed stock jumps backwards → client ignores the pulled cache column (§14) |
 | Revoked `view` + pending mutations on that entity | 🟠 purge rows + reject-locally-with-notice on the queue (§18) |
+| Store hasn't edited reference data in 6 months | ✅ after S-31 fix — horizon on `ia` (fresh each poll), no spurious `410`; ⚠️ keying on per-entity watermark would force a full re-pull (§4) |
+| Nightly stock reconciliation runs | ✅ after S-32 fix — cache off the synced row, no catalog re-sync; ⚠️ on-row cache bumps `modified_at` → 3 AM catalog storm (§14) |
+| Two counters oversell at rush hour | 🟠 window = `stock_event` drain latency → dedicated lane (S-33, §14) |
+| Nightly oversell check with a device offline for days | 🟠 wall-clock `SUM<0` false-alarms → gate on `min(last_sync_at)` (S-34, §14) |
+| DLQ'd sale retried after 30 days | 🟠 idempotency row may be purged → double sale unless TTL ≥ DLQ dwell (S-35, §10) |
 
 ---
 
@@ -665,6 +708,12 @@ resurrections).
 | S-28 | **Manifest checksum too expensive** computed per request over 100k rows | 🟡 | maintain incrementally, or use `(latest_watermark, count)` (§6) |
 | S-29 | **Claw-back purge vs pending queue undefined** | 🟡 | reject-locally-with-notice for mutations against purged entities (§18) |
 | S-30 | **Doc status drift** — ✅ flags refer to a reference codebase; none of the sync code exists in this repo; contradicted [mobile-12 §6](./mobile-12-sync-implementation-audit.md) | 🟢 | header warning added; re-verify every ✅ against this repo before relying on it |
+| S-31 | **Cursor horizon keyed on oldest per-entity watermark → spurious `410` for low-churn entities** — static `unit`/`taxrate`/`lookup` age out an actively-syncing store's cursor → forced full-catalog re-pull | 🔴 | key the 180d horizon on cursor `ia` (re-minted each poll), **never** on per-entity `ts`; static no-delete entities need no `410` (§4) |
+| S-32 | **Nightly stock reconciliation re-syncs the entire catalog** — recomputing `product.stock_quantity` bumps `modified_at` → all products enter the delta stream every morning (write-amplification + 3 AM sync storm) | 🔴 | move the cache off the synced `product` row (separate `product_stock_cache` table, or recompute without touching `modified_at`) (§14) |
+| S-33 | **Oversell window = `stock_event` propagation latency** — shared `perEntityLimit`/20-per-min drain makes cross-device stock stalest at rush hour, widening the window the ledger exists to reconcile | 🟠 | dedicated drain lane / higher per-entity floor for `stock_event` (§14/§15) |
+| S-34 | **Oversell detection races device sync** — a wall-clock nightly `SUM<0` against a partially-synced ledger → false oversells (lagging device) + missed real ones until sync completes | 🟠 | gate detection on `T = min(last_sync_at)` across active devices; evaluate only events `≤ T` (§14) |
+| S-35 | **Idempotency TTL can expire before a DLQ retry → double sale** — 30d applied-TTL sized to token life, not DLQ max-dwell | 🟠 | TTL ≥ `max(token life, DLQ max-dwell + margin)`; or client refuses to replay a `mutation_id` older than the TTL (§10) |
+| S-36 | **Composite mutation has no per-payload size cap** — a 500-line B2B order = one multi-MB mutation / long tx | 🟡 | cap `items[]`/`payments[]` length + raw body size; split huge orders client-side (§9.1) |
 
 ---
 
@@ -693,6 +742,10 @@ resurrections).
 | BR-SYNC-019 | Client-displayed stock is **always the local ledger projection**; the pulled `stock_quantity` cache column is ignored (§14). |
 | BR-SYNC-020 | Pure clock skew is **clamped, never rejected** — a clock error must never destroy a sale; strict rejection only where backdating grants privilege (§12). |
 | BR-SYNC-021 | Within one delta page, an entity's upserts apply **before** its deletes — a row created+deleted in-window ends deleted (§7). |
+| BR-SYNC-022 | The 180-day cursor horizon is keyed on the cursor's `ia` (re-minted every poll), **never** on per-entity watermark age — low-churn entities never force a spurious full resync (§4). |
+| BR-SYNC-023 | The stock cache never lives on a synced row — recomputing it must **not** bump a sync watermark (§14). |
+| BR-SYNC-024 | Oversell is evaluated only for ledger events at or before `T = min(last_sync_at)` across the store's active devices (§14). |
+| BR-SYNC-025 | Idempotency TTL ≥ the client DLQ's max dwell — a retry can never outlive its idempotency row (§10). |
 
 ---
 
@@ -719,3 +772,7 @@ resurrections).
 | 17 | **Per-`(user, store, device)` rate-limit keys** (S-25, §16) | 🟠 |
 | 18 | **`INITIAL_PAGE_SIZE` 1000–2000** + `/initial` throttle raise (S-27) · incremental manifest checksums (S-28) | 🟡 |
 | 19 | **Claw-back queue rule** — reject-locally-with-notice for mutations against purged entities (S-29, §18) | 🟡 |
+| 20 | **Cursor horizon on `ia`, not per-entity watermark** — prevent spurious `410` / full re-pull for low-churn entities (S-31, §4) | 🔴 |
+| 21 | **Stock cache off the synced row** — `product_stock_cache` table (or no-`modified_at` recompute) to kill the nightly catalog re-sync (S-32, §14) | 🔴 |
+| 22 | **`stock_event` dedicated drain lane** + **oversell detection gated on `min(last_sync_at)`** (S-33/S-34, §14/§15) | 🟠 |
+| 23 | **Idempotency TTL ≥ DLQ max-dwell** + **per-mutation payload cap** (S-35/S-36, §10/§9.1) | 🟡 |

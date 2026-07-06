@@ -116,7 +116,7 @@ export function ModalSelect<T>({
 
 const Backdrop = styled(Pressable)`
   flex: 1;
-  background-color: rgba(0, 0, 0, 0.18);
+  background-color: ${({ theme }) => theme.overlay.scrimSoft};
 `;
 
 const AnimatedSheetContainer = styled(Animated.View)`

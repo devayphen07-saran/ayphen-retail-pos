@@ -1,9 +1,6 @@
-import { Inject, Injectable } from '@nestjs/common';
-import { and, eq, gt, or, sql } from 'drizzle-orm';
-import type { PostgresJsDatabase } from 'drizzle-orm/postgres-js';
-import { DRIZZLE, UnitOfWork, type DbExecutor } from '#db/db.module.js';
-import * as schema from '#db/schema.js';
-import { users, invitations } from '#db/schema.js';
+import { Injectable } from '@nestjs/common';
+import { randomUUID } from 'crypto';
+import { UnitOfWork, type DbExecutor } from '#db/db.module.js';
 import { AppException } from '#common/exceptions/app.exception.js';
 import { ErrorCodes } from '#common/error-codes.js';
 import { AuditService } from '../../core/audit.service.js';
@@ -13,6 +10,8 @@ import { RateLimitService } from '../../core/rate-limit.service.js';
 import { OtpRequestService } from './otp-request.service.js';
 import { OtpService } from './otp.service.js';
 import { OtpRequestRepository } from '../repositories/otp-request.repository.js';
+import { UserRepository } from '../repositories/user.repository.js';
+import { InvitationLookupRepository } from '../repositories/invitation-lookup.repository.js';
 import { DeviceService, type DeviceInfo } from './device.service.js';
 import { AuthSessionRepository } from '../repositories/auth-session.repository.js';
 import { RefreshTokenService } from './refresh-token.service.js';
@@ -23,7 +22,8 @@ import type { MobilePrincipal } from '../types/mobile-principal.js';
 @Injectable()
 export class AuthLoginService {
   constructor(
-    @Inject(DRIZZLE)          private readonly db:          PostgresJsDatabase<typeof schema>,
+    private readonly userRepo:      UserRepository,
+    private readonly invitationRepo: InvitationLookupRepository,
     private readonly rateLimit:     RateLimitService,
     private readonly otpReqService: OtpRequestService,
     private readonly otpService:    OtpService,
@@ -40,16 +40,33 @@ export class AuthLoginService {
 
   /** Stage 1 — request an OTP for login. */
   async loginStageOne(phone: string, ip: string, resendOf?: string): Promise<StageOneResult> {
-    const [user] = await this.db.select({ id: users.id }).from(users).where(eq(users.phone, phone));
+    const user = await this.userRepo.findByPhone(phone);
     if (!user) {
-      throw new AppException(
-        ErrorCodes.NOT_FOUND,
-        'No account is registered with this number. Create an account to get started.',
-        401,
-      );
+      // Uniform response — never reveal whether a number is registered
+      // (enumeration oracle). No OTP is sent; a follow-up verify fails as
+      // OTP_EXPIRED, identical to a genuine lapsed request.
+      return {
+        otpSent: true,
+        expiresIn: this.constants.OTP_TTL_SECONDS,
+        otpRequestId: randomUUID(),
+      };
     }
 
     const result = await this.otpReqService.requestOtp(phone, 'login', ip, resendOf);
+    return { otpSent: true, expiresIn: result.expiresIn, otpRequestId: result.otpRequestId };
+  }
+
+  /**
+   * Stage 1 for step-up — the OTP ALWAYS targets the authenticated user's own
+   * registered phone, never a client-supplied number. Prevents an authenticated
+   * user from triggering OTP SMS to arbitrary phones (SMS-bombing / enumeration).
+   */
+  async stepUpStageOne(userId: string, ip: string): Promise<StageOneResult> {
+    const user = await this.userRepo.findById(userId);
+    if (!user?.phone) {
+      throw new AppException(ErrorCodes.USER_NOT_FOUND, 'USER_NOT_FOUND', 404);
+    }
+    const result = await this.otpReqService.requestOtp(user.phone, 'login', ip);
     return { otpSent: true, expiresIn: result.expiresIn, otpRequestId: result.otpRequestId };
   }
 
@@ -66,7 +83,7 @@ export class AuthLoginService {
     const otpRequest = await this.otpRepo.findActiveRequest(otpRequestId, phone);
     if (!otpRequest) throw new AppException(ErrorCodes.TOKEN_EXPIRED, 'OTP_EXPIRED', 422);
 
-    const [user] = await this.db.select().from(users).where(eq(users.phone, phone));
+    const user = await this.userRepo.findByPhone(phone);
     if (!user) {
       throw new AppException(
         ErrorCodes.NOT_FOUND,
@@ -148,12 +165,9 @@ export class AuthLoginService {
     // snapshot is always built (never the "client is up to date" null case).
     const snapshotResult = await this.snapshot.getOrBuild(principal.userId);
 
-    const [user] = await this.db
-      .select({ phone: users.phone, email: users.email, lastAccountMode: users.lastAccountMode })
-      .from(users)
-      .where(eq(users.id, principal.userId));
+    const user = await this.userRepo.findById(principal.userId);
 
-    const pendingInvitationCount = await this.countPendingInvitations(
+    const pendingInvitationCount = await this.invitationRepo.countPendingForContact(
       user?.phone ?? null,
       user?.email ?? null,
     );
@@ -163,8 +177,8 @@ export class AuthLoginService {
       deviceId:           principal.deviceId,
       deviceSessionId:    principal.deviceSessionId,
       isTrusted:          device?.isTrusted ?? false,
-      snapshot:           snapshotResult!.snapshot,
-      snapshotSignature:  snapshotResult!.signature,
+      snapshot:           snapshotResult.snapshot,
+      snapshotSignature:  snapshotResult.signature,
       lastAccountMode:    user?.lastAccountMode ?? null,
       hasPendingInvitations: pendingInvitationCount > 0,
       pendingInvitationCount,
@@ -173,71 +187,24 @@ export class AuthLoginService {
 
   /** Set the user's chosen workspace mode (mobile-03 §3c/3d). */
   async updateAccountMode(userId: string, mode: 'business' | 'personal'): Promise<void> {
-    await this.db.update(users).set({ lastAccountMode: mode }).where(eq(users.id, userId));
-  }
-
-  /**
-   * Invitations aren't keyed by userFk (the invitee may not have an account
-   * yet at invite time) — matched by phone/email instead, same lookup
-   * `GET /me/invitations` uses (invitation.repository.ts's
-   * `listPendingForContact`, duplicated here to avoid a cross-module
-   * dependency on the stores module from auth/mobile).
-   */
-  private async countPendingInvitations(phone: string | null, email: string | null): Promise<number> {
-    if (!phone && !email) return 0;
-
-    const contactMatch = [];
-    if (phone) contactMatch.push(eq(invitations.phone, phone));
-    if (email) contactMatch.push(eq(invitations.email, email));
-
-    const [row] = await this.db
-      .select({ n: sql<number>`count(*)::int` })
-      .from(invitations)
-      .where(
-        and(
-          eq(invitations.status, 'pending'),
-          gt(invitations.expiresAt, new Date()),
-          or(...contactMatch),
-        ),
-      );
-
-    return row?.n ?? 0;
+    await this.userRepo.setAccountMode(userId, mode);
   }
 
   // ── HELPERS (§18.4) ───────────────────────────────────────────────────────
 
   private async handleFailedOtp(userId: string): Promise<void> {
-    // Atomic read-modify-write: increment in the DB (`failedLoginAttempts + 1`)
-    // and RETURN the new value, so concurrent failed attempts can't lose an
-    // increment (a plain read-then-.set() would). Then, if the fresh count
-    // crosses the threshold, apply the lockout in a second targeted update.
-    const [row] = await this.db
-      .update(users)
-      .set({ failedLoginAttempts: sql`${users.failedLoginAttempts} + 1` })
-      .where(eq(users.id, userId))
-      .returning({ attempts: users.failedLoginAttempts });
-
-    const attempts = row?.attempts ?? 0;
+    // Atomic increment returns the fresh count (concurrent failures can't lose
+    // an increment); if it crosses the threshold, apply the lockout.
+    const attempts = await this.userRepo.incrementFailedAttempts(userId);
     if (attempts >= this.constants.MAX_FAILED_LOGIN_ATTEMPTS) {
-      await this.db
-        .update(users)
-        .set({
-          accountLockedUntil: new Date(
-            Date.now() + this.constants.ACCOUNT_LOCKOUT_DURATION_MINUTES * 60_000,
-          ),
-          status: 'locked',
-        })
-        .where(eq(users.id, userId));
+      await this.userRepo.applyLockout(
+        userId,
+        new Date(Date.now() + this.constants.ACCOUNT_LOCKOUT_DURATION_MINUTES * 60_000),
+      );
     }
   }
 
   private async handleSuccessfulLogin(userId: string, tx?: DbExecutor): Promise<void> {
-    await (tx ?? this.db).update(users).set({
-      failedLoginAttempts: 0,
-      accountLockedUntil:  null,
-      status:              'active',
-      lastLoginAt:         new Date(),
-      phoneVerified:       true,    // §18.9 — set on successful OTP
-    }).where(eq(users.id, userId));
+    await this.userRepo.markSuccessfulLogin(userId, tx);
   }
 }

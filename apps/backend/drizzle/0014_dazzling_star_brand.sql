@@ -1,0 +1,1 @@
+CREATE UNIQUE INDEX "uk_location_name" ON "locations" USING btree ("store_fk",lower("name")) WHERE "locations"."is_active" = true;

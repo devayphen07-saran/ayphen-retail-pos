@@ -20,8 +20,18 @@ if (!url) {
   process.exit(1);
 }
 
-if (process.env.NODE_ENV === 'production') {
-  console.error('[flush] Refusing to flush a production database');
+// Gate on the connection TARGET, not NODE_ENV — which env.ts defaults to
+// 'development' and is trivially unset, so the old guard was inert. A non-local
+// database must be explicitly confirmed by name; localhost dev flushes freely
+// (keeps `pnpm db:reset` working).
+const target = new URL(url);
+const dbName = target.pathname.replace(/^\//, '');
+const isLocal = ['localhost', '127.0.0.1', '::1'].includes(target.hostname);
+if (!isLocal && process.env.CONFIRM_FLUSH !== dbName) {
+  console.error(
+    `[flush] Refusing to flush non-local database "${dbName}" on ${target.hostname}. ` +
+      `Re-run with CONFIRM_FLUSH=${dbName} to proceed.`,
+  );
   process.exit(1);
 }
 
@@ -39,7 +49,7 @@ if (!fs.existsSync(path.join(migrationsFolder, 'meta', '_journal.json'))) {
   process.exit(1);
 }
 
-const sql = createPgClient(url, { max: 1 });
+const sql = createPgClient(url, { max: 1, statementTimeoutMs: 0 });
 const db  = drizzle(sql);
 
 async function flush() {

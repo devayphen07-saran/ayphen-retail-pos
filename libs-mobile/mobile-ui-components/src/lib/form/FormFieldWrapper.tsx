@@ -62,8 +62,8 @@ const Label = styled(Typography.Caption)<{ $fontScale: number }>`
       font-family: ${String(s.fontFamily)};
     `;
   }}
-  padding-bottom: 4px;
-  margin-left: 3px;
+  padding-bottom: ${({ theme }) => theme.sizing.xxSmall}px;
+  margin-left: ${({ theme }) => theme.sizing.xxSmall}px;
 `;
 
 const RequiredMark = styled(Typography.Body)`
@@ -72,8 +72,8 @@ const RequiredMark = styled(Typography.Body)`
 
 const ErrorText = styled(Typography.Caption)`
   color: ${({ theme }) => theme.color?.red?.main || theme.colorError};
-  margin-left: 3px;
-  margin-top: 2px;
+  margin-left: ${({ theme }) => theme.sizing.xxSmall}px;
+  margin-top: ${({ theme }) => theme.sizing.xxSmall}px;
 `;
 
 export default FormFieldWrapper;

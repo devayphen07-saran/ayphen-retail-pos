@@ -7,6 +7,7 @@ import { DRIZZLE } from '#db/db.module.js';
 import * as schema from '#db/schema.js';
 import { revokedTokens } from '#db/schema.js';
 import { env } from '#config/env.js';
+import { errorMessage } from '#common/error-message.js';
 
 export interface TokenCleanupStats {
   lastRunAt:      Date | null;
@@ -45,17 +46,20 @@ export class TokenCleanupService implements OnModuleInit {
     this.isRunning = true;
     const start = Date.now();
     try {
-      const result = await this.db
+      // `returning` yields the deleted ids, so `.length` is an accurately typed
+      // count — no fragile cast through the driver's result shape.
+      const deleted = await this.db
         .delete(revokedTokens)
-        .where(lt(revokedTokens.expiresAt, new Date()));
-      const count = (result as unknown as { count?: number }).count ?? 0;
+        .where(lt(revokedTokens.expiresAt, new Date()))
+        .returning({ jti: revokedTokens.jti });
+      const count = deleted.length;
       this.stats.lastRunAt        = new Date();
       this.stats.lastDurationMs   = Date.now() - start;
       this.stats.lastRemovedCount = count;
       this.stats.error            = null;
       this.logger.log(`Token cleanup: removed ${count} expired revoked tokens`);
     } catch (err) {
-      this.stats.error = (err as Error).message;
+      this.stats.error = errorMessage(err);
       this.logger.error('Token cleanup failed', err);
     } finally {
       this.isRunning = false;

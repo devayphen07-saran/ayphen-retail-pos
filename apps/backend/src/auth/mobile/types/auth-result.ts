@@ -1,4 +1,4 @@
-import type { PermissionSnapshot } from '../services/snapshot.service.js';
+import type { PermissionSnapshot } from './permission-snapshot.js';
 
 /**
  * Domain result types produced by the auth services (login / signup) and

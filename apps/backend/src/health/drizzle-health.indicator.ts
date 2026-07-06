@@ -7,6 +7,7 @@ import {
 import { sql } from 'drizzle-orm';
 import { PostgresJsDatabase } from 'drizzle-orm/postgres-js';
 import { DRIZZLE } from '#db/db.module.js';
+import { errorMessage } from '#common/error-message.js';
 
 @Injectable()
 export class DrizzleHealthIndicator extends HealthIndicator {
@@ -23,7 +24,7 @@ export class DrizzleHealthIndicator extends HealthIndicator {
     } catch (err) {
       throw new HealthCheckError(
         'Database health check failed',
-        this.getStatus(key, false, { message: (err as Error).message }),
+        this.getStatus(key, false, { message: errorMessage(err) }),
       );
     }
   }

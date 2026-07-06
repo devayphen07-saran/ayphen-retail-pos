@@ -1,5 +1,7 @@
 import { SetMetadata, createParamDecorator, type ExecutionContext } from '@nestjs/common';
 import type { Request } from 'express';
+import { ForbiddenError } from '#common/exceptions/app.exception.js';
+import { ErrorCodes } from '#common/error-codes.js';
 import type { CrudAction, EntityCode } from '../permission-matrix.constants.js';
 import type { MobilePrincipal } from '#auth/mobile/types/mobile-principal.js';
 import type { ResolvedStoreContext } from '../resolved-store-context.js';
@@ -83,5 +85,21 @@ export const CurrentStoreId = createParamDecorator(
   (_data: unknown, ctx: ExecutionContext): string | undefined => {
     const req = ctx.switchToHttp().getRequest<Request>();
     return (req as Request & { context?: ResolvedStoreContext }).context?.storeId;
+  },
+);
+
+/**
+ * Inject the full resolved store context (TenantGuard). Use on store-scoped
+ * routes where the guard is guaranteed to have run — throws STORE_CONTEXT_MISSING
+ * if it hasn't, centralizing the assertion instead of an inline `req.context!`.
+ */
+export const CurrentStoreContext = createParamDecorator(
+  (_data: unknown, ctx: ExecutionContext): ResolvedStoreContext => {
+    const req = ctx.switchToHttp().getRequest<Request>();
+    const context = (req as Request & { context?: ResolvedStoreContext }).context;
+    if (!context) {
+      throw new ForbiddenError(ErrorCodes.STORE_CONTEXT_MISSING, 'Store context is missing');
+    }
+    return context;
   },
 );

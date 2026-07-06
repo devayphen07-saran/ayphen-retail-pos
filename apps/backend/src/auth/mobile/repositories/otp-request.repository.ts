@@ -2,6 +2,7 @@ import { Inject, Injectable } from '@nestjs/common';
 import { and, eq, gt, isNull, sql } from 'drizzle-orm';
 import type { PostgresJsDatabase } from 'drizzle-orm/postgres-js';
 import { DRIZZLE, type DbExecutor } from '#db/db.module.js';
+import { requireRow } from '#db/require-row.js';
 import * as schema from '#db/schema.js';
 import { otpRequests } from '#db/schema.js';
 
@@ -21,7 +22,7 @@ export class OtpRequestRepository {
     expiresAt:   Date;
   }, tx?: DbExecutor): Promise<OtpRequest> {
     const [row] = await (tx ?? this.db).insert(otpRequests).values(data).returning();
-    return row!;
+    return requireRow(row);
   }
 
   async findActiveRequest(id: string, phone: string): Promise<OtpRequest | null> {

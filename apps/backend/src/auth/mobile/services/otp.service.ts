@@ -3,30 +3,40 @@ import { randomInt, timingSafeEqual } from 'crypto';
 import Redis from 'ioredis';
 import { AppException } from '#common/exceptions/app.exception.js';
 import { ErrorCodes } from '#common/error-codes.js';
+import { AppConfigService } from '#config/app-config.service.js';
+import { CryptoService } from '../../core/crypto.service.js';
+import { Msg91Service } from '../../core/msg91.service.js';
 import { OtpRequestRepository, type OtpRequest } from '../repositories/otp-request.repository.js';
 import { MOBILE_REDIS } from './redis.provider.js';
 
-const devOtpKey = (phone: string) => `dev_otp:${phone}`;
+const otpKey = (phone: string) => `otp:${phone}`;
 
-/**
- * MSG91 sending is disabled for now — every environment generates the code
- * locally (Redis + console log). Re-wire Msg91Service.sendOtp here when
- * real SMS delivery is needed again.
- */
 @Injectable()
 export class OtpService {
   private readonly logger = new Logger(OtpService.name);
 
   constructor(
     @Inject(MOBILE_REDIS)     private readonly redis:   Redis,
-    private readonly otpRepo: OtpRequestRepository,
+    private readonly otpRepo:  OtpRequestRepository,
+    private readonly config:   AppConfigService,
+    private readonly crypto:   CryptoService,
+    private readonly msg91:    Msg91Service,
   ) {}
 
   async generateAndSend(phone: string, ttlSeconds: number): Promise<string> {
     const code = String(randomInt(100_000, 999_999));
 
-    await this.redis.setex(devOtpKey(phone), ttlSeconds, code);
-    this.logger.log(`[dev] OTP for ${phone}: ${code}`);
+    // Store only a HASH at rest — a Redis read never yields a usable code.
+    await this.redis.setex(otpKey(phone), ttlSeconds, this.crypto.hashToken(code));
+
+    if (this.config.isProduction) {
+      // Real delivery. Throws OTP_SEND_FAILED on gateway error, so the caller
+      // fails closed (no usable OTP request is left behind).
+      await this.msg91.sendOtp(phone, code);
+    } else {
+      // Dev/test only — no SMS gateway. NEVER log the code in production.
+      this.logger.log(`[dev] OTP for ${phone}: ${code}`);
+    }
 
     return code;
   }
@@ -48,10 +58,10 @@ export class OtpService {
 
     let valid = false;
 
-    const stored = await this.redis.get(devOtpKey(phone));
-    if (stored) {
-      const a = Buffer.from(stored.padEnd(6));
-      const b = Buffer.from(submitted.padEnd(6));
+    const storedHash = await this.redis.get(otpKey(phone));
+    if (storedHash) {
+      const a = Buffer.from(storedHash);
+      const b = Buffer.from(this.crypto.hashToken(submitted));
       valid = a.length === b.length && timingSafeEqual(a, b);
     }
 

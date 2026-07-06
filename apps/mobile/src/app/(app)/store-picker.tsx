@@ -1,1 +1,1 @@
-export { StorePickerScreen as default } from '@features/store/screens/StorePickerScreen';
+export { StorePickerScreen as default } from '@features/store/home/screens/StorePickerScreen';

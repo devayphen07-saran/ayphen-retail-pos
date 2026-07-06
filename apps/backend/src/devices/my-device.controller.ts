@@ -11,7 +11,7 @@ import { MobileJwtGuard } from '#auth/mobile/guards/mobile-jwt.guard.js';
 import { CurrentUser } from '#common/rbac/decorators/rbac.decorators.js';
 import type { MobilePrincipal } from '#auth/mobile/types/mobile-principal.js';
 import { DeviceAccessService } from './device-access.service.js';
-import { StoreDeviceMapper } from './device.mapper.js';
+import { StoreDeviceMapper, type MyDeviceResponse } from './device.mapper.js';
 
 /**
  * User-level device management (device-management §12 F7, §13 F8, §14 F9). Own
@@ -25,7 +25,7 @@ export class MyDeviceController {
 
   /** All devices registered to the current user, across all stores (F7). */
   @Get('my')
-  async myDevices(@CurrentUser() user: MobilePrincipal) {
+  async myDevices(@CurrentUser() user: MobilePrincipal): Promise<MyDeviceResponse[]> {
     const devices = await this.access.listMyDevices(user.userId);
     return StoreDeviceMapper.toMyDeviceList(devices, user.deviceId);
   }

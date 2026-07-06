@@ -1,5 +1,5 @@
 import { Global, Module } from '@nestjs/common';
-import { RbacMatrixValidatorService } from './rbac-matrix.validator.service.js';
+import { MatrixIntegrityBootstrap } from './matrix-integrity.bootstrap.js';
 import { RbacRepository } from './rbac.repository.js';
 import { RbacService } from './rbac.service.js';
 import { TenantGuard } from './guards/tenant.guard.js';
@@ -13,13 +13,13 @@ import { LocationGuard } from './guards/location.guard.js';
  * permission matrix at startup, provides the RBAC service + repository, and the
  * enforcement guards. MOBILE_REDIS comes from RedisModule; AuditService/
  * CryptoService from the global AuthCoreModule. Route-config validation lives in
- * the separate RbacRouteValidatorModule (it needs DiscoveryModule, which must
+ * the separate RouteCoverageModule (it needs DiscoveryModule, which must
  * not sit in this early-loading global module — see that module's note).
  */
 @Global()
 @Module({
   providers: [
-    RbacMatrixValidatorService,
+    MatrixIntegrityBootstrap,
     RbacRepository,
     RbacService,
     TenantGuard,

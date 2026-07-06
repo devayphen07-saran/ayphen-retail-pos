@@ -1,1 +1,1 @@
-export { StoreHomeScreen as default } from '@features/store/screens/StoreHomeScreen';
+export { StoreHomeScreen as default } from '@features/store/home/screens/StoreHomeScreen';

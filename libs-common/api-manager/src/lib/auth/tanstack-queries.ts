@@ -19,6 +19,7 @@ import type {
   SignupVerifyRequest,
   LoginResponse,
   SessionResponse,
+  Paginated,
   StepUpVerifyRequest,
   StepUpResponse,
   AccountModeRequest,
@@ -71,7 +72,7 @@ export const useVerifySignupMutation = () =>
 /** List active sessions for the current user. */
 export const useSessionsQuery = (options?: { enabled?: boolean }) =>
   useQuery({
-    ...GET_SESSIONS.queryOptions<SessionResponse[]>(),
+    ...GET_SESSIONS.queryOptions<Paginated<SessionResponse>>(),
     queryKey: authKeys.sessions(),
     enabled: options?.enabled ?? true,
   });
