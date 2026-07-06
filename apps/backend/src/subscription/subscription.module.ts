@@ -6,7 +6,7 @@ import { EntitlementService } from './entitlement.service.js';
 import { SubscriptionRepository } from './subscription.repository.js';
 import { SubscriptionService } from './subscription.service.js';
 import { BillingService } from './billing.service.js';
-import { SubscriptionReconciliationService } from './subscription-reconciliation.service.js';
+import { SubscriptionLifecycleCronService } from './subscription-lifecycle-cron.service.js';
 import { DowngradeDetectionService } from './downgrade-detection.service.js';
 import { ReconciliationService } from './reconciliation.service.js';
 import { MeSubscriptionController } from './me-subscription.controller.js';
@@ -35,7 +35,7 @@ import { DeviceAccessRepository } from '../devices/device-access.repository.js';
     SubscriptionRepository,
     SubscriptionService,
     BillingService,
-    SubscriptionReconciliationService,
+    SubscriptionLifecycleCronService,
     DowngradeDetectionService,
     ReconciliationService,
     StoreRepository,

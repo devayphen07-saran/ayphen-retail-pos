@@ -44,8 +44,8 @@ export interface CronRunStats {
 }
 
 @Injectable()
-export class SubscriptionReconciliationService implements OnModuleInit {
-  private readonly logger = new Logger(SubscriptionReconciliationService.name);
+export class SubscriptionLifecycleCronService implements OnModuleInit {
+  private readonly logger = new Logger(SubscriptionLifecycleCronService.name);
 
   private readonly stats: CronRunStats = {
     lastRunAt: null,
