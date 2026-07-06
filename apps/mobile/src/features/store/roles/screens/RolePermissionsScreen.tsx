@@ -23,7 +23,7 @@ import { useActiveStoreStore } from '@store';
 import { usePermission } from '@core/auth/usePermission';
 import { RolePermissionsLoading } from '../loading/RolePermissionsLoading';
 
-type Params = { roleId: string; roleName: string; isEditable: string };
+type Params = { roleId: string };
 
 const ACTIONS: Array<{ key: CrudAction; label: string }> = [
   { key: 'view',   label: 'View' },
@@ -59,13 +59,8 @@ function applyToggle(current: RoleEntityPermissions, action: CrudAction, next: b
  */
 export function RolePermissionsScreen() {
   const { theme } = useMobileTheme();
-  const { roleId, roleName, isEditable } = useLocalSearchParams<Params>();
+  const { roleId } = useLocalSearchParams<Params>();
   const storeId = useActiveStoreStore((s) => s.storeId) ?? '';
-  // Two independent reasons a matrix can be read-only: the role itself is a
-  // system role (isEditable), or the current user just lacks Role:edit — the
-  // second is local UX gating only, still enforced for real server-side.
-  const canEditRoles = usePermission('Role', 'edit');
-  const readOnly = isEditable !== 'true' || !canEditRoles;
 
   const {
     data: entityTypes,
@@ -81,6 +76,14 @@ export function RolePermissionsScreen() {
   } = useRoleQuery(storeId, roleId, {
     enabled: !!storeId && !!roleId,
   });
+
+  // Two independent reasons a matrix can be read-only: the role itself is a
+  // system role (role.is_editable, read fresh — never trusted from params),
+  // or the current user just lacks Role:edit — the second is local UX gating
+  // only, still enforced for real server-side. Default to read-only while
+  // `role` hasn't loaded yet (fail closed, not fail open).
+  const canEditRoles = usePermission('Role', 'edit');
+  const readOnly = !role?.is_editable || !canEditRoles;
   const updatePermissions = useUpdateRolePermissionsMutation(storeId);
 
   const [matrix, setMatrix] = useState<Record<string, RoleEntityPermissions>>({});
@@ -137,7 +140,7 @@ export function RolePermissionsScreen() {
   };
 
   return (
-    <AppLayout title={roleName || 'Role'} onBack={() => router.back()}>
+    <AppLayout title={role?.name ?? 'Role'} onBack={() => router.back()}>
       <ScrollView
         style={{ flex: 1 }}
         contentContainerStyle={{ padding: theme.sizing.large, flexGrow: 1, paddingBottom: 100 }}
@@ -155,7 +158,7 @@ export function RolePermissionsScreen() {
           <Column gap={8}>
             {readOnly && (
               <Typography.Caption type="secondary">
-                {isEditable !== 'true'
+                {!role?.is_editable
                   ? "This is a system role and can't be edited."
                   : "You don't have permission to edit roles."}
               </Typography.Caption>

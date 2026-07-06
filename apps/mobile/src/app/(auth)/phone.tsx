@@ -43,8 +43,6 @@ type Mode = 'login' | 'signup';
 
 const TERMS_URL = 'https://ayphen.com/terms';
 const PRIVACY_URL = 'https://ayphen.com/privacy';
-const W50 = 'rgba(255,255,255,0.50)';
-const W55 = 'rgba(255,255,255,0.55)';
 
 /** Step 1 — enter phone, request an OTP for login or signup. */
 export default function PhoneScreen() {
@@ -188,7 +186,7 @@ export default function PhoneScreen() {
                 <Typography.Body weight="semiBold" color={theme.colorWhite}>
                   Ayphen Retail
                 </Typography.Body>
-                <Typography.Caption color={W50}>
+                <Typography.Caption color={theme.overlay.onDark50}>
                   Enterprise POS Platform
                 </Typography.Caption>
               </Column>
@@ -208,7 +206,7 @@ export default function PhoneScreen() {
                 {mode === 'login' ? 'Welcome\nback.' : 'Create your\naccount.'}
               </Typography.H1>
               <Flex height={8} />
-              <Typography.Body color={W55}>
+              <Typography.Body color={theme.overlay.onDark55}>
                 {mode === 'login'
                   ? 'Enter your phone number to receive a one-time passcode.'
                   : "We'll text you a 6-digit code to get started."}
@@ -310,7 +308,7 @@ export default function PhoneScreen() {
                   start={{ x: 0, y: 0 }}
                   end={{ x: 1, y: 0 }}
                   style={{
-                    height: 54,
+                    height: theme.componentSizing.ctaBtnHeight,
                     alignItems: 'center',
                     justifyContent: 'center',
                     borderRadius: theme.borderRadius.xxLarge,
@@ -423,19 +421,19 @@ const BgGrad = styled(LinearGradient)`
 
 const Orb1 = styled.View`
   position: absolute;
-  background-color: rgba(255, 255, 255, 0.06);
+  background-color: ${({ theme }) => theme.overlay.onDark06};
 `;
 
 const Orb2 = styled.View`
   position: absolute;
-  background-color: rgba(255, 255, 255, 0.04);
+  background-color: ${({ theme }) => theme.overlay.onDark04};
 `;
 
 const LogoBox = styled.View`
-  width: 36px;
-  height: 36px;
+  width: ${({ theme }) => theme.componentSizing.heroBrandIconSize}px;
+  height: ${({ theme }) => theme.componentSizing.heroBrandIconSize}px;
   border-radius: ${({ theme }) => theme.borderRadius.medium}px;
-  background-color: rgba(255, 255, 255, 0.15);
+  background-color: ${({ theme }) => theme.overlay.onDark15};
   align-items: center;
   justify-content: center;
 `;

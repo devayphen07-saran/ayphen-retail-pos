@@ -214,5 +214,5 @@ const IconSlot = styled(View)<{ $disabled?: boolean }>`
   align-items: center;
   justify-content: center;
   background-color: ${({ theme, $disabled }) =>
-    $disabled ? theme.colorFillSecondary ?? theme.colorBorder : `${theme.colorPrimary}15`};
+    $disabled ? theme.colorFillSecondary ?? theme.colorBorder : theme.color.primary.bg};
 `;

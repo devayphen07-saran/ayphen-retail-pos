@@ -74,6 +74,8 @@ export const gradient = {
   dashboardHero: ["#3B82F6", "#6EB5FF"],
   /** Premium status card. */
   premiumCard: ["#0F172A", "#1E1B4B"],
+  /** More tab's active-store identity card. */
+  storeCard: ["#1E1B5E", "#3730A3"],
 } as const;
 
 /**

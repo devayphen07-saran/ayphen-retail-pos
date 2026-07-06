@@ -21,6 +21,7 @@
   "exclude": [
     "out-tsc",
     "dist",
+    "drizzle.config.ts",
     "**/*.test.ts",
     "**/*.spec.ts",
     "**/*.test.tsx",

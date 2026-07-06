@@ -64,13 +64,7 @@ export function LocationsScreen() {
   const editLocation = (location: LocationResponse) => {
     router.push({
       pathname: '/(store)/location-edit',
-      params: {
-        locationId: location.id,
-        name:       location.name,
-        enable:     String(location.enable),
-        isPrimary:  String(location.is_primary),
-        isDefault:  String(location.is_default),
-      },
+      params: { locationId: location.id },
     });
   };
 
@@ -230,5 +224,5 @@ const IconSlot = styled(View)<{ $disabled?: boolean }>`
   align-items: center;
   justify-content: center;
   background-color: ${({ theme, $disabled }) =>
-    $disabled ? theme.colorFillSecondary ?? theme.colorBorder : `${theme.colorPrimary}15`};
+    $disabled ? theme.colorFillSecondary ?? theme.colorBorder : theme.color.primary.bg};
 `;

@@ -15,6 +15,7 @@
     "onlyBuiltDependencies": [
       "argon2",
       "@parcel/watcher",
+      "better-sqlite3",
       "esbuild"
     ],
     "overrides": {

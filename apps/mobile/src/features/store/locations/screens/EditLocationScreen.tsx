@@ -1,51 +1,81 @@
-import { View } from 'react-native';
+import { useMemo } from 'react';
+import { ActivityIndicator, View } from 'react-native';
 import styled from 'styled-components/native';
 import { useLocalSearchParams } from 'expo-router';
 import { useMobileTheme } from '@ayphen/mobile-theme';
-import { Input, Switch, Typography } from '@ayphen/mobile-ui-components';
-import { useUpdateLocationMutation } from '@ayphen/api-manager';
+import { AppLayout, Button, Column, Input, Switch, Typography } from '@ayphen/mobile-ui-components';
+import { useLocationsQuery, useUpdateLocationMutation } from '@ayphen/api-manager';
 import { useActiveStoreStore } from '@store';
 import { FormScreen } from '../../../../components/FormScreen';
 import { editLocationSchema, type EditLocationForm } from '../types/schema';
 import { toUpdateLocationPayload } from '../utils/transform';
 
-type Params = {
-  locationId: string;
-  name:       string;
-  enable:     string; // 'true' | 'false' — expo-router params are always strings
-  isPrimary:  string;
-  isDefault:  string;
-};
+type Params = { locationId: string };
 
 /**
  * Rename / enable-disable an existing location. Separate from
  * CreateLocationScreen because create's `is_default` toggle and edit's `enable`
  * toggle are different backend contracts (Create vs Update DTO) — a documented
  * §11A structural split. Both screens share FormScreen, so the form behavior is
- * identical. Prefilled from the row the user tapped (no GET-single endpoint).
- * Edit is `isEdit` → PATCHes only the changed keys and closes silently if nothing changed.
+ * identical.
+ *
+ * Only `locationId` travels through params (navigation-agent.md golden rule
+ * 3) — the row itself is read fresh from `useLocationsQuery`'s cache (the
+ * same cache `LocationsScreen` populates and every location mutation
+ * invalidates), not trusted from the tap that navigated here. There's no
+ * GET-single-location endpoint, but the list query is already the single
+ * source of truth every other location screen reads from, so deriving from
+ * it here (instead of frozen params) means a concurrent edit from another
+ * device is reflected the moment this screen mounts, not stuck at whatever
+ * the list looked like when the user tapped the row.
  */
 export function EditLocationScreen() {
   const { theme } = useMobileTheme();
-  const params = useLocalSearchParams<Params>();
+  const { locationId } = useLocalSearchParams<Params>();
   const storeId = useActiveStoreStore((s) => s.storeId) ?? '';
   const updateLocation = useUpdateLocationMutation(storeId);
+  const { data: locations, isLoading, isError, refetch } = useLocationsQuery(storeId);
 
-  const isPrimary = params.isPrimary === 'true';
-  const isDefault = params.isDefault === 'true';
-  const enableLocked = isPrimary || isDefault;
+  const location = useMemo(() => locations?.find((l) => l.id === locationId), [locations, locationId]);
+  const enableLocked = !!location && (location.is_primary || location.is_default);
+
+  if (isLoading) {
+    return (
+      <AppLayout title="Edit Location">
+        <Column gap={3} align="center" justify="center" flex={1}>
+          <ActivityIndicator color={theme.colorPrimary} size="large" />
+        </Column>
+      </AppLayout>
+    );
+  }
+
+  if (isError || !location) {
+    return (
+      <AppLayout title="Edit Location">
+        <Column gap={3} align="center" justify="center" flex={1} padding="large">
+          <Typography.Body weight="semiBold">
+            {isError ? "Couldn't load this location" : 'Location not found'}
+          </Typography.Body>
+          <Typography.Caption type="secondary">
+            {isError ? 'Something went wrong.' : 'This location may have been removed.'}
+          </Typography.Caption>
+          {isError ? <Button label="Retry" variant="default" onPress={() => void refetch()} /> : null}
+        </Column>
+      </AppLayout>
+    );
+  }
 
   return (
     <FormScreen<EditLocationForm>
       schema={editLocationSchema}
-      defaultValues={{ name: params.name ?? '', enable: params.enable === 'true' }}
+      defaultValues={{ name: location.name, enable: location.enable }}
       isEdit
       title="Edit Location"
       submitLabel="Save"
       fallbackError="Could not update the location."
       onSubmit={async (values, { dirtyFields }) => {
         await updateLocation.mutateAsync({
-          pathParam: { storeId, locationId: params.locationId },
+          pathParam: { storeId, locationId },
           bodyParam: toUpdateLocationPayload(values, dirtyFields),
         });
       }}
@@ -79,7 +109,7 @@ export function EditLocationScreen() {
               <Typography.Body weight="semiBold">Enabled</Typography.Body>
               <Typography.Caption color={theme.colorTextSecondary}>
                 {enableLocked
-                  ? `${isPrimary ? 'Head Office' : 'The default location'} can't be disabled.`
+                  ? `${location.is_primary ? 'Head Office' : 'The default location'} can't be disabled.`
                   : 'Turn off to stop operations at this location.'}
               </Typography.Caption>
             </ToggleText>

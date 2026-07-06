@@ -1,9 +1,10 @@
-import React, { ReactNode, useEffect, useRef } from 'react';
-import { ScrollView } from 'react-native';
+import React, { ReactNode, useCallback, useEffect, useRef } from 'react';
+import { ScrollView, View } from 'react-native';
 import {
   useForm,
   FormProvider,
   type Control,
+  type FieldErrors,
   type DefaultValues,
   type FieldValues,
   type Resolver,
@@ -55,6 +56,33 @@ export interface FormScreenChildApi<T extends FieldValues> {
    * Middle inputs use `returnKeyType="next"` + `onSubmitEditing={() => form.setFocus('next')}`.
    */
   submitOnLast: () => void;
+  /**
+   * Wrap a field with `<FormFieldAnchor name="fieldName" registerFieldOffset={registerFieldOffset}>`
+   * so a submit-time validation failure can scroll to it (forms-agent.md §13.4)
+   * — RHF's own `shouldFocusError` already calls `.focus()` on the first
+   * errored field, but a plain RN `ScrollView` doesn't auto-scroll a focused
+   * input into view the way a browser does, so without this a focused-but-
+   * off-screen field is invisible feedback.
+   */
+  registerFieldOffset: (name: string, y: number) => void;
+}
+
+/** See `FormScreenChildApi.registerFieldOffset`. Purely a layout-measurement
+ *  wrapper — renders its child with no visual effect. */
+export function FormFieldAnchor({
+  name,
+  registerFieldOffset,
+  children,
+}: {
+  name: string;
+  registerFieldOffset: (name: string, y: number) => void;
+  children: ReactNode;
+}) {
+  return (
+    <View onLayout={(e) => registerFieldOffset(name, e.nativeEvent.layout.y)}>
+      {children}
+    </View>
+  );
 }
 
 export interface FormSubmitContext<T extends FieldValues> {
@@ -133,6 +161,15 @@ export function FormScreen<T extends FieldValues>({
   dirtyRef.current = hasUnsavedChanges;
   const bypassGuardRef = useRef(false);
 
+  // Field Y-offsets (see FormFieldAnchor) — populated as fields render, read
+  // only when a submit-time validation failure needs to scroll to the first
+  // errored one.
+  const scrollRef = useRef<ScrollView>(null);
+  const fieldOffsets = useRef<Partial<Record<string, number>>>({});
+  const registerFieldOffset = useCallback((name: string, y: number) => {
+    fieldOffsets.current[name] = y;
+  }, []);
+
   // Intercept every back vector (header back, iOS swipe, Android hardware back)
   // while there are unsaved changes — Discard (destructive) / Keep editing (§5/§13.7).
   useEffect(() => {
@@ -184,7 +221,21 @@ export function FormScreen<T extends FieldValues>({
     }
   };
 
-  const submitOnLast = handleSubmit(internalSubmit, onValidationError);
+  // RHF's own `shouldFocusError` (default) already calls `.focus()` on the
+  // first errored field via its ref, but a plain RN ScrollView doesn't
+  // auto-scroll a focused input into view — so scroll explicitly to whatever
+  // FormFieldAnchor recorded for it. `onValidationError` still runs first,
+  // unconditionally, for the observability guarantee it already provides.
+  const handleInvalid = (errors: FieldErrors<T>) => {
+    onValidationError(errors);
+    const firstErroredField = Object.keys(errors)[0];
+    const y = firstErroredField ? fieldOffsets.current[firstErroredField] : undefined;
+    if (y != null) {
+      scrollRef.current?.scrollTo({ y: Math.max(y - theme.sizing.large, 0), animated: true });
+    }
+  };
+
+  const submitOnLast = handleSubmit(internalSubmit, handleInvalid);
   const disabled = !hasUnsavedChanges || isSubmitting || submitDisabled;
 
   return (
@@ -196,6 +247,7 @@ export function FormScreen<T extends FieldValues>({
         rightElement={headerRight}
       >
         <ScrollView
+          ref={scrollRef}
           contentContainerStyle={{
             padding: theme.sizing.large,
             paddingBottom: 80,
@@ -206,7 +258,7 @@ export function FormScreen<T extends FieldValues>({
           showsVerticalScrollIndicator={false}
         >
           <Column gap={theme.sizing.medium}>
-            {children({ control, form, isSubmitting, submitOnLast })}
+            {children({ control, form, isSubmitting, submitOnLast, registerFieldOffset })}
             <Button
               label={submitLabel}
               variant="primary"

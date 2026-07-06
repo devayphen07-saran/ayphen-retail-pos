@@ -80,7 +80,7 @@ export function MoreScreen() {
         >
           <StoreCardOuter>
             <StoreCardGradient
-              colors={['#1E1B5E', '#3730A3']}
+              colors={theme.gradient.storeCard}
               start={{ x: 0, y: 0 }}
               end={{ x: 1, y: 1 }}
             >
@@ -97,7 +97,7 @@ export function MoreScreen() {
                   iconName="Store"
                   size={48}
                   shape="circle"
-                  bgColor="rgba(255,255,255,0.15)"
+                  bgColor={theme.overlay.onDark15}
                   iconColor={theme.colorWhite}
                 />
                 <Column flex={1}>
@@ -129,11 +129,11 @@ export function MoreScreen() {
                   <LucideIcon
                     name="ArrowLeftRight"
                     size={14}
-                    color="rgba(255,255,255,0.75)"
+                    color={theme.overlay.onDark55}
                   />
                   <Typography.Caption
                     weight="semiBold"
-                    color="rgba(255,255,255,0.8)"
+                    color={theme.colorWhite}
                     style={{ flex: 1 }}
                   >
                     Switch Store
@@ -141,7 +141,7 @@ export function MoreScreen() {
                   <LucideIcon
                     name="ChevronRight"
                     size={14}
-                    color="rgba(255,255,255,0.4)"
+                    color={theme.overlay.onDark35}
                   />
                 </Row>
               </TouchableOpacity>
@@ -175,7 +175,7 @@ export function MoreScreen() {
                 }}
               >
                 <LogoutIconContainer
-                  style={{ backgroundColor: `${theme.colorError}15` }}
+                  style={{ backgroundColor: theme.color.danger.bg }}
                 >
                   <LucideIcon name="LogOut" size={20} color={theme.colorError} />
                 </LogoutIconContainer>
@@ -211,10 +211,10 @@ const StoreCardGradient = styled(LinearGradient)`
 `;
 
 const GradientDivider = styled(View)`
-  height: 1px;
-  background-color: rgba(255, 255, 255, 0.12);
-  margin-left: 16px;
-  margin-right: 16px;
+  height: ${({ theme }) => theme.borderWidth.thin}px;
+  background-color: ${({ theme }) => theme.overlay.onDark12};
+  margin-left: ${({ theme }) => theme.sizing.medium}px;
+  margin-right: ${({ theme }) => theme.sizing.medium}px;
 `;
 
 /** Icon chip for the logout row — the one row on this screen that isn't
@@ -230,7 +230,7 @@ const LogoutIconContainer = styled(View)`
 const LogoutCard = styled(View)`
   border-radius: ${({ theme }) => theme.borderRadius.xLarge}px;
   border-width: ${({ theme }) => theme.borderWidth.thin}px;
-  border-color: ${({ theme }) => `${theme.colorError}30`};
+  border-color: ${({ theme }) => theme.color.danger.border};
   background-color: ${({ theme }) => theme.colorBgContainer};
   overflow: hidden;
   margin-top: ${({ theme }) => theme.sizing.medium}px;

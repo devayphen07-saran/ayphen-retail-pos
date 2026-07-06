@@ -8,7 +8,7 @@ import {
   Typography,
   type LucideIconNameType,
 } from '@ayphen/mobile-ui-components';
-import { resolveMenuColor } from '../utils/menu-utils';
+import { resolveMenuColor, resolveMenuBg } from '../utils/menu-utils';
 import type { MenuColorToken } from '../utils/menu-config';
 
 export interface MenuRowItem {
@@ -42,7 +42,7 @@ export function MenuRowList({ items }: { items: MenuRowItem[] }) {
               accessibilityRole="button"
               accessibilityLabel={item.title}
             >
-              <IconContainer style={{ backgroundColor: `${color}15` }}>
+              <IconContainer style={{ backgroundColor: resolveMenuBg(theme, item.iconColor) }}>
                 <LucideIcon name={item.iconName} size={20} color={color} />
               </IconContainer>
               <Column flex={1}>

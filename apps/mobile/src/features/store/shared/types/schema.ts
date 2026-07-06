@@ -1,8 +1,6 @@
 import { z } from 'zod';
+import { optionalGstin, optionalPan, optionalPincode } from '../../../../schemas/primitives';
 
-const GSTIN_REGEX = /^\d{2}[A-Z]{5}\d{4}[A-Z][1-9A-Z]Z[0-9A-Z]$/;
-const PAN_REGEX = /^[A-Z]{5}[0-9]{4}[A-Z]$/;
-const PINCODE_REGEX = /^[1-9]\d{5}$/;
 const URL_REGEX = /^https?:\/\/.+/;
 
 const OpeningHourSchema = z.object({
@@ -39,28 +37,13 @@ export const createStoreSchema = z.object({
   line2: z.string().trim().max(200).optional().or(z.literal('')),
   city: z.string().trim().max(100).optional().or(z.literal('')),
   state: z.string().trim().max(60).optional().or(z.literal('')),
-  pincode: z
-    .string()
-    .trim()
-    .optional()
-    .or(z.literal(''))
-    .refine((v) => !v || PINCODE_REGEX.test(v), 'Enter a valid 6-digit PIN code'),
+  pincode: optionalPincode,
 
   // ── Tax & legal ───────────────────────────────────────────────────────────
   currency: z.string().trim().max(10).optional().or(z.literal('')),
-  gstin: z
-    .string()
-    .trim()
-    .optional()
-    .or(z.literal(''))
-    .refine((v) => !v || GSTIN_REGEX.test(v.toUpperCase()), 'Enter a valid 15-character GSTIN'),
+  gstin: optionalGstin,
   gstRegistrationType: z.union([z.enum(['regular', 'composition']), z.literal('')]).optional(),
-  pan: z
-    .string()
-    .trim()
-    .optional()
-    .or(z.literal(''))
-    .refine((v) => !v || PAN_REGEX.test(v.toUpperCase()), 'Enter a valid 10-character PAN'),
+  pan: optionalPan,
   businessRegNumber: z.string().trim().max(60).optional().or(z.literal('')),
   migrationDate: z.date().optional().nullable(),
   makeDefault: z.boolean().optional(),

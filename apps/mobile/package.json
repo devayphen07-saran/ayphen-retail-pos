@@ -7,7 +7,9 @@
     "android": "expo run:android",
     "ios": "expo run:ios",
     "web": "expo start --web",
-    "eas-build-post-install": "cd ../../ && node tools/scripts/eas-build-post-install.mjs . apps/mobile"
+    "eas-build-post-install": "cd ../../ && node tools/scripts/eas-build-post-install.mjs . apps/mobile",
+    "test": "jest",
+    "db:generate": "drizzle-kit generate && node scripts/generate-mobile-migrations.mjs"
   },
   "dependencies": {
     "@ayphen/api-manager": "workspace:*",
@@ -18,8 +20,10 @@
     "@hookform/resolvers": "^5.4.0",
     "@noble/ed25519": "^3.1.0",
     "@react-native-async-storage/async-storage": "^2.2.0",
+    "@react-native-community/netinfo": "11.4.1",
     "@shopify/flash-list": "2.0.2",
     "@tanstack/react-query": "^5.101.2",
+    "drizzle-orm": "^0.45.2",
     "expo": "~54.0.35",
     "expo-av": "~16.0.8",
     "expo-constants": "~18.0.13",
@@ -34,6 +38,7 @@
     "expo-router": "~6.0.24",
     "expo-secure-store": "^15.0.8",
     "expo-splash-screen": "~31.0.13",
+    "expo-sqlite": "~16.0.10",
     "expo-status-bar": "~3.0.9",
     "expo-system-ui": "~6.0.9",
     "react": "19.1.0",
@@ -50,10 +55,15 @@
     "react-native-webview": "13.15.0",
     "react-native-worklets": "~0.5.1",
     "styled-components": "~6.3.11",
+    "ulid": "^2.3.0",
     "zustand": "^5.0.14"
   },
   "devDependencies": {
     "@testing-library/react-native": "~14.0.1",
+    "@types/better-sqlite3": "^7.6.13",
+    "better-sqlite3": "^11.0.0",
+    "drizzle-kit": "^0.31.10",
+    "jest": "^29.7.0",
     "jest-expo": "~54.0.17"
   }
 }

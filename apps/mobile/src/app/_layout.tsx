@@ -7,6 +7,8 @@ import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { MobileThemeProvider, useMobileTheme } from '@ayphen/mobile-theme';
 import { BottomSheetProvider } from '@ayphen/mobile-ui-components';
 import { AuthProvider } from '@core/providers/AuthProvider';
+import { useSyncStoreBinding } from '@core/sync/use-sync-store-binding';
+import { initSyncListeners } from '@core/sync/scheduler-instance';
 import { useAuthStore } from '@store';
 import { GestureHandlerRootView } from 'react-native-gesture-handler';
 import { SafeAreaProvider } from 'react-native-safe-area-context';
@@ -32,6 +34,8 @@ const queryClient = new QueryClient({
 /** Inner tree — hides the splash only once fonts AND the session have resolved. */
 function RootNavigator({ fontsReady }: { fontsReady: boolean }) {
   const { theme } = useMobileTheme();
+  initSyncListeners();
+  useSyncStoreBinding();
   const isAuthReady = useAuthStore((s) => s.isAuthReady);
   const isAuthenticated = useAuthStore((s) => s.isAuthenticated);
   const isBootstrapped = useAuthStore((s) => s.isBootstrapped);

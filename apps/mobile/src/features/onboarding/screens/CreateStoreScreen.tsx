@@ -73,8 +73,17 @@ const STEP_META = [
 const DAY_NAMES = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'];
 const DAY_SHORT_NAMES = ['Su', 'Mo', 'Tu', 'We', 'Th', 'Fr', 'Sa'];
 
-/** Reached from the Onboarding Hub's "Create your store" CTA — always
- *  available, regardless of pending invitations. */
+/**
+ * Reached from the Onboarding Hub's "Create your store" CTA — always
+ * available, regardless of pending invitations.
+ *
+ * Hand-rolls the five sections instead of `FormScreen` (forms-agent.md §11)
+ * because this is a 5-step wizard with step-gated `trigger()` validation and
+ * a custom progress-bar/step chrome — behavior `FormScreen`'s single-screen
+ * wrapper doesn't cover. Field behavior (mode/reValidateMode/defaultValues,
+ * dirtyFields-based unsaved guard, keyboard chaining, scroll-safe padding)
+ * still follows the same rules `FormScreen` enforces elsewhere.
+ */
 export function CreateStoreScreen() {
   const { theme } = useMobileTheme();
   const { isAuthenticated, refetchUser } = useAuth();
@@ -94,6 +103,7 @@ export function CreateStoreScreen() {
     handleSubmit,
     setError,
     setValue,
+    setFocus,
     trigger,
     reset,
     formState: { isSubmitting, dirtyFields },
@@ -139,6 +149,12 @@ export function CreateStoreScreen() {
       // bootstrap so the snapshot reflects the new STORE_OWNER role + store
       // before the gate re-evaluates, or it'll bounce back here (empty stores[]).
       await refetchUser();
+      // Clean baseline before navigating away — matches every other
+      // FormScreen/auth-screen success path (forms-agent.md §6); this screen
+      // unmounts on replace so the practical effect is nil, but leaving it out
+      // is the one success path in the app that silently deviated from the
+      // pattern (also true if the mutation succeeds and refetch is retried).
+      reset();
       router.replace('/(app)');
     } catch (err) {
       handleFormError(err, setError, 'Could not create the store.');
@@ -259,6 +275,8 @@ export function CreateStoreScreen() {
                 autoFocus
                 disabled={isSubmitting}
                 prefix={<LucideIcon name="Store" size={16} color={theme.colorTextTertiary} />}
+                returnKeyType="next"
+                onSubmitEditing={() => setFocus('description')}
               />
               <Controller
                 name="category"
@@ -278,6 +296,8 @@ export function CreateStoreScreen() {
                 label="Description / tagline (optional)"
                 placeholder="e.g. Fresh groceries delivered to your door"
                 disabled={isSubmitting}
+                returnKeyType="done"
+                onSubmitEditing={handleNextStep1}
               />
             </Column>
           )}
@@ -294,6 +314,8 @@ export function CreateStoreScreen() {
                 maxLength={20}
                 disabled={isSubmitting}
                 prefix={<LucideIcon name="Phone" size={16} color={theme.colorTextTertiary} />}
+                returnKeyType="next"
+                onSubmitEditing={() => setFocus('email')}
               />
               <Input<CreateStoreForm>
                 name="email"
@@ -303,6 +325,8 @@ export function CreateStoreScreen() {
                 inputDataType="email"
                 disabled={isSubmitting}
                 prefix={<LucideIcon name="Mail" size={16} color={theme.colorTextTertiary} />}
+                returnKeyType="next"
+                onSubmitEditing={() => setFocus('website')}
               />
               <Input<CreateStoreForm>
                 name="website"
@@ -313,6 +337,8 @@ export function CreateStoreScreen() {
                 autoCapitalize="none"
                 disabled={isSubmitting}
                 prefix={<LucideIcon name="Globe" size={16} color={theme.colorTextTertiary} />}
+                returnKeyType="done"
+                onSubmitEditing={handleNextStep2}
               />
             </Column>
           )}
@@ -327,6 +353,8 @@ export function CreateStoreScreen() {
                 placeholder="Shop no., building, street"
                 disabled={isSubmitting}
                 prefix={<LucideIcon name="MapPin" size={16} color={theme.colorTextTertiary} />}
+                returnKeyType="next"
+                onSubmitEditing={() => setFocus('line2')}
               />
               <Input<CreateStoreForm>
                 name="line2"
@@ -334,6 +362,8 @@ export function CreateStoreScreen() {
                 label="Address line 2 (optional)"
                 placeholder="Area, landmark"
                 disabled={isSubmitting}
+                returnKeyType="next"
+                onSubmitEditing={() => setFocus('city')}
               />
               <Input<CreateStoreForm>
                 name="city"
@@ -341,6 +371,8 @@ export function CreateStoreScreen() {
                 label="City (optional)"
                 placeholder="e.g. Coimbatore"
                 disabled={isSubmitting}
+                returnKeyType="next"
+                onSubmitEditing={() => setFocus('pincode')}
               />
               <Controller
                 name="state"
@@ -362,6 +394,8 @@ export function CreateStoreScreen() {
                 inputDataType="integer"
                 maxLength={6}
                 disabled={isSubmitting}
+                returnKeyType="done"
+                onSubmitEditing={handleNextStep3}
               />
             </Column>
           )}
@@ -390,6 +424,8 @@ export function CreateStoreScreen() {
                 maxLength={15}
                 disabled={isSubmitting}
                 prefix={<LucideIcon name="ReceiptText" size={16} color={theme.colorTextTertiary} />}
+                returnKeyType="next"
+                onSubmitEditing={() => setFocus('pan')}
               />
               {gstin ? (
                 <Controller
@@ -419,6 +455,8 @@ export function CreateStoreScreen() {
                 maxLength={10}
                 disabled={isSubmitting}
                 prefix={<LucideIcon name="CreditCard" size={16} color={theme.colorTextTertiary} />}
+                returnKeyType="next"
+                onSubmitEditing={() => setFocus('businessRegNumber')}
               />
               <Input<CreateStoreForm>
                 name="businessRegNumber"
@@ -427,6 +465,8 @@ export function CreateStoreScreen() {
                 placeholder="e.g. MSME/Udyam, FSSAI, Shop Est. no."
                 disabled={isSubmitting}
                 prefix={<LucideIcon name="FileText" size={16} color={theme.colorTextTertiary} />}
+                returnKeyType="done"
+                onSubmitEditing={handleNextStep4}
               />
               <DateTimeField<CreateStoreForm>
                 name="migrationDate"

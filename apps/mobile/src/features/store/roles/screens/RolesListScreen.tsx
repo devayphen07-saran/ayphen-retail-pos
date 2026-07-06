@@ -77,7 +77,7 @@ export function RolesListScreen() {
                 onPress={() =>
                   router.push({
                     pathname: '/(store)/role-permissions',
-                    params: { roleId: role.id, roleName: role.name, isEditable: String(role.is_editable) },
+                    params: { roleId: role.id },
                   })
                 }
               >
@@ -120,5 +120,5 @@ const IconSlot = styled(View)`
   border-radius: ${({ theme }) => theme.borderRadius.large}px;
   align-items: center;
   justify-content: center;
-  background-color: ${({ theme }) => `${theme.colorPrimary}15`};
+  background-color: ${({ theme }) => theme.color.primary.bg};
 `;

@@ -183,14 +183,14 @@ export function SubscriptionScreen() {
                 <Row align="center" justify="space-between">
                   <Row align="center" gap={8}>
                     <PlanIconBadge>
-                      <LucideIcon name="Sparkles" size={16} color="#ffffff" />
+                      <LucideIcon name="Sparkles" size={16} color={theme.colorWhite} />
                     </PlanIconBadge>
-                    <Typography.Overline color="rgba(255,255,255,0.75)">
+                    <Typography.Overline color={theme.overlay.onDark55}>
                       CURRENT PLAN
                     </Typography.Overline>
                   </Row>
                   <StatusPill $status={sub.status}>
-                    <Typography.Caption weight="bold" color="#ffffff">
+                    <Typography.Caption weight="bold" color={theme.colorWhite}>
                       {statusLabel(sub.status)}
                     </Typography.Caption>
                   </StatusPill>
@@ -209,7 +209,7 @@ export function SubscriptionScreen() {
                     <ProgressTrack>
                       <ProgressFill style={{ width: `${(elapsedFraction(sub) ?? 0) * 100}%` }} />
                     </ProgressTrack>
-                    <Typography.Caption color="rgba(255,255,255,0.85)" weight="medium">
+                    <Typography.Caption color={theme.colorWhite} weight="medium">
                       {daysLeftLabel(sub)}
                     </Typography.Caption>
                   </Column>
@@ -297,11 +297,7 @@ export function SubscriptionScreen() {
 
 const PlanCardShadow = styled(View)`
   border-radius: ${({ theme }) => theme.borderRadius.xLarge}px;
-  shadow-color: ${({ theme }) => theme.color.primary.main};
-  shadow-opacity: 0.25;
-  shadow-radius: 16px;
-  shadow-offset: 0px 8px;
-  elevation: 6;
+  ${({ theme }) => theme.shadow.lg}
 `;
 
 const PlanCardGradient = styled(LinearGradient)`
@@ -314,31 +310,31 @@ const PlanIconBadge = styled(View)`
   width: 26px;
   height: 26px;
   border-radius: ${({ theme }) => theme.borderRadius.regular}px;
-  background-color: rgba(255, 255, 255, 0.18);
+  background-color: ${({ theme }) => theme.overlay.onDark20};
   align-items: center;
   justify-content: center;
 `;
 
 const StatusPill = styled(View)<{ $status: string }>`
   padding: 5px 12px;
-  border-radius: 999px;
-  background-color: ${({ $status }) =>
+  border-radius: ${({ theme }) => theme.borderRadius.full}px;
+  background-color: ${({ $status, theme }) =>
     $status === 'past_due' || $status === 'expired' || $status === 'paused'
-      ? 'rgba(220, 38, 38, 0.35)'
-      : 'rgba(255, 255, 255, 0.2)'};
+      ? theme.color.danger.bg
+      : theme.overlay.onDark20};
 `;
 
 const ProgressTrack = styled(View)`
   height: 6px;
-  border-radius: 3px;
-  background-color: rgba(255, 255, 255, 0.2);
+  border-radius: ${({ theme }) => theme.borderRadius.xSmall}px;
+  background-color: ${({ theme }) => theme.overlay.onDark20};
   overflow: hidden;
 `;
 
 const ProgressFill = styled(View)`
   height: 6px;
-  border-radius: 3px;
-  background-color: #ffffff;
+  border-radius: ${({ theme }) => theme.borderRadius.xSmall}px;
+  background-color: ${({ theme }) => theme.colorWhite};
 `;
 
 const ViewPlansButton = styled.TouchableOpacity`
@@ -347,7 +343,7 @@ const ViewPlansButton = styled.TouchableOpacity`
   justify-content: center;
   gap: 6px;
   margin-top: ${({ theme }) => theme.sizing.medium}px;
-  background-color: #ffffff;
+  background-color: ${({ theme }) => theme.colorWhite};
   border-radius: ${({ theme }) => theme.borderRadius.large}px;
   padding: 13px;
 `;

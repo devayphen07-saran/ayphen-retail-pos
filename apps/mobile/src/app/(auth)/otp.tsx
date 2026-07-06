@@ -38,9 +38,6 @@ type Params = {
   name?: string;
 };
 
-const TRUST_COLOR = '#4338CA';
-const W55 = 'rgba(255,255,255,0.55)';
-
 /** Step 2 — verify OTP, issue tokens, enter the app. Name + consent come from
  *  step 1 (phone screen); signup sends them at verify time. */
 export default function OtpScreen() {
@@ -145,7 +142,7 @@ export default function OtpScreen() {
                 <Typography.Body weight="semiBold" color={theme.colorWhite}>
                   Ayphen Retail
                 </Typography.Body>
-                <Typography.Caption color="rgba(255,255,255,0.50)">
+                <Typography.Caption color={theme.overlay.onDark50}>
                   Enterprise POS Platform
                 </Typography.Caption>
               </Column>
@@ -161,7 +158,7 @@ export default function OtpScreen() {
               <Flex height={6} />
               <Typography.H1 color={theme.colorWhite}>Check your{'\n'}messages.</Typography.H1>
               <Flex height={8} />
-              <Typography.Body color={W55}>{`6-digit code sent to ${phone}`}</Typography.Body>
+              <Typography.Body color={theme.overlay.onDark55}>{`6-digit code sent to ${phone}`}</Typography.Body>
             </Column>
 
             <Card style={{ minHeight: SH * 0.5 }}>
@@ -206,7 +203,7 @@ export default function OtpScreen() {
                   start={{ x: 0, y: 0 }}
                   end={{ x: 1, y: 0 }}
                   style={{
-                    height: 54,
+                    height: theme.componentSizing.ctaBtnHeight,
                     alignItems: 'center',
                     justifyContent: 'center',
                     borderRadius: theme.borderRadius.xxLarge,
@@ -227,7 +224,7 @@ export default function OtpScreen() {
 
               <OtpNote>
                 <LucideIcon name="Clock" size={12} color={theme.colorPrimaryHover} />
-                <Typography.Caption color={TRUST_COLOR}>
+                <Typography.Caption color={theme.colorTrustNote}>
                   Code expires in 5 minutes · 3 attempts allowed
                 </Typography.Caption>
               </OtpNote>
@@ -255,19 +252,19 @@ const BgGrad = styled(LinearGradient)`
 
 const Orb1 = styled.View`
   position: absolute;
-  background-color: rgba(255, 255, 255, 0.06);
+  background-color: ${({ theme }) => theme.overlay.onDark06};
 `;
 
 const Orb2 = styled.View`
   position: absolute;
-  background-color: rgba(255, 255, 255, 0.04);
+  background-color: ${({ theme }) => theme.overlay.onDark04};
 `;
 
 const LogoBox = styled.View`
-  width: 36px;
-  height: 36px;
+  width: ${({ theme }) => theme.componentSizing.heroBrandIconSize}px;
+  height: ${({ theme }) => theme.componentSizing.heroBrandIconSize}px;
   border-radius: ${({ theme }) => theme.borderRadius.medium}px;
-  background-color: rgba(255, 255, 255, 0.15);
+  background-color: ${({ theme }) => theme.overlay.onDark15};
   align-items: center;
   justify-content: center;
 `;
