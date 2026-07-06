@@ -1,6 +1,6 @@
 import { Injectable } from '@nestjs/common';
 import { AsyncLocalStorage } from 'async_hooks';
-import type { MobilePrincipal } from '../mobile/types/mobile-principal.js';
+import type { MobilePrincipal } from '../types/principal.js';
 
 export interface RequestContext {
   user:        MobilePrincipal;

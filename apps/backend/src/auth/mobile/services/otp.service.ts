@@ -7,7 +7,7 @@ import { AppConfigService } from '#config/app-config.service.js';
 import { CryptoService } from '../../core/crypto.service.js';
 import { Msg91Service } from '../../core/msg91.service.js';
 import { OtpRequestRepository, type OtpRequest } from '../repositories/otp-request.repository.js';
-import { MOBILE_REDIS } from './redis.provider.js';
+import { REDIS } from '#common/redis/redis.provider.js';
 
 const otpKey = (phone: string) => `otp:${phone}`;
 
@@ -16,7 +16,7 @@ export class OtpService {
   private readonly logger = new Logger(OtpService.name);
 
   constructor(
-    @Inject(MOBILE_REDIS)     private readonly redis:   Redis,
+    @Inject(REDIS)     private readonly redis:   Redis,
     private readonly otpRepo:  OtpRequestRepository,
     private readonly config:   AppConfigService,
     private readonly crypto:   CryptoService,

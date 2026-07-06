@@ -15,7 +15,7 @@ import type { Redis } from 'ioredis';
 import { DRIZZLE } from '#db/db.module.js';
 import * as schema from '#db/schema.js';
 import { accountSubscriptions } from '#db/schema.js';
-import { MOBILE_REDIS } from '../services/redis.provider.js';
+import { REDIS } from '#common/redis/redis.provider.js';
 import type { ResolvedStoreContext } from '#common/rbac/resolved-store-context.js';
 import {
   subVersionPointerKey,
@@ -92,7 +92,7 @@ export class SubscriptionStatusGuard implements CanActivate {
   constructor(
     private readonly reflector: Reflector,
     @Inject(DRIZZLE) private readonly db: PostgresJsDatabase<typeof schema>,
-    @Inject(MOBILE_REDIS) private readonly redis: Redis,
+    @Inject(REDIS) private readonly redis: Redis,
   ) {}
 
   async canActivate(context: ExecutionContext): Promise<boolean> {

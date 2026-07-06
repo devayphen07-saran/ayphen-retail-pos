@@ -8,7 +8,6 @@ import {
   invitations,
   invitationLocations,
   userRoleMappings,
-  userLocationMappings,
   accountUsers,
   locations,
   stores,
@@ -130,28 +129,6 @@ export class InvitationRepository {
     return rows.map((r) => r.locationFk).filter((id): id is string => id !== null);
   }
 
-  /**
-   * Assign the invitee to each granted location (idempotent, reactivates a
-   * soft-revoked row). Written here — alongside this repo's existing direct
-   * writes to userRoleMappings/accountUsers — rather than importing the
-   * locations module, to keep the accept transaction in one repository.
-   */
-  async assignLocations(
-    userId: string,
-    locationIds: string[],
-    assignedBy: string,
-    tx?: DbExecutor,
-  ): Promise<void> {
-    if (locationIds.length === 0) return;
-    await this.client(tx)
-      .insert(userLocationMappings)
-      .values(locationIds.map((locationFk) => ({ userFk: userId, locationFk, assignedBy })))
-      .onConflictDoUpdate({
-        target: [userLocationMappings.userFk, userLocationMappings.locationFk],
-        set: { revokedAt: null, assignedBy, assignedAt: new Date() },
-      });
-  }
-
   /** A pending invite already outstanding for this contact + role in this store. */
   async findPendingInvite(
     storeId: string,
@@ -262,19 +239,6 @@ export class InvitationRepository {
     await this.client(tx)
       .insert(accountUsers)
       .values({ accountFk: store.accountFk, userFk: userId })
-      .onConflictDoNothing();
-  }
-
-  async assignRole(
-    userId: string,
-    roleId: string,
-    storeId: string,
-    invitedBy: string,
-    tx?: DbExecutor,
-  ): Promise<void> {
-    await this.client(tx)
-      .insert(userRoleMappings)
-      .values({ userFk: userId, roleFk: roleId, storeFk: storeId, assignedBy: invitedBy })
       .onConflictDoNothing();
   }
 

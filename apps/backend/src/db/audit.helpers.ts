@@ -1,4 +1,4 @@
-import type { RequestContextService } from '#auth/core/request-context.service.js';
+import type { RequestContextService } from '#common/request-context/request-context.service.js';
 
 /**
  * Audit-column stamps. `ctx` is OPTIONAL so cron jobs and seed scripts — which

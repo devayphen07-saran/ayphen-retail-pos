@@ -4,8 +4,8 @@ import { CronJob } from 'cron';
 import type { Redis } from 'ioredis';
 import { env } from '#config/env.js';
 import { errorMessage } from '#common/error-message.js';
-import { MOBILE_REDIS } from '#auth/mobile/services/redis.provider.js';
-import { AuditService } from '#auth/core/audit.service.js';
+import { REDIS } from '#common/redis/redis.provider.js';
+import { AuditService } from '#common/audit/audit.service.js';
 import { SubscriptionRepository } from './subscription.repository.js';
 import { SubscriptionService } from './subscription.service.js';
 import { UnitOfWork, type DbTransaction } from '#db/db.module.js';
@@ -64,7 +64,7 @@ export class SubscriptionReconciliationService implements OnModuleInit {
     private readonly subscriptions: SubscriptionService,
     private readonly audit: AuditService,
     private readonly scheduler: SchedulerRegistry,
-    @Inject(MOBILE_REDIS) private readonly redis: Redis,
+    @Inject(REDIS) private readonly redis: Redis,
     private readonly uow: UnitOfWork,
   ) {}
 

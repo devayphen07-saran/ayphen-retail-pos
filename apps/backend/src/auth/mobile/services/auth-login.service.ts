@@ -3,7 +3,7 @@ import { randomUUID } from 'crypto';
 import { UnitOfWork, type DbExecutor } from '#db/db.module.js';
 import { AppException } from '#common/exceptions/app.exception.js';
 import { ErrorCodes } from '#common/error-codes.js';
-import { AuditService } from '../../core/audit.service.js';
+import { AuditService } from '#common/audit/audit.service.js';
 import { AuthConstantsService } from '../../core/auth-constants.service.js';
 import { CryptoService } from '../../core/crypto.service.js';
 import { RateLimitService } from '../../core/rate-limit.service.js';
@@ -17,7 +17,7 @@ import { AuthSessionRepository } from '../repositories/auth-session.repository.j
 import { RefreshTokenService } from './refresh-token.service.js';
 import { SnapshotService } from './snapshot.service.js';
 import type { StageOneResult, LoginResult, BootstrapResult } from '../types/auth-result.js';
-import type { MobilePrincipal } from '../types/mobile-principal.js';
+import type { MobilePrincipal } from '#common/types/principal.js';
 
 @Injectable()
 export class AuthLoginService {

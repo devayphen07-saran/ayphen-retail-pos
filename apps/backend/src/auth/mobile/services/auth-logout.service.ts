@@ -2,7 +2,7 @@ import { Injectable } from '@nestjs/common';
 import { AppException } from '#common/exceptions/app.exception.js';
 import { ErrorCodes } from '#common/error-codes.js';
 import { UnitOfWork } from '#db/db.module.js';
-import { AuditService } from '../../core/audit.service.js';
+import { AuditService } from '#common/audit/audit.service.js';
 import { AuthSessionRepository } from '../repositories/auth-session.repository.js';
 import { RefreshTokenRepository } from '../repositories/refresh-token.repository.js';
 import { BlacklistCacheService } from './blacklist-cache.service.js';

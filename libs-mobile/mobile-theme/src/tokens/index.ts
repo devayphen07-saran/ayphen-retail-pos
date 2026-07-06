@@ -62,7 +62,7 @@ export const mobileThemeTokens = {
 
 /**
  * Widens string literal types (produced by `as const`) to `string` so that
- * both `lightTheme` and `darkTheme` are assignable to `NKSTheme`.
+ * both `lightTheme` and `darkTheme` are assignable to `MobileTheme`.
  * Structured properties (sizing, borderRadius, etc.) keep their exact types.
  */
 type WidenStrings<T> = {
@@ -77,7 +77,7 @@ type WidenStrings<T> = {
           : T[K];
 };
 
-export type NKSTheme = WidenStrings<typeof lightTheme>;
+export type MobileTheme = WidenStrings<typeof lightTheme>;
 
 // ─── Re-export building blocks for consumers that need granular access ────────
 

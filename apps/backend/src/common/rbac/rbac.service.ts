@@ -1,7 +1,7 @@
 import { Inject, Injectable, Logger } from '@nestjs/common';
 import type Redis from 'ioredis';
 
-import { MOBILE_REDIS } from '#auth/mobile/services/redis.provider.js';
+import { REDIS } from '#common/redis/redis.provider.js';
 import type { DbExecutor } from '#db/db.module.js';
 import { RbacRepository, type ActiveRole } from './rbac.repository.js';
 import type { EffectivePermissions } from './effective-permissions.js';
@@ -38,7 +38,7 @@ export class RbacService {
   private readonly logger = new Logger(RbacService.name);
 
   constructor(
-    @Inject(MOBILE_REDIS) private readonly redis: Redis,
+    @Inject(REDIS) private readonly redis: Redis,
     private readonly repo: RbacRepository,
   ) {}
 

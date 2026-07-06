@@ -1,6 +1,8 @@
 import { Injectable } from '@nestjs/common';
 import * as argon2 from 'argon2';
 import { AppConfigService } from '#config/app-config.service.js';
+import { UnprocessableError } from '#common/exceptions/app.exception.js';
+import { ErrorCodes } from '#common/error-codes.js';
 
 const ARGON2_OPTIONS: argon2.Options = {
   type:        argon2.argon2id,
@@ -33,7 +35,7 @@ export class PasswordService {
 
   private assertLength(password: string): void {
     if (password.length > this.config.maxPasswordLength) {
-      throw new Error('Password exceeds maximum allowed length');
+      throw new UnprocessableError(ErrorCodes.PASSWORD_TOO_LONG, 'Password exceeds maximum allowed length');
     }
   }
 }

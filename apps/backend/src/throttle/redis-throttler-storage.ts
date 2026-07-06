@@ -14,7 +14,7 @@ interface ThrottlerStorageRecord {
  * Redis-backed throttler storage so rate limits are cluster-wide (not per
  * instance) and survive restarts — the in-memory default resets on restart and
  * gives every replica its own counter, so N replicas allow N× the intended
- * limit. Reuses the single shared MOBILE_REDIS connection (no second client).
+ * limit. Reuses the single shared REDIS connection (no second client).
  *
  * The Lua script replicates @nestjs/throttler's in-memory ThrottlerStorageService
  * semantics atomically: a fixed TTL window with an optional block window. `ttl`

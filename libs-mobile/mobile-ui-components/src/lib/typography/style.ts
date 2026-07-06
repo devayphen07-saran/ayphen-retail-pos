@@ -1,4 +1,4 @@
-import { NKSTheme } from "@ayphen/mobile-theme";
+import { MobileTheme } from "@ayphen/mobile-theme";
 import { TextStyle } from "react-native";
 import { ColorType } from "@ayphen/mobile-theme";
 
@@ -35,7 +35,7 @@ export type TypographyType = "primary" | "secondary" | "default";
  */
 export const variantTypography: Record<
   TypographyVariant,
-  (theme: NKSTheme) => TextStyle
+  (theme: MobileTheme) => TextStyle
 > = {
   h1: (theme) => ({
     fontSize: theme.fontSize.h1,
@@ -110,7 +110,7 @@ export const variantTypography: Record<
  */
 export const weightTypography: Record<
   TypographyWeight,
-  (theme: NKSTheme) => TextStyle
+  (theme: MobileTheme) => TextStyle
 > = {
   light: (theme) => ({
     fontWeight: "300",
@@ -139,7 +139,7 @@ export const weightTypography: Record<
 
 export const typeTypography: Record<
   TypographyType,
-  (theme: NKSTheme) => TextStyle
+  (theme: MobileTheme) => TextStyle
 > = {
   primary: (theme) => ({
     color: theme.color.primary.main,
@@ -157,7 +157,7 @@ export const typeTypography: Record<
 /* ---------------- COLOR HELPER ---------------- */
 
 export const getColorFromTheme = (
-  theme: NKSTheme,
+  theme: MobileTheme,
   colorType?: ColorType,
 ): string | undefined => {
   if (!colorType) return undefined;

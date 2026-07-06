@@ -3,7 +3,7 @@ import type { Request } from 'express';
 import { ForbiddenError } from '#common/exceptions/app.exception.js';
 import { ErrorCodes } from '#common/error-codes.js';
 import type { CrudAction, EntityCode } from '../permission-matrix.constants.js';
-import type { MobilePrincipal } from '#auth/mobile/types/mobile-principal.js';
+import type { MobilePrincipal } from '#common/types/principal.js';
 import type { ResolvedStoreContext } from '../resolved-store-context.js';
 
 // ─── Metadata keys ──────────────────────────────────────────────────────────

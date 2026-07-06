@@ -10,7 +10,7 @@ import { UnitOfWork } from '#db/db.module.js';
 import { rethrowUniqueViolationAs } from '#db/rethrow-unique-violation.js';
 import { RoleRepository, type RoleRow, type RoleGrant } from './role.repository.js';
 import { RbacService } from '#common/rbac/rbac.service.js';
-import { AuditService } from '#auth/core/audit.service.js';
+import { AuditService } from '#common/audit/audit.service.js';
 import {
   isEntityCode,
   type CrudAction,
@@ -148,7 +148,7 @@ export class RoleService {
     if ((await this.repo.countActiveMembers(roleId)) > 0) {
       throw new ConflictError(ErrorCodes.ROLE_HAS_ACTIVE_ASSIGNMENTS, 'This role still has active assignments');
     }
-    await this.repo.softDeleteRole(roleId);
+    await this.uow.execute((tx) => this.repo.softDeleteRole(roleId, tx));
     await this.audit.log({
       event: 'ROLE_PERMISSION_CHANGED',
       activityType: 'ROLE_PERMISSION_CHANGED',

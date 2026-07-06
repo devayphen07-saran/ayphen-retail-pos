@@ -5,7 +5,7 @@ import { UnitOfWork } from '#db/db.module.js';
 import { StoreRepository } from './store.repository.js';
 import { EntitlementService } from '../../subscription/entitlement.service.js';
 import { RbacService } from '#common/rbac/rbac.service.js';
-import { AuditService } from '#auth/core/audit.service.js';
+import { AuditService } from '#common/audit/audit.service.js';
 import { SnapshotService } from '#auth/mobile/services/snapshot.service.js';
 
 const TRIAL_DAYS = 15;

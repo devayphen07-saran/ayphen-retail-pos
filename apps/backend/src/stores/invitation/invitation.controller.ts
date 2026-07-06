@@ -21,13 +21,15 @@ import {
   CurrentUser,
   CurrentStoreContext,
 } from '#common/rbac/decorators/rbac.decorators.js';
-import type { MobilePrincipal } from '#auth/mobile/types/mobile-principal.js';
+import type { MobilePrincipal } from '#common/types/principal.js';
 import type { ResolvedStoreContext } from '#common/rbac/resolved-store-context.js';
 import { InvitationService } from './invitation.service.js';
 import { InvitationMapper } from './invitation.mapper.js';
 import type {
   MyInvitationResponse,
   AcceptInvitationResponse,
+  CreatedInvitationResponse,
+  InvitationActionResponse,
 } from './dto/invitation.response.js';
 import {
   CreateInvitationDtoSchema,
@@ -49,14 +51,15 @@ export class StoreInvitationController {
     @CurrentUser() user: MobilePrincipal,
     @CurrentStoreContext() ctx: ResolvedStoreContext,
     @Body() body: unknown,
-  ): Promise<{ id: string; token: string }> {
+  ): Promise<CreatedInvitationResponse> {
     const dto = parse(body, CreateInvitationDtoSchema);
-    return this.invitations.create(storeId, ctx.accountId, user.userId, {
+    const result = await this.invitations.create(storeId, ctx.accountId, user.userId, {
       roleId:      dto.role_id,
       phone:       dto.phone,
       email:       dto.email,
       locationIds: dto.location_ids,
     });
+    return InvitationMapper.toCreatedResponse(result);
   }
 }
 
@@ -92,10 +95,10 @@ export class InvitationController {
   }
 
   @Post('reject')
-  async reject(@Req() req: Request, @Body() body: unknown): Promise<{ ok: true }> {
+  async reject(@Req() req: Request, @Body() body: unknown): Promise<InvitationActionResponse> {
     const dto = parse(body, RejectInvitationDtoSchema);
     await this.invitations.reject(dto.token, getRequestIp(req));
-    return { ok: true };
+    return InvitationMapper.toActionResponse();
   }
 
   /** Decline in-app from GET /me/invitations — by id, contact-authorized. */
@@ -104,9 +107,9 @@ export class InvitationController {
     @Param('id', ParseUUIDPipe) invitationId: string,
     @CurrentUser() user: MobilePrincipal,
     @Req() req: Request,
-  ): Promise<{ ok: true }> {
+  ): Promise<InvitationActionResponse> {
     await this.invitations.rejectById(invitationId, user.userId, getRequestIp(req));
-    return { ok: true };
+    return InvitationMapper.toActionResponse();
   }
 }
 

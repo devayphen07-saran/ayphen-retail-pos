@@ -1,7 +1,7 @@
 import { Inject, Injectable, Logger } from '@nestjs/common';
 import Redis from 'ioredis';
 import { CryptoService } from '../../core/crypto.service.js';
-import { MOBILE_REDIS } from './redis.provider.js';
+import { REDIS } from '#common/redis/redis.provider.js';
 
 const KEY = (k: string) => `refresh_idem:${k}`;
 
@@ -57,7 +57,7 @@ export class RefreshIdempotencyService {
   private readonly logger = new Logger(RefreshIdempotencyService.name);
 
   constructor(
-    @Inject(MOBILE_REDIS) private readonly redis: Redis,
+    @Inject(REDIS) private readonly redis: Redis,
     private readonly crypto: CryptoService,
   ) {}
 

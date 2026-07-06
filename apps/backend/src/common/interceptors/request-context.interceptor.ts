@@ -6,8 +6,9 @@ import {
 } from '@nestjs/common';
 import { Observable } from 'rxjs';
 import type { Request } from 'express';
-import { RequestContextService } from '#auth/core/request-context.service.js';
-import type { MobilePrincipal } from '#auth/mobile/types/mobile-principal.js';
+import { RequestContextService } from '#common/request-context/request-context.service.js';
+import type { MobilePrincipal } from '#common/types/principal.js';
+import { getRequestIp } from '#common/request-ip.js';
 import '../rbac/resolved-store-context.js';
 
 /**
@@ -35,9 +36,7 @@ export class RequestContextInterceptor implements NestInterceptor {
         {
           user:      principal,
           requestId: (req.headers['x-request-id'] as string) ?? '',
-          ip:        (req.headers['x-forwarded-for'] as string)?.split(',')[0]?.trim()
-                       ?? req.socket?.remoteAddress
-                       ?? '',
+          ip:        getRequestIp(req),
           userAgent: (req.headers['user-agent'] as string) ?? '',
           // storeId and accountId are attached by TenantGuard, which runs
           // before this interceptor. Must be forwarded, else getAccountId()

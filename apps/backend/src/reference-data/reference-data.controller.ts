@@ -1,8 +1,7 @@
 import { Controller, Get, UseGuards } from '@nestjs/common';
 import { MobileJwtGuard } from '#auth/mobile/guards/mobile-jwt.guard.js';
 import { StoreContext } from '#common/rbac/decorators/rbac.decorators.js';
-import { CountryRepository } from './country.repository.js';
-import { CurrencyRepository } from './currency.repository.js';
+import { ReferenceDataService } from './reference-data.service.js';
 import {
   CountryMapper,
   CurrencyMapper,
@@ -19,20 +18,17 @@ import {
 @UseGuards(MobileJwtGuard)
 @StoreContext('none')
 export class ReferenceDataController {
-  constructor(
-    private readonly countries: CountryRepository,
-    private readonly currencies: CurrencyRepository,
-  ) {}
+  constructor(private readonly referenceData: ReferenceDataService) {}
 
   @Get('countries')
   async listCountries(): Promise<CountryResponse[]> {
-    const rows = await this.countries.listActive();
+    const rows = await this.referenceData.listCountries();
     return CountryMapper.toList(rows);
   }
 
   @Get('currencies')
   async listCurrencies(): Promise<CurrencyResponse[]> {
-    const rows = await this.currencies.listActive();
+    const rows = await this.referenceData.listCurrencies();
     return CurrencyMapper.toList(rows);
   }
 }

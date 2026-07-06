@@ -50,3 +50,7 @@ export const ConflictResolveSchema = z.object({
   status: z.enum(['resolved', 'discarded']),
   note: z.string().max(500).optional(),
 });
+
+/** Shared query-param helper: comma-separated wire string → string[]. */
+export const splitTypes = (raw?: string): string[] | undefined =>
+  raw ? raw.split(',').map((s) => s.trim()).filter(Boolean) : undefined;

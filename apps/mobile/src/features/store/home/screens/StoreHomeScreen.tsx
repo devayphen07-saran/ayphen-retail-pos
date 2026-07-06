@@ -2,7 +2,7 @@ import { useMemo } from 'react';
 import { Pressable, ScrollView, TouchableOpacity, View } from 'react-native';
 import { router } from 'expo-router';
 import styled from 'styled-components/native';
-import { useMobileTheme, type NKSTheme } from '@ayphen/mobile-theme';
+import { useMobileTheme, type MobileTheme } from '@ayphen/mobile-theme';
 import { AppLayout, Column, LucideIcon, Row, Typography } from '@ayphen/mobile-ui-components';
 import { useActiveStoreStore } from '@store';
 
@@ -237,7 +237,7 @@ export function StoreHomeScreen() {
   );
 }
 
-function resolveInfoColor(theme: NKSTheme): string {
+function resolveInfoColor(theme: MobileTheme): string {
   return theme.color?.blue?.main ?? theme.colorPrimary;
 }
 

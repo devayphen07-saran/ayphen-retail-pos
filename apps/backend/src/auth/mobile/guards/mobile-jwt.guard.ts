@@ -17,8 +17,8 @@ import { CryptoService } from '../../core/crypto.service.js';
 import { AppConfigService } from '#config/app-config.service.js';
 import { BlacklistCacheService } from '../services/blacklist-cache.service.js';
 import { ReplayProtectionService } from '../services/replay-protection.service.js';
-import { MOBILE_REDIS } from '../services/redis.provider.js';
-import type { MobilePrincipal } from '../types/mobile-principal.js';
+import { REDIS } from '#common/redis/redis.provider.js';
+import type { MobilePrincipal } from '#common/types/principal.js';
 
 const sessionKey = (id: string) => `session:${id}`;
 
@@ -29,7 +29,7 @@ export class MobileJwtGuard implements CanActivate {
     private readonly config:      AppConfigService,
     private readonly blacklist:   BlacklistCacheService,
     private readonly replay:      ReplayProtectionService,
-    @Inject(MOBILE_REDIS) private readonly redis: Redis,
+    @Inject(REDIS) private readonly redis: Redis,
     @Inject(DRIZZLE)      private readonly db:    PostgresJsDatabase<typeof schema>,
   ) {}
 

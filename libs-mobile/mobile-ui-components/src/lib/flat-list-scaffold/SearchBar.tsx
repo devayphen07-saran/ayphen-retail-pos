@@ -13,7 +13,7 @@ import {
   View,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
-import { useMobileTheme, type NKSTheme } from '@ayphen/mobile-theme';
+import { useMobileTheme, type MobileTheme } from '@ayphen/mobile-theme';
 
 import { LucideIcon, LucideIconNameType } from '../lucide-icon';
 import { Typography } from '../typography';
@@ -249,7 +249,7 @@ export function SearchBar({
 // value-bearing entries resolved from `theme.*` tokens. It's built per-theme via
 // `makeStyles(theme)` (memoized in the component) since StyleSheet.create itself
 // is static and cannot read the theme.
-const makeStyles = (theme: NKSTheme) =>
+const makeStyles = (theme: MobileTheme) =>
   StyleSheet.create({
     // ── search bar ────────────────────────────────────────────────────────────
     wrapper: {

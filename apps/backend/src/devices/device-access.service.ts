@@ -4,7 +4,7 @@ import { UnitOfWork } from '#db/db.module.js';
 import { ForbiddenError, NotFoundError } from '#common/exceptions/app.exception.js';
 import { ErrorCodes } from '#common/error-codes.js';
 import { EntitlementService } from '../subscription/entitlement.service.js';
-import { AuditService } from '#auth/core/audit.service.js';
+import { AuditService } from '#common/audit/audit.service.js';
 import { BlacklistCacheService } from '#auth/mobile/services/blacklist-cache.service.js';
 import { SessionCacheInvalidatorService } from '#auth/mobile/services/session-cache-invalidator.service.js';
 import { DeviceAccessRepository, type StoreDeviceRow } from './device-access.repository.js';

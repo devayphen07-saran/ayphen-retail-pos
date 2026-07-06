@@ -70,9 +70,15 @@ export class UserLocationRepository {
 
   /** Insert (or reactivate) an assignment. Idempotent on (user, location). */
   async assign(userId: string, locationId: string, assignedBy: string, tx?: DbExecutor): Promise<void> {
+    await this.assignMany(userId, [locationId], assignedBy, tx);
+  }
+
+  /** Batched `assign` — one insert for every granted location (e.g. invitation accept). */
+  async assignMany(userId: string, locationIds: string[], assignedBy: string, tx?: DbExecutor): Promise<void> {
+    if (locationIds.length === 0) return;
     await this.client(tx)
       .insert(userLocationMappings)
-      .values({ userFk: userId, locationFk: locationId, assignedBy })
+      .values(locationIds.map((locationFk) => ({ userFk: userId, locationFk, assignedBy })))
       .onConflictDoUpdate({
         target: [userLocationMappings.userFk, userLocationMappings.locationFk],
         set: { revokedAt: null, assignedBy, assignedAt: new Date() },

@@ -15,7 +15,7 @@ import {
 } from '#db/schema.js';
 import { CryptoService } from '../../core/crypto.service.js';
 import { AuthConstantsService } from '../../core/auth-constants.service.js';
-import { MOBILE_REDIS } from './redis.provider.js';
+import { REDIS } from '#common/redis/redis.provider.js';
 import type {
   PermissionSnapshot,
   SnapshotResult,
@@ -27,7 +27,7 @@ const snapshotKey = (userId: string) => `snapshot:${userId}`;
 @Injectable()
 export class SnapshotService {
   constructor(
-    @Inject(MOBILE_REDIS) private readonly redis:     Redis,
+    @Inject(REDIS) private readonly redis:     Redis,
     @Inject(DRIZZLE)      private readonly db:        PostgresJsDatabase<typeof schema>,
     private readonly crypto:    CryptoService,
     private readonly constants: AuthConstantsService,

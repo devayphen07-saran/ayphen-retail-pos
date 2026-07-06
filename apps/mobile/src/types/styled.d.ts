@@ -1,6 +1,6 @@
 import 'styled-components/native';
-import type { NKSTheme } from '@ayphen/mobile-theme';
+import type { MobileTheme } from '@ayphen/mobile-theme';
 
 declare module 'styled-components/native' {
-  export interface DefaultTheme extends NKSTheme {}
+  export interface DefaultTheme extends MobileTheme {}
 }

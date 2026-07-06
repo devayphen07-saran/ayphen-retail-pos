@@ -1,4 +1,4 @@
-import type { Location } from './location.repository.js';
+import type { LocationResult } from './location.service.js';
 import type { LocationMember } from './user-location.repository.js';
 
 export interface LocationResponse {
@@ -19,7 +19,7 @@ export interface LocationMemberResponse {
 
 /** Pure domain → snake_case mapper (layered-architecture §3.7). */
 export const LocationMapper = {
-  toResponse(l: Location): LocationResponse {
+  toResponse(l: LocationResult): LocationResponse {
     return {
       id:            l.id,
       name:          l.name,
@@ -30,7 +30,7 @@ export const LocationMapper = {
       display_order: l.displayOrder,
     };
   },
-  toList(rows: Location[]): LocationResponse[] {
+  toList(rows: LocationResult[]): LocationResponse[] {
     return rows.map((l) => LocationMapper.toResponse(l));
   },
   toMemberResponse(m: LocationMember): LocationMemberResponse {

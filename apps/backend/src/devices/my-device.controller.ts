@@ -9,7 +9,7 @@ import {
 } from '@nestjs/common';
 import { MobileJwtGuard } from '#auth/mobile/guards/mobile-jwt.guard.js';
 import { CurrentUser } from '#common/rbac/decorators/rbac.decorators.js';
-import type { MobilePrincipal } from '#auth/mobile/types/mobile-principal.js';
+import type { MobilePrincipal } from '#common/types/principal.js';
 import { DeviceAccessService } from './device-access.service.js';
 import { StoreDeviceMapper, type MyDeviceResponse } from './device.mapper.js';
 

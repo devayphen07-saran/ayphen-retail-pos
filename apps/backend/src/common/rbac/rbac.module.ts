@@ -11,7 +11,7 @@ import { LocationGuard } from './guards/location.guard.js';
 /**
  * RBAC foundation module (rbac.md §5, §10–13, §15–17, §21). Validates the
  * permission matrix at startup, provides the RBAC service + repository, and the
- * enforcement guards. MOBILE_REDIS comes from RedisModule; AuditService/
+ * enforcement guards. REDIS comes from RedisModule; AuditService/
  * CryptoService from the global AuthCoreModule. Route-config validation lives in
  * the separate RouteCoverageModule (it needs DiscoveryModule, which must
  * not sit in this early-loading global module — see that module's note).

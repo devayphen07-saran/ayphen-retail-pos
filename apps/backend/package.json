@@ -21,7 +21,6 @@
     "db:reset": "pnpm db:flush && pnpm db:seed",
     "test:unit": "jest test/unit",
     "test:integration": "jest test/integration",
-    "test:e2e": "jest test/e2e --runInBand",
     "test:watch": "jest --watch",
     "test:ci": "jest --coverage --ci",
     "android": "expo run:android",

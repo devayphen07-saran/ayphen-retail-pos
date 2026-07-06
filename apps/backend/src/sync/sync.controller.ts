@@ -23,44 +23,23 @@ import {
   RequirePermissions,
   StoreContext,
 } from '#common/rbac/decorators/rbac.decorators.js';
-import type { MobilePrincipal } from '#auth/mobile/types/mobile-principal.js';
+import type { MobilePrincipal } from '#common/types/principal.js';
 import type { ResolvedStoreContext } from '#common/rbac/resolved-store-context.js';
 import { SkipTransform } from '#common/decorators/skip-transform.decorator.js';
 import { parse } from '#common/validation/parse.js';
-import { NotFoundError } from '#common/exceptions/app.exception.js';
-import { ErrorCodes } from '#common/error-codes.js';
 import { InitialSyncService, type InitialResult } from './pull/initial-sync.service.js';
 import { SyncChangesService, type ChangesResult } from './pull/changes.service.js';
 import { SyncDeltaService, type SyncDeltaResult } from './push/delta.service.js';
-import {
-  SyncConflictRepository,
-  type SyncConflictRow,
-} from './repositories/sync-conflict.repository.js';
+import { SyncConflictService } from './services/sync-conflict.service.js';
+import { ConflictResponseMapper } from './mappers/response/conflict.response-mapper.js';
+import type { ConflictResponse, ConflictListResponse } from './dto/response/conflict.response.js';
 import {
   ChangesQuerySchema,
   ConflictListQuerySchema,
   ConflictResolveSchema,
   InitialQuerySchema,
+  splitTypes,
 } from './dto/sync-delta.schema.js';
-
-function conflictToWire(row: SyncConflictRow) {
-  return {
-    mutation_id: row.mutationId,
-    entity_type: row.entityType,
-    entity_guuid: row.entityGuuid,
-    conflict_type: row.conflictType,
-    server_row: row.serverRow,
-    client_payload: row.clientPayload,
-    message: row.message,
-    status: row.status,
-    note: row.note,
-    created_at: row.createdAt.toISOString(),
-    resolved_at: row.resolvedAt?.toISOString() ?? null,
-  };
-}
-
-const splitTypes = (raw?: string): string[] | undefined =>
-  raw ? raw.split(',').map((s) => s.trim()).filter(Boolean) : undefined;
 
 /**
  * The sync engine's HTTP surface (sync-engine.md §2). Standard guard chain;
@@ -78,7 +57,7 @@ export class SyncController {
     private readonly initial: InitialSyncService,
     private readonly changes: SyncChangesService,
     private readonly delta: SyncDeltaService,
-    private readonly conflicts: SyncConflictRepository,
+    private readonly conflicts: SyncConflictService,
   ) {}
 
   /** Cold-start dump — one entity type per call, resumable (F-SYNC-1). */
@@ -131,13 +110,13 @@ export class SyncController {
   async listConflicts(
     @Param('storeId', ParseUUIDPipe) storeId: string,
     @Query() query: Record<string, unknown>,
-  ) {
+  ): Promise<ConflictListResponse> {
     const q = parse(query, ConflictListQuerySchema);
     const rows = await this.conflicts.list(storeId, {
       status: q.status,
       conflictType: q.conflict_type,
     });
-    return { conflicts: rows.map(conflictToWire) };
+    return ConflictResponseMapper.toListResponse(rows);
   }
 
   /** Bookkeeping only — the client rebases and resubmits under the new row_version. */
@@ -149,16 +128,13 @@ export class SyncController {
     @Param('mutationId') mutationId: string,
     @CurrentUser() user: MobilePrincipal,
     @Body() body: unknown,
-  ) {
+  ): Promise<ConflictResponse> {
     const b = parse(body, ConflictResolveSchema);
     const row = await this.conflicts.resolve(storeId, mutationId, {
       status: b.status,
       note: b.note,
       resolvedBy: user.userId,
     });
-    if (!row) {
-      throw new NotFoundError(ErrorCodes.SYNC_CONFLICT_NOT_FOUND, 'No conflict recorded for this mutation');
-    }
-    return conflictToWire(row);
+    return ConflictResponseMapper.toResponse(row);
   }
 }

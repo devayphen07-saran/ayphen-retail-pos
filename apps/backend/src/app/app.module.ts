@@ -15,6 +15,8 @@ import { MobileAuthModule } from '#auth/mobile/mobile-auth.module.js';
 import { RbacModule } from '#common/rbac/rbac.module.js';
 import { RouteCoverageModule } from '#common/rbac/route-coverage.module.js';
 import { RedisModule } from '#common/redis/redis.module.js';
+import { RequestContextModule } from '#common/request-context/request-context.module.js';
+import { AuditModule } from '#common/audit/audit.module.js';
 import { StoresModule } from '../stores/stores.module.js';
 import { SubscriptionModule } from '../subscription/subscription.module.js';
 import { DevicesModule } from '../devices/devices.module.js';
@@ -33,6 +35,8 @@ import { SyncModule } from '../sync/sync.module.js';
     ThrottleModule,
     ScheduleModule.forRoot(),
     RedisModule,
+    RequestContextModule,
+    AuditModule,
     AuthCoreModule,
     RbacModule,
     MobileAuthModule,

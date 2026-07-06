@@ -1,6 +1,6 @@
 import "styled-components/native";
-import type { NKSTheme } from "../tokens";
+import type { MobileTheme } from "../tokens";
 
 declare module "styled-components/native" {
-  export interface DefaultTheme extends NKSTheme {}
+  export interface DefaultTheme extends MobileTheme {}
 }

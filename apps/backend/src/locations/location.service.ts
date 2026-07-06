@@ -8,7 +8,7 @@ import {
 } from '#common/exceptions/app.exception.js';
 import { ErrorCodes } from '#common/error-codes.js';
 import { EntitlementService } from '../subscription/entitlement.service.js';
-import { AuditService } from '#auth/core/audit.service.js';
+import { AuditService } from '#common/audit/audit.service.js';
 import { LocationRepository, type Location } from './location.repository.js';
 import { UserLocationRepository } from './user-location.repository.js';
 
@@ -23,6 +23,17 @@ export interface CreateLocationInput {
 export interface UpdateLocationInput {
   name?:   string;
   enable?: boolean;
+}
+
+/** camelCase domain result — exactly what the response mapper needs (§3.1). */
+export interface LocationResult {
+  id:           string;
+  name:         string;
+  isPrimary:    boolean;
+  isDefault:    boolean;
+  enable:       boolean;
+  locked:       boolean;
+  displayOrder: number;
 }
 
 /**
@@ -40,8 +51,9 @@ export class LocationService {
     private readonly uow: UnitOfWork,
   ) {}
 
-  listLocations(storeId: string): Promise<Location[]> {
-    return this.repo.listActive(storeId);
+  async listLocations(storeId: string): Promise<LocationResult[]> {
+    const rows = await this.repo.listActive(storeId);
+    return rows.map((l) => this.toResult(l));
   }
 
   async createLocation(
@@ -49,7 +61,7 @@ export class LocationService {
     accountId: string,
     actorId: string,
     input: CreateLocationInput,
-  ): Promise<Location> {
+  ): Promise<LocationResult> {
     // max_locations_per_store gate (Head Office counts as slot 1). This single
     // numeric entitlement is the only multi-location gate — a separate
     // 'multi_store' feature flag used to duplicate this check and could
@@ -118,7 +130,7 @@ export class LocationService {
       userId: actorId, storeFk: storeId, isSuccess: true,
       entityType: 'Location', entityId: created.id,
     });
-    return created;
+    return this.toResult(created);
   }
 
   async updateLocation(
@@ -204,5 +216,18 @@ export class LocationService {
       userId: actorId, storeFk: storeId, isSuccess: true,
       entityType: 'Location', entityId: locationId,
     });
+  }
+
+  /** Persistence entity → the domain result the response mapper consumes. */
+  private toResult(l: Location): LocationResult {
+    return {
+      id:           l.id,
+      name:         l.name,
+      isPrimary:    l.isPrimary,
+      isDefault:    l.isDefault,
+      enable:       l.enable,
+      locked:       l.locked,
+      displayOrder: l.displayOrder,
+    };
   }
 }

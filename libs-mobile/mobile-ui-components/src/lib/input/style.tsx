@@ -1,9 +1,9 @@
 import { TextStyle } from "react-native";
-import { NKSTheme } from "@ayphen/mobile-theme";
+import { MobileTheme } from "@ayphen/mobile-theme";
 
 /* ---------------- Label ---------------- */
 
-export const inputLabelStyles = (theme: NKSTheme): TextStyle => ({
+export const inputLabelStyles = (theme: MobileTheme): TextStyle => ({
   fontSize: theme.fontSize.xSmall,
   fontWeight: "600",
   marginBottom: theme.margin.xSmall,
@@ -13,7 +13,7 @@ export const inputLabelStyles = (theme: NKSTheme): TextStyle => ({
 
 /* ---------------- Input ---------------- */
 
-export const inputStyles = (theme: NKSTheme, hasError?: boolean): TextStyle => ({
+export const inputStyles = (theme: MobileTheme, hasError?: boolean): TextStyle => ({
   borderWidth: hasError ? (theme.borderWidth?.light ?? 1.5) : (theme.borderWidth?.thin ?? 1),
   borderColor: hasError ? theme.colorError : theme.colorBorder,
   borderRadius: theme.borderRadius.xLarge,

@@ -1,6 +1,6 @@
 // ─── Global augmentation ──────────────────────────────────────────────────────
 // Compile-time-only reference so `styled-components/native`'s DefaultTheme is
-// augmented with NKSTheme wherever this package is imported. Consumers resolve
+// augmented with MobileTheme wherever this package is imported. Consumers resolve
 // straight to this source file (package.json "types": "src/index.ts"), so the
 // ambient declaration in ./types/styled.d.ts otherwise never enters their
 // compile. A triple-slash reference (unlike a value `import`) is erased by
@@ -12,7 +12,7 @@
 export { mobileThemeTokens, lightTheme, darkTheme } from "./tokens";
 
 // ─── Token types ──────────────────────────────────────────────────────────────
-export type { NKSTheme } from "./tokens";
+export type { MobileTheme } from "./tokens";
 export type {
   SizeType,
   FontSizeType,

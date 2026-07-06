@@ -10,7 +10,7 @@ import {
 import { Appearance, type ColorSchemeName, StatusBar } from "react-native";
 import AsyncStorage from "@react-native-async-storage/async-storage";
 import { ThemeProvider as StyledThemeProvider } from "styled-components/native";
-import { mobileThemeTokens, type NKSTheme } from "./tokens";
+import { mobileThemeTokens, type MobileTheme } from "./tokens";
 import type { ColorVariantKey } from "./tokens/colors/types";
 
 // ─── Types ────────────────────────────────────────────────────────────────────
@@ -31,7 +31,7 @@ export interface MobileThemeContextType {
   /** Persist a preference and update the active theme. */
   setThemePreference: (preference: ThemePreference) => Promise<void>;
   /** Resolved theme tokens for the current mode. */
-  theme: NKSTheme;
+  theme: MobileTheme;
 }
 
 export interface MobileThemeProviderProps {
@@ -41,7 +41,7 @@ export interface MobileThemeProviderProps {
 
 // ─── Storage ──────────────────────────────────────────────────────────────────
 
-const STORAGE_KEY = "@nks_mobile_theme_preference";
+const STORAGE_KEY = "@ayphen_mobile_theme_preference";
 const VALID_PREFERENCES: ReadonlyArray<ThemePreference> = ["light", "dark", "auto"];
 
 function isValidPreference(value: unknown): value is ThemePreference {
@@ -54,7 +54,7 @@ async function loadPreference(): Promise<ThemePreference> {
     if (isValidPreference(raw)) return raw;
     return "auto";
   } catch (err) {
-    if (__DEV__) console.warn("[NKSTheme] Failed to load preference:", err);
+    if (__DEV__) console.warn("[MobileThemeProvider] Failed to load preference:", err);
     return "auto";
   }
 }
@@ -63,7 +63,7 @@ async function savePreference(preference: ThemePreference): Promise<void> {
   try {
     await AsyncStorage.setItem(STORAGE_KEY, preference);
   } catch (err) {
-    if (__DEV__) console.warn("[NKSTheme] Failed to save preference:", err);
+    if (__DEV__) console.warn("[MobileThemeProvider] Failed to save preference:", err);
   }
 }
 
@@ -78,7 +78,7 @@ function resolveIsDark(preference: ThemePreference, scheme: ColorSchemeName): bo
 // ─── Context ──────────────────────────────────────────────────────────────────
 
 const MobileThemeContext = createContext<MobileThemeContextType | undefined>(undefined);
-MobileThemeContext.displayName = "NKSMobileThemeContext";
+MobileThemeContext.displayName = "AyphenMobileThemeContext";
 
 // ─── Provider ─────────────────────────────────────────────────────────────────
 
@@ -120,7 +120,7 @@ export function MobileThemeProvider({
 
   const isDarkMode = resolveIsDark(themePreference, colorScheme);
 
-  const theme = useMemo<NKSTheme>(
+  const theme = useMemo<MobileTheme>(
     () => (isDarkMode ? mobileThemeTokens.dark : mobileThemeTokens.light),
     [isDarkMode],
   );

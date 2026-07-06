@@ -4,7 +4,7 @@ import { UnitOfWork } from '#db/db.module.js';
 import { AppException } from '#common/exceptions/app.exception.js';
 import { ErrorCodes } from '#common/error-codes.js';
 import { UserRepository } from '../repositories/user.repository.js';
-import { AuditService } from '../../core/audit.service.js';
+import { AuditService } from '#common/audit/audit.service.js';
 import { AuthConstantsService } from '../../core/auth-constants.service.js';
 import { CryptoService } from '../../core/crypto.service.js';
 import { RateLimitService } from '../../core/rate-limit.service.js';

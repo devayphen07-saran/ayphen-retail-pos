@@ -2,14 +2,14 @@ import { Inject, Injectable } from '@nestjs/common';
 import Redis from 'ioredis';
 import { UnauthorizedError } from '#common/exceptions/app.exception.js';
 import { ErrorCodes } from '#common/error-codes.js';
-import { MOBILE_REDIS } from './redis.provider.js';
+import { REDIS } from '#common/redis/redis.provider.js';
 
 const NONCE_TTL_SECONDS = 600; // 10 min
 const TIMESTAMP_DRIFT_MS = 30_000; // ±30s
 
 @Injectable()
 export class ReplayProtectionService {
-  constructor(@Inject(MOBILE_REDIS) private readonly redis: Redis) {}
+  constructor(@Inject(REDIS) private readonly redis: Redis) {}
 
   async check(deviceId: string, timestampHeader: string | undefined, nonceHeader: string | undefined): Promise<void> {
     if (!timestampHeader || !nonceHeader) {

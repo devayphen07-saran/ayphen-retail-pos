@@ -1,10 +1,10 @@
 import type {
   SubscriptionView,
   PlanCatalogEntryResult,
+  SubscriptionActionResult,
 } from './subscription.service.js';
 import type { CheckoutResult, VerifyResult } from './billing.service.js';
 import type { ReconciliationContext } from './reconciliation.service.js';
-import type { AccountSubscription } from './subscription.repository.js';
 import type {
   SubscriptionResponse,
   SubscriptionActionResponse,
@@ -62,7 +62,7 @@ export const SubscriptionResponseMapper = {
     };
   },
 
-  toActionResponse(sub: AccountSubscription): SubscriptionActionResponse {
+  toActionResponse(sub: SubscriptionActionResult): SubscriptionActionResponse {
     return {
       status:               sub.status,
       cancel_at_period_end: sub.cancelAtPeriodEnd,
@@ -75,9 +75,24 @@ export const SubscriptionResponseMapper = {
   },
 
   toCheckoutResponse(r: CheckoutResult): CheckoutResponse {
-    // clientPayload is the provider's open-ended client SDK payload (not a DB
-    // entity) — the wire contract is that payload spread with `prefill` added.
-    return { ...r.clientPayload, prefill: r.prefill };
+    // clientPayload is Record<string, unknown> at the provider-port boundary,
+    // but both bound providers (Razorpay, Fake) always populate exactly these
+    // fields — list them explicitly rather than spreading the open bag (§3.7).
+    const p = r.clientPayload as {
+      provider: string;
+      key: string;
+      order_id: string;
+      amount: number;
+      currency: string;
+    };
+    return {
+      provider: p.provider,
+      key:      p.key,
+      order_id: p.order_id,
+      amount:   p.amount,
+      currency: p.currency,
+      prefill:  r.prefill,
+    };
   },
 
   toVerifyResponse(r: VerifyResult): VerifyPaymentResponse {

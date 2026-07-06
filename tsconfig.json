@@ -10,12 +10,6 @@
       "path": "./apps/mobile"
     },
     {
-      "path": "./libs-common/state-manager"
-    },
-    {
-      "path": "./libs-common/shared-types"
-    },
-    {
       "path": "./libs-mobile/mobile-theme"
     },
     {

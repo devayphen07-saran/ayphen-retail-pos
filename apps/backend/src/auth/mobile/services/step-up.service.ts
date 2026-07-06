@@ -11,7 +11,7 @@ import { UserRepository } from '../repositories/user.repository.js';
 import { DeviceRepository } from '../repositories/device.repository.js';
 import { DeviceChallengeService } from './device-challenge.service.js';
 import { SessionCacheInvalidatorService } from './session-cache-invalidator.service.js';
-import { MOBILE_REDIS } from './redis.provider.js';
+import { REDIS } from '#common/redis/redis.provider.js';
 
 const stepUpKey = (sessionId: string) => `stepup:attempts:${sessionId}`;
 
@@ -42,7 +42,7 @@ export interface StepUpResult {
 @Injectable()
 export class StepUpService {
   constructor(
-    @Inject(MOBILE_REDIS)         private readonly redis:      Redis,
+    @Inject(REDIS)         private readonly redis:      Redis,
     private readonly userRepo:    UserRepository,
     private readonly deviceRepo:  DeviceRepository,
     private readonly constants:   AuthConstantsService,

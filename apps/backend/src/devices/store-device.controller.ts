@@ -18,7 +18,7 @@ import {
   CurrentUser,
   CurrentStoreContext,
 } from '#common/rbac/decorators/rbac.decorators.js';
-import type { MobilePrincipal } from '#auth/mobile/types/mobile-principal.js';
+import type { MobilePrincipal } from '#common/types/principal.js';
 import type { ResolvedStoreContext } from '#common/rbac/resolved-store-context.js';
 import { DeviceAccessService } from './device-access.service.js';
 import {

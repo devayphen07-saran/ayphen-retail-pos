@@ -6,7 +6,7 @@ import type { PostgresJsDatabase } from 'drizzle-orm/postgres-js';
 import { DRIZZLE } from '#db/db.module.js';
 import * as schema from '#db/schema.js';
 import { revokedTokens } from '#db/schema.js';
-import { MOBILE_REDIS } from './redis.provider.js';
+import { REDIS } from '#common/redis/redis.provider.js';
 
 const jtiKey = (jti: string) => `jti:${jti}`;
 const negKey = (jti: string) => `jti:neg:${jti}`;
@@ -18,7 +18,7 @@ export class BlacklistCacheService {
   private readonly lru = new LRUCache<string, boolean>({ max: 10_000 });
 
   constructor(
-    @Inject(MOBILE_REDIS) private readonly redis: Redis,
+    @Inject(REDIS) private readonly redis: Redis,
     @Inject(DRIZZLE) private readonly db: PostgresJsDatabase<typeof schema>,
   ) {}
 

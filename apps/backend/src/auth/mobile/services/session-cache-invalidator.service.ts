@@ -5,14 +5,14 @@ import type { PostgresJsDatabase } from 'drizzle-orm/postgres-js';
 import { DRIZZLE } from '#db/db.module.js';
 import * as schema from '#db/schema.js';
 import { deviceSessions } from '#db/schema.js';
-import { MOBILE_REDIS } from './redis.provider.js';
+import { REDIS } from '#common/redis/redis.provider.js';
 
 const sessionKey = (id: string) => `session:${id}`;
 
 @Injectable()
 export class SessionCacheInvalidatorService {
   constructor(
-    @Inject(MOBILE_REDIS) private readonly redis: Redis,
+    @Inject(REDIS) private readonly redis: Redis,
     @Inject(DRIZZLE) private readonly db: PostgresJsDatabase<typeof schema>,
   ) {}
 

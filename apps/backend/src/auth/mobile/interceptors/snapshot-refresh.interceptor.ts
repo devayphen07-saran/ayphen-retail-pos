@@ -7,9 +7,9 @@ import {
 import { from, Observable } from 'rxjs';
 import { switchMap } from 'rxjs/operators';
 import type { Request, Response } from 'express';
-import { RequestContextService } from '../../core/request-context.service.js';
+import { RequestContextService } from '#common/request-context/request-context.service.js';
 import { SnapshotService } from '../services/snapshot.service.js';
-import type { MobilePrincipal } from '../types/mobile-principal.js';
+import type { MobilePrincipal } from '#common/types/principal.js';
 
 @Injectable()
 export class SnapshotRefreshInterceptor implements NestInterceptor {

@@ -181,6 +181,19 @@ export class RoleRepository {
     await this.client(tx).insert(userRoleMappings).values(data);
   }
 
+  /**
+   * Same insert as `insertAssignment`, but a no-op on conflict — for callers
+   * whose own CAS already guarantees this only runs once (e.g. invitation
+   * accept, gated by `markAccepted`'s status='pending' check), so a losing
+   * race here just means "already assigned," not an error.
+   */
+  async insertAssignmentIfAbsent(
+    data: typeof userRoleMappings.$inferInsert,
+    tx?: DbExecutor,
+  ): Promise<void> {
+    await this.client(tx).insert(userRoleMappings).values(data).onConflictDoNothing();
+  }
+
   async revokeAssignment(
     userId: string,
     roleId: string,

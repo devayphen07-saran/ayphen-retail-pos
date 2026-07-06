@@ -1,9 +1,14 @@
-import { createAsyncThunk } from '@reduxjs/toolkit';
-import { AxiosError, AxiosRequestConfig, AxiosResponse, isAxiosError } from 'axios';
+import {
+  AxiosError,
+  AxiosRequestConfig,
+  AxiosResponse,
+  isAxiosError,
+} from 'axios';
+import type { RawAxiosRequestHeaders } from 'axios';
 import type {
-  UseQueryOptions,
-  UseMutationOptions,
   QueryKey,
+  UseMutationOptions,
+  UseQueryOptions,
 } from '@tanstack/react-query';
 import { API } from './axios-instances';
 
@@ -15,7 +20,11 @@ export enum APIMethod {
   PATCH = 'patch',
 }
 
-type PathRecord = Record<string, string | number | undefined>;
+type PathRecord = Record<string, string | number | undefined | null>;
+
+type QueryPrimitive = string | number | boolean | undefined | null;
+
+type QueryRecord = Record<string, QueryPrimitive | QueryPrimitive[]>;
 
 export interface NormalizedError {
   status: number;
@@ -23,6 +32,18 @@ export interface NormalizedError {
   message: string;
   isOffline: boolean;
   data?: unknown;
+}
+
+export interface RequestParams<T> {
+  bodyParam?: T;
+  queryParam?: string | URLSearchParams | QueryRecord;
+  pathParam?: PathRecord;
+}
+
+declare module 'axios' {
+  interface AxiosRequestConfig {
+    skipAuth?: boolean;
+  }
 }
 
 function normalizeError(error: unknown): NormalizedError {
@@ -36,7 +57,11 @@ function normalizeError(error: unknown): NormalizedError {
   }
 
   const err = error as AxiosError<{
-    error?: { errorCode?: string; code?: string; message?: string };
+    error?: {
+      errorCode?: string;
+      code?: string;
+      message?: string;
+    };
     errorCode?: string;
     code?: string;
     message?: string;
@@ -55,8 +80,6 @@ function normalizeError(error: unknown): NormalizedError {
   }
 
   const body = err.response.data;
-  // Server error shape: { error: { code, message, ... } }
-  // Fall back to root-level fields for non-standard responses.
   const payload =
     body?.error && typeof body.error === 'object' ? body.error : body;
 
@@ -69,11 +92,6 @@ function normalizeError(error: unknown): NormalizedError {
   };
 }
 
-/**
- * The backend's global `ResponseInterceptor` wraps every successful response
- * as `{ success, statusCode, message, data, requestId, timestamp }`. Callers
- * only care about the inner `data` payload.
- */
 function unwrapEnvelope<T>(responseData: unknown): T {
   if (
     responseData &&
@@ -83,13 +101,45 @@ function unwrapEnvelope<T>(responseData: unknown): T {
   ) {
     return (responseData as { data: T }).data;
   }
+
   return responseData as T;
+}
+
+function buildQueryString(queryParam?: RequestParams<unknown>['queryParam']) {
+  if (!queryParam) return '';
+
+  if (typeof queryParam === 'string') {
+    if (!queryParam) return '';
+    return queryParam.startsWith('?') ? queryParam : `?${queryParam}`;
+  }
+
+  if (queryParam instanceof URLSearchParams) {
+    const query = queryParam.toString();
+    return query ? `?${query}` : '';
+  }
+
+  const params = new URLSearchParams();
+
+  for (const [key, value] of Object.entries(queryParam)) {
+    if (Array.isArray(value)) {
+      for (const item of value) {
+        if (item === undefined || item === null) continue;
+        params.append(key, String(item));
+      }
+      continue;
+    }
+
+    if (value === undefined || value === null) continue;
+    params.set(key, String(value));
+  }
+
+  const query = params.toString();
+  return query ? `?${query}` : '';
 }
 
 export class APIData {
   path: string;
   method: APIMethod;
-  // API that doesn't need auth token (login, register)
   public?: boolean;
 
   public constructor(
@@ -102,18 +152,24 @@ export class APIData {
     this.public = extraProps?.public;
   }
 
-  private generatePath(data?: PathRecord, queryParam?: string): string {
+  private generatePath(
+    data?: PathRecord,
+    queryParam?: RequestParams<unknown>['queryParam'],
+  ): string {
     let result = this.path;
 
     if (data) {
       for (const [key, value] of Object.entries(data)) {
         if (value === undefined || value === null) continue;
+
         const placeholder = `:${key}`;
+
         if (!result.includes(placeholder)) {
           throw new Error(
             `APIData: path "${this.path}" has no ":${key}" placeholder`,
           );
         }
+
         result = result.replaceAll(
           placeholder,
           encodeURIComponent(String(value)),
@@ -122,94 +178,64 @@ export class APIData {
     }
 
     const unresolved = result.match(/:[A-Za-z_][A-Za-z0-9_]*/g);
+
     if (unresolved) {
       throw new Error(
-        `APIData: unresolved placeholders in "${this.path}": ${unresolved.join(', ')}`,
+        `APIData: unresolved placeholders in "${this.path}": ${unresolved.join(
+          ', ',
+        )}`,
       );
     }
 
-    return queryParam ? `${result}${queryParam}` : result;
+    return `${result}${buildQueryString(queryParam)}`;
   }
 
-  private async routeMethod<T>(
-    param?: RequestParams<T>,
+  private buildConfig(config?: AxiosRequestConfig): AxiosRequestConfig {
+    if (!this.public) return config ?? {};
+
+    const headers: RawAxiosRequestHeaders = {
+      ...(config?.headers as RawAxiosRequestHeaders | undefined),
+    };
+
+    delete headers['Authorization'];
+    delete headers['authorization'];
+
+    return {
+      ...config,
+      skipAuth: true,
+      headers,
+    };
+  }
+
+  private async routeMethod<TBody, TResponse = unknown>(
+    param?: RequestParams<TBody>,
     formData?: FormData,
     config?: AxiosRequestConfig,
-  ): Promise<AxiosResponse> {
+  ): Promise<AxiosResponse<TResponse>> {
     const updatedPath = this.generatePath(param?.pathParam, param?.queryParam);
-
-    let updatedConfig = config;
-    if (this.public) {
-      updatedConfig = { ...config, headers: { ...config?.headers } };
-      delete updatedConfig.headers!.Authorization;
-      delete updatedConfig.headers!.authorization;
-    }
-
+    const updatedConfig = this.buildConfig(config);
     const body = formData ?? param?.bodyParam;
 
     switch (this.method) {
       case APIMethod.POST:
-        return API.post(updatedPath, body, updatedConfig);
+        return API.post<TResponse>(updatedPath, body, updatedConfig);
+
       case APIMethod.GET:
-        return API.get(updatedPath, updatedConfig);
+        return API.get<TResponse>(updatedPath, updatedConfig);
+
       case APIMethod.PUT:
-        return API.put(updatedPath, body, updatedConfig);
+        return API.put<TResponse>(updatedPath, body, updatedConfig);
+
       case APIMethod.PATCH:
-        return API.patch(updatedPath, body, updatedConfig);
+        return API.patch<TResponse>(updatedPath, body, updatedConfig);
+
       case APIMethod.DELETE:
-        return API.delete(updatedPath, {
+        return API.delete<TResponse>(updatedPath, {
           ...updatedConfig,
           data: param?.bodyParam,
         });
     }
   }
-
-  public generateAsyncThunk<Returned, ThunkArg>(typePrefix: string) {
-    return createAsyncThunk<
-      Returned,
-      RequestParams<ThunkArg> | undefined,
-      { rejectValue: NormalizedError }
-    >(typePrefix, async (param, { rejectWithValue }) => {
-      try {
-        const response = await this.routeMethod<ThunkArg>(param);
-        return unwrapEnvelope<Returned>(response.data);
-      } catch (error) {
-        return rejectWithValue(normalizeError(error));
-      }
-    });
-  }
-
-  public generateAsyncThunkForMultipart<Returned, ThunkArg>(
-    typePrefix: string,
-  ) {
-    return createAsyncThunk<
-      Returned,
-      RequestParamsMultiPart<ThunkArg>,
-      { rejectValue: NormalizedError }
-    >(typePrefix, async (props, { rejectWithValue }) => {
-      try {
-        const formData = new FormData();
-        if (props.file) {
-          formData.append('file', props.file);
-        }
-        const config = {
-          headers: { 'content-type': 'multipart/form-data' },
-        };
-        const response = await this.routeMethod<ThunkArg>(
-          { pathParam: props.pathParam, queryParam: props.queryParam },
-          formData,
-          config,
-        );
-        return unwrapEnvelope<Returned>(response.data);
-      } catch (error) {
-        return rejectWithValue(normalizeError(error));
-      }
-    });
-  }
-
-  // ============================================
-  // TanStack Query Support
-  // ============================================
 
   public queryOptions<TResponse>(
     params?: RequestParams<unknown>,
@@ -219,14 +245,17 @@ export class APIData {
       params?.pathParam ?? null,
       params?.queryParam ?? null,
     ];
+
     return {
       queryKey,
-      // Forward TanStack Query's AbortSignal to axios so navigating away from
-      // a screen (or a superseded query) cancels the in-flight request
-      // instead of letting it run to completion (NETWORK_LAYER §9).
       queryFn: async ({ signal }) => {
         try {
-          const response = await this.routeMethod(params, undefined, { signal });
+          const response = await this.routeMethod<unknown, TResponse>(
+            params,
+            undefined,
+            { signal },
+          );
+
           return unwrapEnvelope<TResponse>(response.data);
         } catch (error) {
           throw normalizeError(error);
@@ -237,33 +266,57 @@ export class APIData {
 
   public mutationOptions<TResponse, TBody = unknown, TContext = unknown>(
     config?: Partial<
-      Omit<UseMutationOptions<TResponse, NormalizedError, RequestParams<TBody>, TContext>, 'mutationFn'>
+      Omit<
+        UseMutationOptions<
+          TResponse,
+          NormalizedError,
+          RequestParams<TBody>,
+          TContext
+        >,
+        'mutationFn'
+      >
     > & {
-      // Called with the raw Axios response before TanStack's onSuccess fires.
-      // Needed for mutations that must read response headers (e.g. permission
-      // snapshot piggyback on invitation accept).
       onRawSuccess?: (
         response: AxiosResponse<TResponse>,
         vars: RequestParams<TBody>,
       ) => Promise<void> | void;
     },
-  ): UseMutationOptions<TResponse, NormalizedError, RequestParams<TBody>, TContext> {
+  ): UseMutationOptions<
+    TResponse,
+    NormalizedError,
+    RequestParams<TBody>,
+    TContext
+  > {
     const onRawSuccess = config?.onRawSuccess;
-    const { onRawSuccess: _rs, ...tanstackConfig } = (config ?? {}) as {
+
+    const { onRawSuccess: _onRawSuccess, ...tanstackConfig } = (config ??
+      {}) as {
       onRawSuccess?: unknown;
-    } & Partial<Omit<UseMutationOptions<TResponse, NormalizedError, RequestParams<TBody>, TContext>, 'mutationFn'>>;
+    } & Partial<
+      Omit<
+        UseMutationOptions<
+          TResponse,
+          NormalizedError,
+          RequestParams<TBody>,
+          TContext
+        >,
+        'mutationFn'
+      >
+    >;
 
     return {
       mutationFn: async (params: RequestParams<TBody>) => {
         try {
-          const response = await this.routeMethod<TBody>(params);
+          const response = await this.routeMethod<TBody, TResponse>(params);
           const data = unwrapEnvelope<TResponse>(response.data);
+
           if (onRawSuccess) {
             await onRawSuccess(
               { ...response, data } as AxiosResponse<TResponse>,
               params,
             );
           }
+
           return data;
         } catch (error) {
           throw normalizeError(error);
@@ -272,17 +325,4 @@ export class APIData {
       ...tanstackConfig,
     };
   }
-}
-
-export interface RequestParams<T> {
-  bodyParam?: T;
-  queryParam?: string;
-  pathParam?: PathRecord;
-}
-
-export interface RequestParamsMultiPart<T> {
-  request?: T;
-  file: Blob;
-  queryParam?: string;
-  pathParam?: PathRecord;
 }

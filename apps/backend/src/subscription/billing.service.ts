@@ -7,7 +7,7 @@ import {
 } from '#common/exceptions/app.exception.js';
 import { ErrorCodes } from '#common/error-codes.js';
 import type { Redis } from 'ioredis';
-import { MOBILE_REDIS } from '#auth/mobile/services/redis.provider.js';
+import { REDIS } from '#common/redis/redis.provider.js';
 import { SubscriptionRepository } from './subscription.repository.js';
 import { SubscriptionService } from './subscription.service.js';
 import {
@@ -51,7 +51,7 @@ export class BillingService {
     private readonly repo: SubscriptionRepository,
     private readonly subscriptions: SubscriptionService,
     @Inject(PAYMENT_PROVIDER) private readonly payments: PaymentProvider,
-    @Inject(MOBILE_REDIS) private readonly redis: Redis,
+    @Inject(REDIS) private readonly redis: Redis,
   ) {}
 
   /** Create a payment order for a plan. Owner-gated. Returns the client SDK payload. */

@@ -9,7 +9,7 @@ import { RbacService } from '#common/rbac/rbac.service.js';
 import { RbacRepository } from '#common/rbac/rbac.repository.js';
 import type { CrudAction } from '#common/rbac/permission-matrix.constants.js';
 import type { EffectivePermissions } from '#common/rbac/effective-permissions.js';
-import type { MobilePrincipal } from '#auth/mobile/types/mobile-principal.js';
+import type { MobilePrincipal } from '#common/types/principal.js';
 import { AuthSessionRepository } from '#auth/mobile/repositories/auth-session.repository.js';
 import { SnapshotService } from '#auth/mobile/services/snapshot.service.js';
 import { SyncChangesService, type ChangesResult } from '../pull/changes.service.js';

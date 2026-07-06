@@ -1,6 +1,7 @@
 import { Redirect, Stack } from 'expo-router';
 import { useMobileTheme } from '@ayphen/mobile-theme';
-import { useAuthStore, useActiveStoreStore } from '@store';
+import { useActiveStoreStore } from '@store';
+import { AuthGate } from '@core/auth/AuthGate';
 
 /**
  * Store stack — the in-store experience. Reachable only when authenticated AND
@@ -10,20 +11,20 @@ import { useAuthStore, useActiveStoreStore } from '@store';
  */
 export default function StoreLayout() {
   const { theme } = useMobileTheme();
-  const isAuthReady = useAuthStore((s) => s.isAuthReady);
-  const isAuthenticated = useAuthStore((s) => s.isAuthenticated);
   const storeId = useActiveStoreStore((s) => s.storeId);
 
-  if (!isAuthReady) return null; // splash still showing
-  if (!isAuthenticated) return <Redirect href="/(auth)/phone" />;
-  if (!storeId) return <Redirect href="/(app)/store-picker" />;
-
   return (
-    <Stack
-      screenOptions={{
-        headerShown: false,
-        contentStyle: { backgroundColor: theme.colorBgLayout },
-      }}
-    />
+    <AuthGate>
+      {!storeId ? (
+        <Redirect href="/(app)/store-picker" />
+      ) : (
+        <Stack
+          screenOptions={{
+            headerShown: false,
+            contentStyle: { backgroundColor: theme.colorBgLayout },
+          }}
+        />
+      )}
+    </AuthGate>
   );
 }

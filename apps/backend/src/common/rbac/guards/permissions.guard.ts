@@ -9,7 +9,7 @@ import {
 import { Reflector } from '@nestjs/core';
 import type { Request } from 'express';
 import { RbacService } from '../rbac.service.js';
-import { AuditService } from '#auth/core/audit.service.js';
+import { AuditService } from '#common/audit/audit.service.js';
 import {
   IS_PUBLIC_KEY,
   ONLINE_ONLY_KEY,

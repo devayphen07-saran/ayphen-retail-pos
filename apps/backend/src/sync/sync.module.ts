@@ -14,6 +14,7 @@ import { DeviceSyncHealthRepository } from './repositories/device-sync-health.re
 import { SyncChangesService } from './pull/changes.service.js';
 import { InitialSyncService } from './pull/initial-sync.service.js';
 import { SyncDeltaService } from './push/delta.service.js';
+import { SyncConflictService } from './services/sync-conflict.service.js';
 import { MutationHandlerRegistry } from './push/mutation-handler.registry.js';
 import type { SyncMutationHandler } from './push/mutation.types.js';
 import { LookupMutationHandler } from './push/handlers/lookup.handler.js';
@@ -44,6 +45,7 @@ import { PaymentAccountMutationHandler } from './push/handlers/payment-account.h
     SyncChangesService,
     InitialSyncService,
     SyncDeltaService,
+    SyncConflictService,
     LookupMutationHandler,
     ProductMutationHandler,
     ProductCaseMutationHandler,

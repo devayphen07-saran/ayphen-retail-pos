@@ -8,11 +8,27 @@ import {
 import { ErrorCodes } from '#common/error-codes.js';
 import { LookupRepository, type LookupValueRow } from './lookup.repository.js';
 import { LookupTypeRepository, type LookupTypeRow } from './lookup-type.repository.js';
-import type {
-  CreateLookupTypeCommand,
-  CreateLookupValueCommand,
-  UpdateLookupValueCommand,
-} from './lookup.request-mapper.js';
+
+/** camelCase commands the LookupService consumes (layered-architecture §3.7). */
+export interface CreateLookupTypeCommand {
+  code:         string;
+  title:        string;
+  description?: string;
+}
+
+export interface CreateLookupValueCommand {
+  code:         string;
+  label:        string;
+  description?: string;
+  sortOrder?:   number;
+}
+
+export interface UpdateLookupValueCommand {
+  label?:       string;
+  description?: string;
+  sortOrder?:   number;
+  isHidden?:    boolean;
+}
 
 /**
  * Lookup engine orchestration (lookup-entity-prd.md §6/§9). Enforces the

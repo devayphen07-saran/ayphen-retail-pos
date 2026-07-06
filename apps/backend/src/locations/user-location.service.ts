@@ -3,7 +3,7 @@ import { UnitOfWork } from '#db/db.module.js';
 import { ForbiddenError, NotFoundError } from '#common/exceptions/app.exception.js';
 import { ErrorCodes } from '#common/error-codes.js';
 import { RbacService } from '#common/rbac/rbac.service.js';
-import { AuditService } from '#auth/core/audit.service.js';
+import { AuditService } from '#common/audit/audit.service.js';
 import { LocationRepository } from './location.repository.js';
 import { UserLocationRepository, type LocationMember } from './user-location.repository.js';
 

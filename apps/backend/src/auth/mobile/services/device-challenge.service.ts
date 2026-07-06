@@ -3,7 +3,7 @@ import { randomUUID } from 'crypto';
 import Redis from 'ioredis';
 import { UnauthorizedError } from '#common/exceptions/app.exception.js';
 import { ErrorCodes } from '#common/error-codes.js';
-import { MOBILE_REDIS } from './redis.provider.js';
+import { REDIS } from '#common/redis/redis.provider.js';
 import { AuthConstantsService } from '../../core/auth-constants.service.js';
 
 const challengeKey = (id: string) => `device_challenge:${id}`;
@@ -11,7 +11,7 @@ const challengeKey = (id: string) => `device_challenge:${id}`;
 @Injectable()
 export class DeviceChallengeService {
   constructor(
-    @Inject(MOBILE_REDIS) private readonly redis: Redis,
+    @Inject(REDIS) private readonly redis: Redis,
     private readonly constants: AuthConstantsService,
   ) {}
 

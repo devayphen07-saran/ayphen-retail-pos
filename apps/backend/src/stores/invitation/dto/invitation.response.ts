@@ -12,3 +12,14 @@ export interface MyInvitationResponse {
 export interface AcceptInvitationResponse {
   store_id: string;
 }
+
+/** Wire shape for POST /stores/:storeId/invitations — the raw token, for delivery. */
+export interface CreatedInvitationResponse {
+  id:    string;
+  token: string;
+}
+
+/** Wire shape for reject/rejectById acknowledgements. */
+export interface InvitationActionResponse {
+  ok: true;
+}

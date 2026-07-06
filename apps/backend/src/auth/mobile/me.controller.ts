@@ -5,7 +5,7 @@ import { AuthMapper } from './mappers/auth.mapper.js';
 import { parse } from '#common/validation/parse.js';
 import { AccountModeDtoSchema, type AccountModeDto } from './dto/request/account-mode.request.js';
 import type { BootstrapResponse } from './dto/response/auth.response.js';
-import type { MobilePrincipal } from './types/mobile-principal.js';
+import type { MobilePrincipal } from '#common/types/principal.js';
 import { CurrentUser } from '#common/rbac/decorators/rbac.decorators.js';
 
 /**

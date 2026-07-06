@@ -3,7 +3,7 @@ import { ForbiddenError, UnprocessableError } from '#common/exceptions/app.excep
 import { ErrorCodes } from '#common/error-codes.js';
 import type { Redis } from 'ioredis';
 import { UnitOfWork, type DbExecutor } from '#db/db.module.js';
-import { MOBILE_REDIS } from '#auth/mobile/services/redis.provider.js';
+import { REDIS } from '#common/redis/redis.provider.js';
 import { SubscriptionRepository } from './subscription.repository.js';
 import { EntitlementService } from './entitlement.service.js';
 import { subVersionPointerKey } from './subscription-cache.js';
@@ -85,7 +85,7 @@ export class ReconciliationService {
     private readonly stores: StoreRepository,
     private readonly locations: LocationRepository,
     private readonly devices: DeviceAccessRepository,
-    @Inject(MOBILE_REDIS) private readonly redis: Redis,
+    @Inject(REDIS) private readonly redis: Redis,
   ) {}
 
   /** Duplicated from SubscriptionService.invalidateCache rather than injecting

@@ -66,7 +66,7 @@ import type {
 import { AuthMapper } from './mappers/auth.mapper.js';
 import { SessionMapper } from './mappers/session.mapper.js';
 import { DeviceRequestMapper } from './mappers/device.request-mapper.js';
-import type { MobilePrincipal } from './types/mobile-principal.js';
+import type { MobilePrincipal } from '#common/types/principal.js';
 import { getRequestIp } from '#common/request-ip.js';
 
 function principalOf(req: Request): MobilePrincipal {

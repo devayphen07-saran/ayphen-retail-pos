@@ -165,6 +165,7 @@ export const ErrorCodes = {
   NOT_FOUND:                          'NOT_FOUND',
   CONFLICT:                           'CONFLICT',
   VALIDATION_FAILED:                  'VALIDATION_FAILED',
+  PASSWORD_TOO_LONG:                  'PASSWORD_TOO_LONG',
   DUPLICATE_ENTRY:                    'DUPLICATE_ENTRY',
   FOREIGN_KEY_VIOLATION:              'FOREIGN_KEY_VIOLATION',
   FORBIDDEN:                          'FORBIDDEN',

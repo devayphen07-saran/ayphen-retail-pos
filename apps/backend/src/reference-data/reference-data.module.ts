@@ -1,5 +1,6 @@
 import { Module } from '@nestjs/common';
 import { ReferenceDataController } from './reference-data.controller.js';
+import { ReferenceDataService } from './reference-data.service.js';
 import { CountryRepository } from './country.repository.js';
 import { CurrencyRepository } from './currency.repository.js';
 import { MobileAuthModule } from '#auth/mobile/mobile-auth.module.js';
@@ -7,6 +8,6 @@ import { MobileAuthModule } from '#auth/mobile/mobile-auth.module.js';
 @Module({
   imports: [MobileAuthModule],
   controllers: [ReferenceDataController],
-  providers: [CountryRepository, CurrencyRepository],
+  providers: [ReferenceDataService, CountryRepository, CurrencyRepository],
 })
 export class ReferenceDataModule {}

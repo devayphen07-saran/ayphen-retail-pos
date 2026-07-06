@@ -1,12 +1,22 @@
 import type { PendingInvitationRow } from './invitation.repository.js';
-import type { AcceptInvitationResult } from './invitation.service.js';
+import type { AcceptInvitationResult, CreateInvitationResult } from './invitation.service.js';
 import type {
   MyInvitationResponse,
   AcceptInvitationResponse,
+  CreatedInvitationResponse,
+  InvitationActionResponse,
 } from './dto/invitation.response.js';
 
 /** Pure domain → snake_case mapper (layered-architecture §3.7). */
 export const InvitationMapper = {
+  toCreatedResponse(result: CreateInvitationResult): CreatedInvitationResponse {
+    return { id: result.id, token: result.token };
+  },
+
+  toActionResponse(): InvitationActionResponse {
+    return { ok: true };
+  },
+
   toAcceptInvitationResponse(result: AcceptInvitationResult): AcceptInvitationResponse {
     return { store_id: result.storeId };
   },

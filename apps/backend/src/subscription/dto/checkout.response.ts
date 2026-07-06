@@ -1,11 +1,16 @@
 /**
- * POST /me/account/subscription/checkout response. The provider-specific fields
- * (key id, order id, etc.) come from PaymentProvider.createOrder's clientPayload —
- * intentionally open-ended so swapping providers doesn't require a DTO change.
+ * POST /me/account/subscription/checkout response. Both bound providers
+ * (Razorpay, Fake) populate exactly these fields via createOrder's
+ * clientPayload; a future provider needing a different shape is a deliberate
+ * change to this DTO + the mapper, not an open bag on the wire (§3.7).
  */
 export interface CheckoutResponse {
-  prefill: { name: string; contact: string };
-  [key: string]: unknown;
+  provider: string;
+  key:      string;
+  order_id: string;
+  amount:   number;
+  currency: string;
+  prefill:  { name: string; contact: string };
 }
 
 /** POST /me/account/subscription/verify response. */

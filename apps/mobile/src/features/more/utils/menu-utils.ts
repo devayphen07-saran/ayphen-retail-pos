@@ -1,4 +1,4 @@
-import type { NKSTheme } from '@ayphen/mobile-theme';
+import type { MobileTheme } from '@ayphen/mobile-theme';
 import type { MenuColorToken } from './menu-config';
 
 /**
@@ -13,7 +13,7 @@ export const ITEM_ROUTES: Partial<Record<string, string>> = {
   'my-devices': '/(store)/my-devices',
 };
 
-export function resolveMenuColor(theme: NKSTheme, token: MenuColorToken): string {
+export function resolveMenuColor(theme: MobileTheme, token: MenuColorToken): string {
   switch (token) {
     case 'primary': return theme.colorPrimary;
     case 'success': return theme.colorSuccess;

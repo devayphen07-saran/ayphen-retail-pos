@@ -3,27 +3,11 @@ import type {
   CreateLookupValueDto,
   UpdateLookupValueDto,
 } from './dto/lookup.dto.js';
-
-/** camelCase commands the LookupService consumes (layered-architecture §3.7). */
-export interface CreateLookupTypeCommand {
-  code:         string;
-  title:        string;
-  description?: string;
-}
-
-export interface CreateLookupValueCommand {
-  code:         string;
-  label:        string;
-  description?: string;
-  sortOrder?:   number;
-}
-
-export interface UpdateLookupValueCommand {
-  label?:       string;
-  description?: string;
-  sortOrder?:   number;
-  isHidden?:    boolean;
-}
+import type {
+  CreateLookupTypeCommand,
+  CreateLookupValueCommand,
+  UpdateLookupValueCommand,
+} from './lookup.service.js';
 
 /**
  * Pure snake_case request DTO → camelCase command mapper. The only snake→camel

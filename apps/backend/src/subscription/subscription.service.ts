@@ -7,7 +7,7 @@ import {
 import { ErrorCodes } from '#common/error-codes.js';
 import type { Redis } from 'ioredis';
 import { UnitOfWork, type DbExecutor } from '#db/db.module.js';
-import { MOBILE_REDIS } from '#auth/mobile/services/redis.provider.js';
+import { REDIS } from '#common/redis/redis.provider.js';
 import {
   SubscriptionRepository,
   type AccountSubscription,
@@ -27,6 +27,13 @@ export type BannerSeverity = 'none' | 'info' | 'warning' | 'critical';
 export interface SubscriptionView extends SubscriptionWithPlan {
   bannerSeverity:    BannerSeverity;
   showUpgradeBanner: boolean;
+}
+
+/** camelCase domain result for cancel/reactivate — exactly what the response mapper needs. */
+export interface SubscriptionActionResult {
+  status:             AccountSubscription['status'];
+  cancelAtPeriodEnd:  boolean;
+  subscriptionVersion: number;
 }
 
 /** camelCase domain shape of one billing-cycle option in the plan catalog. */
@@ -70,7 +77,7 @@ export class SubscriptionService {
     private readonly uow: UnitOfWork,
     private readonly downgradeDetection: DowngradeDetectionService,
     private readonly reconciliation: ReconciliationService,
-    @Inject(MOBILE_REDIS) private readonly redis: Redis,
+    @Inject(REDIS) private readonly redis: Redis,
   ) {}
 
   // ─── Read model ─────────────────────────────────────────────────────────────
@@ -155,10 +162,10 @@ export class SubscriptionService {
     planCode: string,
     orderId: string,
     providerRef: string,
-  ): Promise<AccountSubscription> {
+  ): Promise<void> {
     const now = new Date();
     const periodEnd = new Date(now.getTime() + BILLING_PERIOD_DAYS * 86_400_000);
-    const sub = await this.transact(accountId, 'SUBSCRIPTION_ACTIVATED', { providerRef }, async (tx) => {
+    await this.transact(accountId, 'SUBSCRIPTION_ACTIVATED', { providerRef }, async (tx) => {
       const claimed = await this.repo.claimPaymentEvent(accountId, orderId, providerRef, tx);
       if (!claimed) return null; // already activated by an earlier call — no-op, no outbox row
       const activated = await this.repo.applyTransition(accountId, {
@@ -193,7 +200,6 @@ export class SubscriptionService {
       }
       return activated;
     });
-    return sub;
   }
 
   /**
@@ -202,9 +208,9 @@ export class SubscriptionService {
    * flips `active → cancelled` once `currentPeriodEnd` passes. Idempotent: a
    * second call while already pending is a no-op (no second outbox row).
    */
-  async cancel(userId: string): Promise<AccountSubscription> {
+  async cancel(userId: string): Promise<SubscriptionActionResult> {
     const accountId = await this.requireOwnedAccount(userId);
-    return this.transact(accountId, 'SUBSCRIPTION_CANCEL_REQUESTED', {}, async (tx) => {
+    const sub = await this.transact(accountId, 'SUBSCRIPTION_CANCEL_REQUESTED', {}, async (tx) => {
       const current = await this.repo.findByAccountId(accountId, tx);
       if (!current) throw new NotFoundError(ErrorCodes.SUBSCRIPTION_NOT_FOUND, 'Subscription not found');
       if (current.status !== 'active') {
@@ -213,6 +219,7 @@ export class SubscriptionService {
       if (current.cancelAtPeriodEnd) return null; // already requested — no-op
       return this.repo.applyTransition(accountId, { cancelAtPeriodEnd: true }, tx);
     });
+    return this.toActionResult(sub);
   }
 
   /**
@@ -222,9 +229,9 @@ export class SubscriptionService {
    * reactivated this way; the client must go through checkout instead (§13
    * case B), which reuses the existing payment-activation path.
    */
-  async reactivate(userId: string): Promise<AccountSubscription> {
+  async reactivate(userId: string): Promise<SubscriptionActionResult> {
     const accountId = await this.requireOwnedAccount(userId);
-    return this.transact(accountId, 'SUBSCRIPTION_REACTIVATED', {}, async (tx) => {
+    const sub = await this.transact(accountId, 'SUBSCRIPTION_REACTIVATED', {}, async (tx) => {
       const current = await this.repo.findByAccountId(accountId, tx);
       if (!current) throw new NotFoundError(ErrorCodes.SUBSCRIPTION_NOT_FOUND, 'Subscription not found');
       if (current.status !== 'active') {
@@ -233,6 +240,7 @@ export class SubscriptionService {
       if (!current.cancelAtPeriodEnd) return null; // nothing pending — no-op
       return this.repo.applyTransition(accountId, { cancelAtPeriodEnd: false }, tx);
     });
+    return this.toActionResult(sub);
   }
 
   // ─── Cache ──────────────────────────────────────────────────────────────────
@@ -252,6 +260,15 @@ export class SubscriptionService {
   }
 
   // ─── Internals ──────────────────────────────────────────────────────────────
+
+  /** Persistence entity → the domain result cancel/reactivate hand to the response mapper. */
+  private toActionResult(sub: AccountSubscription): SubscriptionActionResult {
+    return {
+      status:              sub.status,
+      cancelAtPeriodEnd:   sub.cancelAtPeriodEnd,
+      subscriptionVersion: sub.subscriptionVersion,
+    };
+  }
 
   /** Resolve the account a user owns, or reject. Mirrors `BillingService`'s
    *  gate — cancel/reactivate are owner-only billing actions (subscription §12/§13). */
