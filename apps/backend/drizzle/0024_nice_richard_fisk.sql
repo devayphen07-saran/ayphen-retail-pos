@@ -1,0 +1,6 @@
+CREATE UNIQUE INDEX "uk_customers_store_name" ON "customers" USING btree ("store_fk",lower("name")) WHERE "customers"."deleted_at" IS NULL;--> statement-breakpoint
+CREATE UNIQUE INDEX "uk_customers_store_email" ON "customers" USING btree ("store_fk",lower("email")) WHERE "customers"."email" IS NOT NULL AND "customers"."deleted_at" IS NULL;--> statement-breakpoint
+CREATE UNIQUE INDEX "uk_product_cases_store_barcode" ON "product_cases" USING btree ("store_fk","barcode") WHERE "product_cases"."barcode" IS NOT NULL AND "product_cases"."deleted_at" IS NULL;--> statement-breakpoint
+CREATE UNIQUE INDEX "uk_products_store_barcode" ON "products" USING btree ("store_fk","barcode") WHERE "products"."barcode" IS NOT NULL AND "products"."deleted_at" IS NULL;--> statement-breakpoint
+CREATE UNIQUE INDEX "uk_suppliers_store_name" ON "suppliers" USING btree ("store_fk",lower("name")) WHERE "suppliers"."deleted_at" IS NULL;--> statement-breakpoint
+CREATE UNIQUE INDEX "uk_suppliers_store_email" ON "suppliers" USING btree ("store_fk",lower("email")) WHERE "suppliers"."email" IS NOT NULL AND "suppliers"."deleted_at" IS NULL;

@@ -37,6 +37,11 @@ export interface SelectProps<T> {
   noDataMessage: string;
   loadingRender?: React.ReactElement;
   loading?: boolean;
+  /** True when `noDataMessage` reflects a failed fetch, not a genuine empty
+   *  list — enables the sheet's Retry action. Without this, a load failure
+   *  had no recovery short of closing and reopening the whole sheet. */
+  isError?: boolean;
+  onRetry?: () => void;
 }
 
 interface SelectSheetContentProps<T> {
@@ -50,6 +55,8 @@ interface SelectSheetContentProps<T> {
   loadingRender: React.ReactElement;
   noDataMessage: string;
   Header?: React.ReactNode;
+  isError?: boolean;
+  onRetry?: () => void;
 }
 
 /** Sheet content — a component reference, never a rendered element (modal-architecture-agent.md §9). */
@@ -64,6 +71,8 @@ function SelectSheetContent<T>({
   loadingRender,
   noDataMessage,
   Header,
+  isError,
+  onRetry,
 }: SelectSheetContentProps<T>) {
   return (
     <>
@@ -71,7 +80,15 @@ function SelectSheetContent<T>({
       {loading && loadingRender ? (
         loadingRender
       ) : !options || options.length === 0 ? (
-        <NoDataContainer message={noDataMessage} />
+        <NoDataContainer
+          message={noDataMessage}
+          iconName={isError ? "CircleAlert" : undefined}
+          buttonProps={
+            isError && onRetry
+              ? { buttonText: "Retry", onPress: onRetry, variant: "primary" }
+              : undefined
+          }
+        />
       ) : (
         <ThemedFlatList
           data={options}
@@ -112,6 +129,8 @@ export function SelectGeneric<T>({
   loading = false,
   Header,
   loadingRender = <SelectSkeleton />,
+  isError,
+  onRetry,
 }: SelectProps<T>) {
   const theme = useTheme();
   const { scale, fontScale } = useBreakpoint();
@@ -139,8 +158,10 @@ export function SelectGeneric<T>({
       loadingRender,
       noDataMessage,
       Header,
+      isError,
+      onRetry,
     }),
-    [options, valueKey, selectedValue, onChange, sheet, renderItem, keyExtractor, loading, loadingRender, noDataMessage, Header]
+    [options, valueKey, selectedValue, onChange, sheet, renderItem, keyExtractor, loading, loadingRender, noDataMessage, Header, isError, onRetry]
   );
 
   const openSheet = () => {
@@ -165,7 +186,7 @@ export function SelectGeneric<T>({
     if (!isMineOpenRef.current) return;
     sheet.updateConfig({ props: buildSheetProps() });
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [options, loading, selectedValue, noDataMessage]);
+  }, [options, loading, selectedValue, noDataMessage, isError]);
 
   return (
     <SelectGenericContainer style={style}>

@@ -40,7 +40,7 @@ import {
  */
 class StaffSyncFilter implements SyncEntityFilter {
   readonly entityType = 'staff';
-  readonly dependencyOrder = 8;
+  readonly dependencyOrder = 80;
   readonly permissionEntity = 'User' as const;
 
   private selection() {
@@ -149,7 +149,7 @@ export class SyncFilterRegistry {
     this.filters = [
       new GenericSyncFilter({
         entityType: 'store',
-        dependencyOrder: 0,
+        dependencyOrder: 10,
         permissionEntity: 'Store',
         table: stores,
         idColumn: stores.id,
@@ -172,7 +172,7 @@ export class SyncFilterRegistry {
       }),
       new GenericSyncFilter({
         entityType: 'unit',
-        dependencyOrder: 2,
+        dependencyOrder: 20,
         permissionEntity: 'Store',
         table: units,
         idColumn: units.id,
@@ -192,7 +192,7 @@ export class SyncFilterRegistry {
       }),
       new GenericSyncFilter({
         entityType: 'store_device_access',
-        dependencyOrder: 2,
+        dependencyOrder: 30,
         permissionEntity: 'Device',
         table: storeDeviceAccess,
         idColumn: storeDeviceAccess.id,
@@ -213,7 +213,7 @@ export class SyncFilterRegistry {
       }),
       new GenericSyncFilter({
         entityType: 'location',
-        dependencyOrder: 3,
+        dependencyOrder: 40,
         permissionEntity: 'Location',
         table: locations,
         idColumn: locations.id,
@@ -235,7 +235,7 @@ export class SyncFilterRegistry {
       }),
       new GenericSyncFilter({
         entityType: 'lookup',
-        dependencyOrder: 5,
+        dependencyOrder: 50,
         permissionEntity: 'Lookup',
         table: lookup,
         idColumn: lookup.id,
@@ -258,7 +258,7 @@ export class SyncFilterRegistry {
       }),
       new GenericSyncFilter({
         entityType: 'payment_method',
-        dependencyOrder: 5,
+        dependencyOrder: 60,
         permissionEntity: 'Payment',
         table: paymentMethods,
         idColumn: paymentMethods.id,
@@ -280,7 +280,7 @@ export class SyncFilterRegistry {
       }),
       new GenericSyncFilter({
         entityType: 'taxrate',
-        dependencyOrder: 6,
+        dependencyOrder: 70,
         permissionEntity: 'TaxRate',
         table: taxRates,
         idColumn: taxRates.id,
@@ -301,7 +301,7 @@ export class SyncFilterRegistry {
       new StaffSyncFilter(),
       new GenericSyncFilter({
         entityType: 'product',
-        dependencyOrder: 10,
+        dependencyOrder: 90,
         permissionEntity: 'Product',
         table: products,
         idColumn: products.id,
@@ -329,7 +329,7 @@ export class SyncFilterRegistry {
       }),
       new GenericSyncFilter({
         entityType: 'product_case',
-        dependencyOrder: 10,
+        dependencyOrder: 100,
         permissionEntity: 'Product',
         table: productCases,
         idColumn: productCases.id,
@@ -351,7 +351,7 @@ export class SyncFilterRegistry {
       }),
       new GenericSyncFilter({
         entityType: 'paymentaccount',
-        dependencyOrder: 15,
+        dependencyOrder: 110,
         permissionEntity: 'Payment',
         table: paymentAccounts,
         idColumn: paymentAccounts.id,
@@ -372,7 +372,7 @@ export class SyncFilterRegistry {
       }),
       new GenericSyncFilter({
         entityType: 'customer',
-        dependencyOrder: 20,
+        dependencyOrder: 120,
         permissionEntity: 'Customer',
         table: customers,
         idColumn: customers.id,
@@ -395,7 +395,7 @@ export class SyncFilterRegistry {
       }),
       new GenericSyncFilter({
         entityType: 'supplier',
-        dependencyOrder: 21,
+        dependencyOrder: 130,
         permissionEntity: 'Supplier',
         table: suppliers,
         idColumn: suppliers.id,
@@ -415,6 +415,16 @@ export class SyncFilterRegistry {
         },
       }),
     ].sort((a, b) => a.dependencyOrder - b.dependencyOrder);
+
+    // dependencyOrder must be a TOTAL order — cold start applies entities in
+    // this sequence for FK safety, and a tie would resolve only by V8's stable
+    // sort (i.e. array insertion order), which is too implicit to depend on.
+    // Values are spaced by 10 so a new entity can slot between two others
+    // without a renumber; this guard fails fast if a future addition collides.
+    const orders = this.filters.map((f) => f.dependencyOrder);
+    if (new Set(orders).size !== orders.length) {
+      throw new Error('[sync] duplicate dependencyOrder — cold-start ordering must be a total order');
+    }
 
     for (const f of this.filters) this.byType.set(f.entityType, f);
   }

@@ -61,6 +61,54 @@ export class InvitationRepository {
     return row?.n ?? 0;
   }
 
+  /** Batched counterpart to `countActiveStaff` — one grouped query for every
+   *  store in the set instead of N sequential per-store counts. */
+  async countActiveStaffByStores(storeIds: string[], tx?: DbExecutor): Promise<Map<string, number>> {
+    if (storeIds.length === 0) return new Map();
+    const rows = await this.client(tx)
+      .select({
+        storeFk: userRoleMappings.storeFk,
+        n: sql<number>`count(distinct ${userRoleMappings.userFk})::int`,
+      })
+      .from(userRoleMappings)
+      .where(and(inArray(userRoleMappings.storeFk, storeIds), isNull(userRoleMappings.revokedAt)))
+      .groupBy(userRoleMappings.storeFk);
+    // storeFk is nullable on this table (system-wide role rows) but the
+    // inArray filter above already excludes those — narrow the type back.
+    return new Map(rows.map((r) => [r.storeFk as string, r.n]));
+  }
+
+  /** Resolve the account that owns a store — needed to read the store's
+   *  entitlements (max_users_per_store) at accept time, where only the storeFk
+   *  is in hand. */
+  async getAccountIdForStore(storeId: string, tx?: DbExecutor): Promise<string | null> {
+    const [row] = await this.client(tx)
+      .select({ accountFk: stores.accountFk })
+      .from(stores)
+      .where(eq(stores.id, storeId));
+    return row?.accountFk ?? null;
+  }
+
+  /** Whether the user already holds an active role in this store — i.e. already
+   *  occupies a seat. `countActiveStaff` counts DISTINCT users, so accepting an
+   *  invite for an existing staff member consumes no new seat; the accept-time
+   *  limit gate skips the check in that case (avoids a false USER_LIMIT_REACHED
+   *  when assigning a second role at the cap). */
+  async isActiveStaffMember(userId: string, storeId: string, tx?: DbExecutor): Promise<boolean> {
+    const [row] = await this.client(tx)
+      .select({ userFk: userRoleMappings.userFk })
+      .from(userRoleMappings)
+      .where(
+        and(
+          eq(userRoleMappings.userFk, userId),
+          eq(userRoleMappings.storeFk, storeId),
+          isNull(userRoleMappings.revokedAt),
+        ),
+      )
+      .limit(1);
+    return Boolean(row);
+  }
+
   /**
    * Lock the store row for the duration of the transaction (SELECT ... FOR
    * UPDATE). Serializes concurrent invitation-creation attempts against the
@@ -153,6 +201,38 @@ export class InvitationRepository {
         or(...contactMatch),
       ));
     return Boolean(row);
+  }
+
+  /**
+   * Lazily flip stale (expired but never accepted/revoked) pending invites for
+   * this exact store+role+contact out of 'pending' — nothing else in this
+   * codebase transitions status='expired' on a schedule, so a pending row
+   * whose expiresAt has lapsed would otherwise sit there forever and collide
+   * with uk_invitations_pending_phone/email on a legitimate re-invite. Must
+   * run inside the same transaction/lock as the insert that follows it.
+   */
+  async expireStalePending(
+    storeId: string,
+    roleId: string,
+    phone: string | undefined,
+    email: string | undefined,
+    tx: DbExecutor,
+  ): Promise<void> {
+    const contactMatch = [];
+    if (phone) contactMatch.push(eq(invitations.phone, phone));
+    if (email) contactMatch.push(eq(invitations.email, email));
+    if (contactMatch.length === 0) return;
+
+    await tx
+      .update(invitations)
+      .set({ status: 'expired' })
+      .where(and(
+        eq(invitations.storeFk, storeId),
+        eq(invitations.roleFk, roleId),
+        eq(invitations.status, 'pending'),
+        sql`${invitations.expiresAt} <= now()`,
+        or(...contactMatch),
+      ));
   }
 
   async findByToken(token: string, tx?: DbExecutor): Promise<InvitationRow | null> {
@@ -275,7 +355,12 @@ export class InvitationRepository {
           gt(invitations.expiresAt, new Date()),
           or(...contactMatch),
         ),
-      );
+      )
+      // Defensive cap, not real pagination — a person's own pending invites
+      // are structurally small (bounded by how many stores could plausibly
+      // invite the same phone/email), but "no LIMIT at all" is still a bug
+      // per the standard's "bound everything" rule.
+      .limit(500);
 
     return rows;
   }

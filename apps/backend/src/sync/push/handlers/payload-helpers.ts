@@ -20,3 +20,21 @@ export const quantity = z
 export function prune(record: Record<string, unknown>): Record<string, unknown> {
   return Object.fromEntries(Object.entries(record).filter(([, v]) => v !== undefined));
 }
+
+/**
+ * Build an update schema from a create-schema's field map: every field
+ * becomes optional (a partial update only touches the fields the client
+ * sent), `guuid` stays required to identify which row to update. `base` is
+ * typed as `Record<string, z.ZodType>` so `s.optional()` is called on a
+ * known ZodType directly — no `as z.ZodType` cast needed at call sites.
+ */
+export function partialUpdateSchema(
+  base: Record<string, z.ZodType>,
+): z.ZodType<Record<string, unknown>> {
+  return z.object({
+    guuid: z.uuid(),
+    ...Object.fromEntries(
+      Object.entries(base).map(([k, s]) => [k, s.optional()]),
+    ),
+  });
+}

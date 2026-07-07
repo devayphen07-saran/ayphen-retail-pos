@@ -1,7 +1,6 @@
 import { Global, Module } from '@nestjs/common';
 import { REDIS } from '#common/redis/redis.provider.js';
 import { CORE_REDIS } from './core.tokens.js';
-import { AuthConstantsService } from './auth-constants.service.js';
 import { CryptoService } from './crypto.service.js';
 import { PasswordService } from './password.service.js';
 import { RateLimitRepository } from './rate-limit.repository.js';
@@ -25,7 +24,6 @@ const CoreRedisProvider = {
 @Module({
   providers: [
     CoreRedisProvider,
-    AuthConstantsService,
     CryptoService,
     PasswordService,
     RateLimitRepository,
@@ -35,7 +33,6 @@ const CoreRedisProvider = {
   ],
   exports: [
     CORE_REDIS,
-    AuthConstantsService,
     CryptoService,
     PasswordService,
     RateLimitRepository,

@@ -3,6 +3,7 @@ import type { EntityCode } from '#common/rbac/permission-matrix.constants.js';
 import type { ErrorCode } from '#common/error-codes.js';
 import type { ConflictType } from '../repositories/sync-conflict.repository.js';
 import type { WireRow } from '../registry/entity-filter.js';
+import type { SyncEntityType } from '../sync.constants.js';
 
 export type MutationAction = 'create' | 'update' | 'delete';
 
@@ -47,7 +48,7 @@ export type HandlerOutcome =
  * handlers (WS-5) is registry registration, never a switch in the pipeline.
  */
 export interface SyncMutationHandler {
-  entityType: string;
+  entityType: SyncEntityType;
   /** RBAC entity the §12 current/point-in-time authorization checks run against. */
   permissionEntity: EntityCode;
   apply(

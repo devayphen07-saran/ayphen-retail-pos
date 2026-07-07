@@ -7,21 +7,22 @@ import {
 } from '#common/exceptions/app.exception.js';
 import { ErrorCodes } from '#common/error-codes.js';
 import { createHash, randomBytes } from 'node:crypto';
-import { UnitOfWork } from '#db/db.module.js';
+import { UnitOfWork, type DbTransaction } from '#db/db.module.js';
+import { rethrowUniqueViolationAs } from '#db/rethrow-unique-violation.js';
 import {
   InvitationRepository,
   type InvitationRow,
   type PendingInvitationRow,
 } from './invitation.repository.js';
-import { RoleRepository } from '../role/role.repository.js';
+import { RoleRepository, type RoleRow } from '../role/role.repository.js';
 import { UserLocationRepository } from '../../locations/user-location.repository.js';
 import { EntitlementService } from '../../subscription/entitlement.service.js';
 import { RbacService } from '#common/rbac/rbac.service.js';
 import { AuditService } from '#common/audit/audit.service.js';
 import { SnapshotService } from '#auth/mobile/services/snapshot.service.js';
 import { RateLimitService } from '#auth/core/rate-limit.service.js';
+import { SYSTEM_ROLE_CODES } from '#common/rbac/permission-matrix.constants.js';
 
-const SYSTEM_ROLE_CODES = new Set(['USER', 'STORE_OWNER', 'SUPER_ADMIN']);
 const INVITE_TTL_DAYS = 7;
 
 /**
@@ -76,16 +77,106 @@ export class InvitationService {
     actorId: string,
     input: CreateInvitationInput,
   ): Promise<CreateInvitationResult> {
+    const role = await this.validateContactAndRole(storeId, input);
+    const validLocationIds = await this.validateLocations(storeId, input.locationIds);
+    await this.assertUnderUserLimit(accountId, storeId);
+
+    const rawToken = randomBytes(24).toString('base64url');
+    const tokenHash = hashInvitationToken(rawToken);
+    const expiresAt = new Date(
+      Date.now() + INVITE_TTL_DAYS * 24 * 60 * 60 * 1000,
+    );
+
+    const invitation = await rethrowUniqueViolationAs(
+      this.uow.execute(async (tx) => {
+        // Lock the store row so concurrent creates serialize, then recheck the
+        // gate inside the transaction — the pre-check above is TOCTOU-able by
+        // itself (two concurrent requests can both pass it before either inserts).
+        await this.repo.lockStore(storeId, tx);
+
+        // Nothing else transitions a lapsed invite out of 'pending' on a
+        // schedule — sweep this exact contact+role's stale rows first so they
+        // can't collide with uk_invitations_pending_phone/email below, then the
+        // insert's constraint is the real TOCTOU guard for a genuinely LIVE
+        // duplicate (same shape as the pre-check above, just race-proof).
+        await this.repo.expireStalePending(storeId, input.roleId, input.phone, input.email, tx);
+
+        const limit = await this.entitlements.get(
+          accountId,
+          'max_users_per_store',
+          tx,
+        );
+        const active = await this.repo.countActiveStaff(storeId, tx);
+        if (!this.entitlements.canCreate(limit, active)) {
+          throw new ForbiddenError(
+            ErrorCodes.USER_LIMIT_REACHED,
+            'User limit reached for this store',
+            {
+              limit,
+              current: active,
+            },
+          );
+        }
+
+        const created = await this.repo.create(
+          {
+            storeFk: storeId,
+            roleFk: input.roleId,
+            phone: input.phone,
+            email: input.email,
+            token: tokenHash,
+            invitedBy: actorId,
+            expiresAt,
+          },
+          tx,
+        );
+        await this.repo.insertInvitationLocations(
+          created.id,
+          validLocationIds,
+          tx,
+        );
+        await this.audit.logInTransaction({
+          event: 'ROLE_ASSIGNMENT_CREATED',
+          activityType: 'ROLE_ASSIGNMENT_CREATED',
+          prefix: 'Invitation',
+          suffix: `created for role "${role.name}"`,
+          userId: actorId,
+          storeFk: storeId,
+          isSuccess: true,
+          entityType: 'Invitation',
+          entityId: created.id,
+        }, tx);
+        return created;
+      }),
+      () => new ConflictError(
+        ErrorCodes.INVITATION_ALREADY_PENDING,
+        'A pending invitation already exists for this contact and role',
+      ),
+    );
+
+    // TODO: deliver the invite (SMS via Msg91 / email) — record + token exist now;
+    // push/SMS delivery is a separate wiring step (device §27: don't depend on push).
+
+    // Return the RAW token for delivery — the DB holds only its hash.
+    return { id: invitation.id, token: rawToken };
+  }
+
+  /**
+   * A phone/email is required (validation-shaped, 422 not 409), the target
+   * role must be a custom, invitable role of this store (BR-RBAC-006), and no
+   * live invite may already exist for this exact contact+role.
+   */
+  private async validateContactAndRole(
+    storeId: string,
+    input: CreateInvitationInput,
+  ): Promise<RoleRow> {
     if (!input.phone && !input.email) {
-      // Validation-shaped failure (a required field is missing), not a
-      // resource conflict — 422, not 409.
       throw new UnprocessableError(
         ErrorCodes.INVITATION_CONTACT_REQUIRED,
         'A phone number or email is required to send an invitation',
       );
     }
 
-    // Only custom roles of this store are invitable (BR-RBAC-006).
     const role = await this.roleRepo.findRoleInStore(input.roleId, storeId);
     if (!role)
       throw new NotFoundError(ErrorCodes.ROLE_NOT_FOUND, 'Role not found');
@@ -110,10 +201,17 @@ export class InvitationService {
       );
     }
 
-    // Every selected location must belong to this store (and be active) — a
-    // client can't scope an invite to a location outside the store it's
-    // inviting into. Dedupe first so the length comparison is exact.
-    const requestedLocationIds = [...new Set(input.locationIds)];
+    return role;
+  }
+
+  /** Every selected location must belong to this store (and be active) — a
+   *  client can't scope an invite to a location outside the store it's
+   *  inviting into. Dedupes first so the length comparison is exact. */
+  private async validateLocations(
+    storeId: string,
+    locationIds: string[],
+  ): Promise<string[]> {
+    const requestedLocationIds = [...new Set(locationIds)];
     const validLocationIds = await this.repo.filterStoreLocationIds(
       storeId,
       requestedLocationIds,
@@ -124,90 +222,25 @@ export class InvitationService {
         'One or more selected locations do not belong to this store',
       );
     }
+    return validLocationIds;
+  }
 
-    // max_users_per_store gate (subscription §10). Fast pre-check outside the
-    // transaction for quick feedback on the common case.
-    const precheckLimit = await this.entitlements.get(
-      accountId,
-      'max_users_per_store',
-    );
-    const precheckActive = await this.repo.countActiveStaff(storeId);
-    if (!this.entitlements.canCreate(precheckLimit, precheckActive)) {
+  /** max_users_per_store gate (subscription §10). Fast pre-check outside the
+   *  transaction for quick feedback on the common case — the transaction
+   *  below re-checks it under lock, since this read is TOCTOU-able by itself. */
+  private async assertUnderUserLimit(
+    accountId: string,
+    storeId: string,
+  ): Promise<void> {
+    const limit = await this.entitlements.get(accountId, 'max_users_per_store');
+    const active = await this.repo.countActiveStaff(storeId);
+    if (!this.entitlements.canCreate(limit, active)) {
       throw new ForbiddenError(
         ErrorCodes.USER_LIMIT_REACHED,
         'User limit reached for this store',
-        {
-          limit: precheckLimit,
-          current: precheckActive,
-        },
+        { limit, current: active },
       );
     }
-
-    const rawToken = randomBytes(24).toString('base64url');
-    const tokenHash = hashInvitationToken(rawToken);
-    const expiresAt = new Date(
-      Date.now() + INVITE_TTL_DAYS * 24 * 60 * 60 * 1000,
-    );
-
-    const invitation = await this.uow.execute(async (tx) => {
-      // Lock the store row so concurrent creates serialize, then recheck the
-      // gate inside the transaction — the pre-check above is TOCTOU-able by
-      // itself (two concurrent requests can both pass it before either inserts).
-      await this.repo.lockStore(storeId, tx);
-      const limit = await this.entitlements.get(
-        accountId,
-        'max_users_per_store',
-        tx,
-      );
-      const active = await this.repo.countActiveStaff(storeId, tx);
-      if (!this.entitlements.canCreate(limit, active)) {
-        throw new ForbiddenError(
-          ErrorCodes.USER_LIMIT_REACHED,
-          'User limit reached for this store',
-          {
-            limit,
-            current: active,
-          },
-        );
-      }
-
-      const created = await this.repo.create(
-        {
-          storeFk: storeId,
-          roleFk: input.roleId,
-          phone: input.phone,
-          email: input.email,
-          token: tokenHash,
-          invitedBy: actorId,
-          expiresAt,
-        },
-        tx,
-      );
-      await this.repo.insertInvitationLocations(
-        created.id,
-        validLocationIds,
-        tx,
-      );
-      return created;
-    });
-
-    // TODO: deliver the invite (SMS via Msg91 / email) — record + token exist now;
-    // push/SMS delivery is a separate wiring step (device §27: don't depend on push).
-
-    await this.audit.log({
-      event: 'ROLE_ASSIGNMENT_CREATED',
-      activityType: 'ROLE_ASSIGNMENT_CREATED',
-      prefix: 'Invitation',
-      suffix: `created for role "${role.name}"`,
-      userId: actorId,
-      storeFk: storeId,
-      isSuccess: true,
-      entityType: 'Invitation',
-      entityId: invitation.id,
-    });
-
-    // Return the RAW token for delivery — the DB holds only its hash.
-    return { id: invitation.id, token: rawToken };
   }
 
   /**
@@ -284,6 +317,12 @@ export class InvitationService {
     userId: string,
   ): Promise<AcceptInvitationResult> {
     await this.uow.execute(async (tx) => {
+      // Serialize concurrent accepts against this store so the seat recheck
+      // below can't race (two accepts both reading active < limit before either
+      // inserts its role mapping). Lock BEFORE the CAS — same store lock create()
+      // takes.
+      await this.repo.lockStore(invitation.storeFk, tx);
+
       // markAccepted is the real guard against a concurrent accept()/reject()
       // race on the same invitation — the status check above reads outside this
       // transaction, so both calls can pass it before either commits.
@@ -298,36 +337,81 @@ export class InvitationService {
           'This invitation is no longer pending',
         );
 
-      await this.repo.ensureAccountMembership(userId, invitation.storeFk, tx);
-      await this.roleRepo.insertAssignmentIfAbsent(
-        {
-          userFk: userId,
-          roleFk: invitation.roleFk,
-          storeFk: invitation.storeFk,
-          assignedBy: userId,
-        },
-        tx,
-      );
-      // Apply the invite's location scoping — the invitee is assigned to
-      // exactly the locations the owner selected (the "WHERE" gate the
-      // LocationGuard reads). Idempotent, so a retried accept is safe.
-      const locationIds = await this.repo.listInvitationLocationIds(
-        invitation.id,
-        tx,
-      );
-      await this.userLocationRepo.assignMany(userId, locationIds, userId, tx);
-      await this.rbac.bumpPermissionsVersionForRole(
-        invitation.roleFk,
-        invitation.storeFk,
-        tx,
-      );
+      await this.enforceSeatLimitOnAccept(tx, invitation, userId);
+      await this.grantMembershipAndRole(tx, invitation, userId);
     });
     await this.rbac.invalidateUserStoreCache(userId, invitation.storeFk);
     // Same staleness bug as store creation — the cached bootstrap snapshot
     // must be dropped too, or the newly-joined store won't show up until TTL.
     await this.snapshot.invalidate(userId);
 
-    await this.audit.log({
+    return { storeId: invitation.storeFk };
+  }
+
+  /**
+   * Enforce max_users_per_store at the point the seat is actually consumed.
+   * The create-time gate counts only ACCEPTED role mappings and a pending
+   * invite reserves nothing, so over-issuing then all-accepting would
+   * otherwise blow past the plan seat limit (the create gate is necessary
+   * but not sufficient). Skip when the invitee already holds an active role
+   * here — seats are DISTINCT users, so a second-role assignment consumes no
+   * new seat and must not be blocked at the cap.
+   */
+  private async enforceSeatLimitOnAccept(
+    tx: DbTransaction,
+    invitation: InvitationRow,
+    userId: string,
+  ): Promise<void> {
+    const alreadyStaff = await this.repo.isActiveStaffMember(
+      userId,
+      invitation.storeFk,
+      tx,
+    );
+    if (alreadyStaff) return;
+
+    const accountId = await this.repo.getAccountIdForStore(invitation.storeFk, tx);
+    if (!accountId) return;
+
+    const limit = await this.entitlements.get(accountId, 'max_users_per_store', tx);
+    const active = await this.repo.countActiveStaff(invitation.storeFk, tx);
+    if (!this.entitlements.canCreate(limit, active)) {
+      throw new ForbiddenError(
+        ErrorCodes.USER_LIMIT_REACHED,
+        'User limit reached for this store',
+        { limit, current: active },
+      );
+    }
+  }
+
+  /** Membership + role + the invite's location scoping (the "WHERE" gate the
+   *  LocationGuard reads) + permission-version bump + audit — all idempotent,
+   *  so a retried accept is safe. */
+  private async grantMembershipAndRole(
+    tx: DbTransaction,
+    invitation: InvitationRow,
+    userId: string,
+  ): Promise<void> {
+    await this.repo.ensureAccountMembership(userId, invitation.storeFk, tx);
+    await this.roleRepo.insertAssignmentIfAbsent(
+      {
+        userFk: userId,
+        roleFk: invitation.roleFk,
+        storeFk: invitation.storeFk,
+        assignedBy: userId,
+      },
+      tx,
+    );
+    const locationIds = await this.repo.listInvitationLocationIds(
+      invitation.id,
+      tx,
+    );
+    await this.userLocationRepo.assignMany(userId, locationIds, userId, tx);
+    await this.rbac.bumpPermissionsVersionForRole(
+      invitation.roleFk,
+      invitation.storeFk,
+      tx,
+    );
+    await this.audit.logInTransaction({
       event: 'ROLE_ASSIGNMENT_CREATED',
       activityType: 'ROLE_ASSIGNMENT_CREATED',
       prefix: 'Invitation',
@@ -337,9 +421,7 @@ export class InvitationService {
       isSuccess: true,
       entityType: 'UserRoleMapping',
       metadata: { invitationId: invitation.id, roleId: invitation.roleFk },
-    });
-
-    return { storeId: invitation.storeFk };
+    }, tx);
   }
 
   /** Decline an invitation as the authenticated user — same token-as-proof

@@ -1,4 +1,4 @@
-import { Inject, Injectable } from '@nestjs/common';
+import { Inject, Injectable, Logger } from '@nestjs/common';
 import {
   ForbiddenError,
   NotFoundError,
@@ -7,7 +7,9 @@ import {
 } from '#common/exceptions/app.exception.js';
 import { ErrorCodes } from '#common/error-codes.js';
 import type { Redis } from 'ioredis';
+import { z, type ZodType } from 'zod';
 import { REDIS } from '#common/redis/redis.provider.js';
+import { readTypedCache } from '#common/redis/typed-cache.js';
 import { SubscriptionRepository } from './subscription.repository.js';
 import { SubscriptionService } from './subscription.service.js';
 import {
@@ -39,6 +41,12 @@ interface PendingOrder {
   planCode:  string;
 }
 
+const PendingOrderSchema: ZodType<PendingOrder> = z.object({
+  accountId: z.string(),
+  planFk: z.string(),
+  planCode: z.string(),
+});
+
 /**
  * Orchestrates the payment flow over the provider-agnostic PaymentProvider port
  * (subscription §9). Billing actions are gated on account ownership. Activation
@@ -47,6 +55,8 @@ interface PendingOrder {
  */
 @Injectable()
 export class BillingService {
+  private readonly logger = new Logger(BillingService.name);
+
   constructor(
     private readonly repo: SubscriptionRepository,
     private readonly subscriptions: SubscriptionService,
@@ -153,6 +163,17 @@ export class BillingService {
         captured.amount !== price.amount ||
         (captured.currency !== undefined && captured.currency.toUpperCase() !== price.currency.toUpperCase())
       ) {
+        // AppExceptions are never logged by the global filter (only truly
+        // unknown exceptions are) — without this, a real paid-but-stuck
+        // customer produces zero server-side signal beyond a 422 the client
+        // swallows. `error` (not `warn`) so a log-based alert rule can key on
+        // it: this is either a price-config drift or a forged webhook, never
+        // a routine client error.
+        this.logger.error(
+          `PAYMENT_AMOUNT_MISMATCH orderId=${orderId} accountId=${pending.accountId} ` +
+          `planCode=${pending.planCode} expected=${price?.amount}${price?.currency} ` +
+          `captured=${captured.amount}${captured.currency ?? ''} providerRef=${providerRef}`,
+        );
         throw new UnprocessableError(ErrorCodes.PAYMENT_AMOUNT_MISMATCH, 'Captured amount does not match the plan price');
       }
     }
@@ -164,7 +185,14 @@ export class BillingService {
       orderId,
       providerRef,
     );
-    await this.redis.del(orderKey(orderId));
+    try {
+      await this.redis.del(orderKey(orderId));
+    } catch {
+      // Best-effort; TTL is the backstop (matches SubscriptionService/
+      // ReconciliationService's invalidateCache) — the activation above
+      // already committed, so a Redis blip here must not surface as a
+      // failure to a customer who just paid successfully.
+    }
   }
 
   /**
@@ -174,8 +202,8 @@ export class BillingService {
    * would find a valid idempotency claim to make but no data to act on.
    */
   private async readOrder(orderId: string): Promise<PendingOrder | null> {
-    const raw = await this.redis.get(orderKey(orderId));
-    if (raw) return JSON.parse(raw) as PendingOrder;
+    const cached = await readTypedCache(this.redis, orderKey(orderId), PendingOrderSchema);
+    if (cached) return cached;
 
     const row = await this.repo.findPaymentOrder(orderId);
     return row ? { accountId: row.accountId, planFk: row.planFk, planCode: row.planCode } : null;

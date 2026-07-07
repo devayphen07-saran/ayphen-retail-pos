@@ -49,12 +49,19 @@ export class OtpService {
     if (request.consumedAt) {
       throw new AppException(ErrorCodes.TOKEN_INVALID, 'OTP_ALREADY_CONSUMED', 422);
     }
-    if (request.attempts >= request.maxAttempts) {
-      throw new AppException(ErrorCodes.TOKEN_INVALID, 'OTP_MAX_ATTEMPTS', 422);
-    }
     if (new Date() > request.expiresAt) {
       throw new AppException(ErrorCodes.TOKEN_EXPIRED, 'OTP_EXPIRED', 422);
     }
+
+    // Atomic check-and-increment: the DB row, not this in-memory `request`
+    // snapshot, is the source of truth for the attempt count — closes the
+    // race where concurrent verify calls each read a stale `attempts` value
+    // and jointly exceed maxAttempts before either's increment commits.
+    const attempt = await this.otpRepo.incrementAttemptsIfUnderLimit(request.id);
+    if (!attempt.underLimit) {
+      throw new AppException(ErrorCodes.TOKEN_INVALID, 'OTP_MAX_ATTEMPTS', 422);
+    }
+    const attemptsRemaining = attempt.maxAttempts - attempt.attempts;
 
     let valid = false;
 
@@ -65,10 +72,8 @@ export class OtpService {
       valid = a.length === b.length && timingSafeEqual(a, b);
     }
 
-    await this.otpRepo.incrementAttempts(request.id);
-
     if (!valid) {
-      throw new AppException(ErrorCodes.INVALID_CREDENTIALS, 'OTP_INVALID', 422);
+      throw new AppException(ErrorCodes.INVALID_CREDENTIALS, 'OTP_INVALID', 422, { attemptsRemaining });
     }
 
     await this.otpRepo.markConsumed(request.id);

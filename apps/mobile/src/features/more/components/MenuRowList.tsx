@@ -18,6 +18,8 @@ export interface MenuRowItem {
   iconName: LucideIconNameType;
   iconColor: MenuColorToken;
   onPress: () => void;
+  /** Shown as a small count pill before the chevron when > 0 (e.g. unresolved sync issues). */
+  badgeCount?: number;
 }
 
 /**
@@ -62,6 +64,13 @@ export function MenuRowList({ items }: { items: MenuRowItem[] }) {
                   {item.description}
                 </Typography.Caption>
               </Column>
+              {!!item.badgeCount && (
+                <BadgePill>
+                  <Typography.Caption weight="semiBold" color={theme.colorWhite}>
+                    {item.badgeCount > 99 ? '99+' : item.badgeCount}
+                  </Typography.Caption>
+                </BadgePill>
+              )}
               <LucideIcon name="ChevronRight" size={16} color={theme.colorTextTertiary} />
             </RowPressable>
             {!isLast && (
@@ -95,4 +104,14 @@ const IconContainer = styled(View)`
   border-radius: ${({ theme }) => theme.borderRadius.large}px;
   align-items: center;
   justify-content: center;
+`;
+
+const BadgePill = styled(View)`
+  min-width: 20px;
+  height: 20px;
+  padding-horizontal: 6px;
+  border-radius: ${({ theme }) => theme.borderRadius.full}px;
+  align-items: center;
+  justify-content: center;
+  background-color: ${({ theme }) => theme.color.danger.main};
 `;

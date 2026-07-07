@@ -30,7 +30,6 @@ import {
   CreateLookupValueDtoSchema,
   UpdateLookupValueDtoSchema,
 } from './dto/lookup.dto.js';
-import { LookupRequestMapper } from './lookup.request-mapper.js';
 
 /**
  * Lookup values API (lookup-entity-prd.md §7). Reads are any authenticated
@@ -68,12 +67,12 @@ export class LookupController {
     @Body() body: unknown,
   ): Promise<LookupValueResponse> {
     const dto = parse(body, CreateLookupValueDtoSchema);
-    const row = await this.lookup.addValue(
-      typeCode,
-      storeId,
-      user.userId,
-      LookupRequestMapper.toCreateValueCommand(dto),
-    );
+    const row = await this.lookup.addValue(typeCode, storeId, user.userId, {
+      code:        dto.code,
+      label:       dto.label,
+      description: dto.description,
+      sortOrder:   dto.sort_order,
+    });
     return LookupValueMapper.toResponse(row);
   }
 
@@ -86,12 +85,13 @@ export class LookupController {
     @Body() body: unknown,
   ): Promise<LookupValueResponse> {
     const dto = parse(body, UpdateLookupValueDtoSchema);
-    const row = await this.lookup.updateValue(
-      guuid,
-      storeId,
-      user.userId,
-      LookupRequestMapper.toUpdateValueCommand(dto),
-    );
+    const row = await this.lookup.updateValue(guuid, storeId, user.userId, {
+      label:              dto.label,
+      description:        dto.description,
+      sortOrder:          dto.sort_order,
+      isHidden:           dto.is_hidden,
+      expectedRowVersion: dto.expected_row_version,
+    });
     return LookupValueMapper.toResponse(row);
   }
 
@@ -101,7 +101,8 @@ export class LookupController {
   async removeValue(
     @Param('storeId', ParseUUIDPipe) storeId: string,
     @Param('guuid', ParseUUIDPipe) guuid: string,
+    @CurrentUser() user: MobilePrincipal,
   ): Promise<void> {
-    await this.lookup.softDeleteValue(guuid, storeId);
+    await this.lookup.softDeleteValue(guuid, storeId, user.userId);
   }
 }

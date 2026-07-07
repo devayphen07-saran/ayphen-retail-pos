@@ -12,9 +12,10 @@ import {
   Row,
   Typography,
 } from '@ayphen/mobile-ui-components';
-import { useActiveStoreStore } from '@store';
+import { useActiveStoreStore, useActiveStoreContext } from '@store';
 import { useAuth } from '@core/providers/AuthProvider';
 import { MORE_SECTIONS, type MoreSectionConfig, MenuRowList } from '@features/more';
+import { useSyncIssueCount } from '@features/sync';
 
 /**
  * More tab. Visually modeled on the reference app's MoreScreen (gradient
@@ -31,10 +32,15 @@ import { MORE_SECTIONS, type MoreSectionConfig, MenuRowList } from '@features/mo
 export function MoreScreen() {
   const { theme } = useMobileTheme();
   const { logout } = useAuth();
-  const store = useActiveStoreStore((s) => s.store);
+  const store = useActiveStoreContext();
   const clearActiveStore = useActiveStoreStore((s) => s.clearActiveStore);
+  const syncIssueCount = useSyncIssueCount();
 
   const storeName = store?.name || 'Unknown store';
+  // Debug-only tooling (raw SQLite table browser) has no place in a build a
+  // store owner or staff member could install — hide it outside dev builds
+  // rather than just placing it last.
+  const visibleSections = __DEV__ ? MORE_SECTIONS : MORE_SECTIONS.filter((s) => s.key !== 'developer');
 
   const leaveStore = () => {
     clearActiveStore();
@@ -58,10 +64,9 @@ export function MoreScreen() {
     Alert.confirm(
       'Log out',
       'You will need to sign in again to access your stores.',
-      () => {
-        clearActiveStore();
-        void logout();
-      },
+      // logout() → clearSession() now clears the active-store context centrally,
+      // so no manual clearActiveStore() here (single source of teardown).
+      () => void logout(),
       'Log out',
       'destructive',
     );
@@ -149,13 +154,14 @@ export function MoreScreen() {
           </StoreCardOuter>
 
           <MenuRowList
-            items={MORE_SECTIONS.map((section) => ({
+            items={visibleSections.map((section) => ({
               key: section.key,
               title: section.title,
               description: section.description,
               iconName: section.iconName,
               iconColor: section.iconColor,
               onPress: () => openSection(section),
+              badgeCount: section.key === 'system' ? syncIssueCount : undefined,
             }))}
           />
 

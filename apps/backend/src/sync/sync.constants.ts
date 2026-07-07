@@ -33,9 +33,35 @@ export const PER_ENTITY_FLOOR = 20;
 /** Cold-start bulk-dump page — the page size, not parallelism, is the cold-start lever (S-27). */
 export const INITIAL_PAGE_SIZE = 1000;
 
+// ─── Rate limits (§16) ───────────────────────────────────────────────────────
+// Keyed per (user, store, device) — NOT just (user, store): real small-retail
+// usage is one owner login on 2-3 counter devices, and a store-only key would
+// have those devices throttle each other exactly at rush hour.
+
+/** /sync/changes — a pure read, generous budget. */
+export const SYNC_CHANGES_RATE_LIMIT = { windowSeconds: 60, limit: 60 };
+
+/** /sync/delta — push+pull combined, tighter than a pure read. */
+export const SYNC_DELTA_RATE_LIMIT = { windowSeconds: 60, limit: 20 };
+
+/** /sync/delta mutation volume — separate from the request-rate limit above so
+ *  a client can't dodge it by cramming more mutations into fewer calls. */
+export const SYNC_MUTATION_RATE_LIMIT = { windowSeconds: 300, limit: 100 };
+
 // ─── Push limits (§9) ────────────────────────────────────────────────────────
 
 export const MAX_MUTATIONS_PER_BATCH = 100;
+
+/**
+ * Cap on independent mutations processed concurrently within one "wave"
+ * (computeWaves in push/delta.service.ts). Each mutation opens its own
+ * transaction against the shared, app-wide DB pool (DB_POOL_MAX defaults to
+ * 10, config/env.ts) — an unbounded `Promise.all` over a wave of up to
+ * MAX_MUTATIONS_PER_BATCH mutations could claim the entire pool from one
+ * device's single /sync/delta call. Stays well under the pool size so one
+ * batch can never starve the rest of the app.
+ */
+export const WAVE_CONCURRENCY = 4;
 
 /** Per-mutation payload cap (S-36) — a 500-line B2B order must be split client-side. */
 export const MAX_MUTATION_PAYLOAD_BYTES = 64 * 1024;

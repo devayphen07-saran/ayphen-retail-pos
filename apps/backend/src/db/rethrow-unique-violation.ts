@@ -1,6 +1,19 @@
 import postgres from 'postgres';
 
 /**
+ * drizzle-orm (0.44+) wraps every driver error in `DrizzleQueryError`, with
+ * the real `postgres.PostgresError` preserved on `.cause` — a plain
+ * `err instanceof postgres.PostgresError` check never matches anymore. Unwrap
+ * once here so every PG-error call site pattern-matches on the real error
+ * regardless of which layer (raw client vs. drizzle query builder) surfaced it.
+ */
+export function unwrapPgError(err: unknown): postgres.PostgresError | undefined {
+  if (err instanceof postgres.PostgresError) return err;
+  const cause = (err as { cause?: unknown } | null)?.cause;
+  return cause instanceof postgres.PostgresError ? cause : undefined;
+}
+
+/**
  * Run a write that can lose a uniqueness race to a concurrent request, and
  * normalize the resulting Postgres unique-violation into the same exception
  * the call site's pre-check already throws for the non-racing case — so the
@@ -19,10 +32,11 @@ export async function rethrowUniqueViolationAs<T>(
   try {
     return await op;
   } catch (err) {
+    const pgErr = unwrapPgError(err);
     if (
-      err instanceof postgres.PostgresError &&
-      err.code === '23505' &&
-      (constraintName === undefined || err.constraint_name === constraintName)
+      pgErr &&
+      pgErr.code === '23505' &&
+      (constraintName === undefined || pgErr.constraint_name === constraintName)
     ) {
       throw toException();
     }

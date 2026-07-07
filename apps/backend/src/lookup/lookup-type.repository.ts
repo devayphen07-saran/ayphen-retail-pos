@@ -32,8 +32,10 @@ export class LookupTypeRepository {
     return row ?? null;
   }
 
+  /** Admin-only, inherently small (a handful of lookup categories) — the cap
+   *  is a defensive backstop, not real pagination. */
   async listAll(tx?: DbExecutor): Promise<LookupTypeRow[]> {
-    return this.client(tx).select().from(lookupType);
+    return this.client(tx).select().from(lookupType).limit(500);
   }
 
   async create(

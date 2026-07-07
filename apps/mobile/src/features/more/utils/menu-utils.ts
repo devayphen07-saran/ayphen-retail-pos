@@ -12,6 +12,7 @@ export const ITEM_ROUTES: Partial<Record<string, string>> = {
   invitations: '/(onboarding)/invitations',
   'my-devices': '/(store)/my-devices',
   'sync-issues': '/(store)/sync-issues',
+  'local-tables': '/(store)/local-tables',
 };
 
 export function resolveMenuColor(theme: MobileTheme, token: MenuColorToken): string {

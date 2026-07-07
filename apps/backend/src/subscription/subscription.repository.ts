@@ -1,5 +1,5 @@
 import { Inject, Injectable } from '@nestjs/common';
-import { and, eq, lt, sql } from 'drizzle-orm';
+import { and, eq, inArray, lt, sql } from 'drizzle-orm';
 import type { PostgresJsDatabase } from 'drizzle-orm/postgres-js';
 import { DRIZZLE, type DbExecutor } from '#db/db.module.js';
 import { NotFoundError } from '#common/exceptions/app.exception.js';
@@ -241,6 +241,12 @@ export class SubscriptionRepository {
    * activate against even though `processed_payment_events` could still
    * accept the claim.
    */
+  /**
+   * Idempotent on `orderId` (its PK) — a repeated checkout for the same
+   * account+plan can legitimately reuse the same order id (deterministic
+   * under FakePaymentProvider's idempotencyKey-derived ids in dev/staging),
+   * and this must be a clean no-op, not an unhandled unique-violation 500.
+   */
   async insertPaymentOrder(
     orderId: string,
     accountId: string,
@@ -250,7 +256,8 @@ export class SubscriptionRepository {
   ): Promise<void> {
     await this.client(tx)
       .insert(paymentOrders)
-      .values({ orderId, accountFk: accountId, planFk, planCode });
+      .values({ orderId, accountFk: accountId, planFk, planCode })
+      .onConflictDoNothing();
   }
 
   /** Read back a pending order's account/plan mapping, or null if unknown. */
@@ -281,6 +288,23 @@ export class SubscriptionRepository {
       .values({ accountFk: accountId, eventType, payload });
   }
 
+  /** Batched counterpart to `enqueueOutbox` — one multi-row insert for the
+   *  whole set of accounts a cron transition affected, instead of N
+   *  sequential per-account inserts on the same connection (a mass cohort,
+   *  e.g. trials ending together, was serializing hundreds of inserts inside
+   *  the cron's transaction). */
+  async enqueueOutboxMany(
+    accountIds: string[],
+    eventType: string,
+    payload: Record<string, unknown>,
+    tx?: DbExecutor,
+  ): Promise<void> {
+    if (accountIds.length === 0) return;
+    await this.client(tx)
+      .insert(subscriptionAuditOutbox)
+      .values(accountIds.map((accountId) => ({ accountFk: accountId, eventType, payload })));
+  }
+
   // ─── Reconciliation cron: atomic, idempotent set-based transition ───────────
 
   /**
@@ -289,8 +313,17 @@ export class SubscriptionRepository {
    * access_valid_until (= trial_ends_at) is already in the past, so the guard
    * write-blocks immediately; this just makes the status explicit + bumps version.
    */
-  async expireTrials(now: Date, tx?: DbExecutor): Promise<string[]> {
-    const rows = await this.client(tx)
+  /** `limit` bounds each call to one batch (cron loops until a batch comes
+   *  back short of `limit`) — a mass same-day expiry must never run as one
+   *  unbounded UPDATE. */
+  async expireTrials(now: Date, limit: number, tx?: DbExecutor): Promise<string[]> {
+    const client = this.client(tx);
+    // Predicate is repeated on the outer UPDATE (not just the inner id-selecting
+    // SELECT) so that if a concurrent transaction changes the row's status
+    // between the inner snapshot and this UPDATE acquiring the lock, Postgres's
+    // EvalPlanQual re-validates against the row's latest committed values and
+    // skips it instead of blindly reapplying a now-stale transition.
+    const rows = await client
       .update(accountSubscriptions)
       .set({
         status: 'expired',
@@ -298,6 +331,17 @@ export class SubscriptionRepository {
         updatedAt: now,
       })
       .where(and(
+        inArray(
+          accountSubscriptions.id,
+          client
+            .select({ id: accountSubscriptions.id })
+            .from(accountSubscriptions)
+            .where(and(
+              eq(accountSubscriptions.status, 'trialing'),
+              lt(accountSubscriptions.trialEndsAt, now),
+            ))
+            .limit(limit),
+        ),
         eq(accountSubscriptions.status, 'trialing'),
         lt(accountSubscriptions.trialEndsAt, now),
       ))
@@ -319,10 +363,13 @@ export class SubscriptionRepository {
   async expireActiveToPastDue(
     now: Date,
     graceDays: number,
+    limit: number,
     tx?: DbExecutor,
   ): Promise<string[]> {
     const graceUntil = new Date(now.getTime() + graceDays * 24 * 60 * 60 * 1000);
-    const rows = await this.client(tx)
+    const client = this.client(tx);
+    // See expireTrials() for why the predicate is repeated on the outer UPDATE.
+    const rows = await client
       .update(accountSubscriptions)
       .set({
         status: 'past_due',
@@ -332,6 +379,18 @@ export class SubscriptionRepository {
         updatedAt: now,
       })
       .where(and(
+        inArray(
+          accountSubscriptions.id,
+          client
+            .select({ id: accountSubscriptions.id })
+            .from(accountSubscriptions)
+            .where(and(
+              eq(accountSubscriptions.status, 'active'),
+              eq(accountSubscriptions.cancelAtPeriodEnd, false),
+              lt(accountSubscriptions.currentPeriodEnd, now),
+            ))
+            .limit(limit),
+        ),
         eq(accountSubscriptions.status, 'active'),
         eq(accountSubscriptions.cancelAtPeriodEnd, false),
         lt(accountSubscriptions.currentPeriodEnd, now),
@@ -347,8 +406,10 @@ export class SubscriptionRepository {
    * fires; nothing is deleted, reads stay open. Single atomic `UPDATE … WHERE`,
    * idempotent on a duplicate/concurrent run.
    */
-  async expireCancelledAtPeriodEnd(now: Date, tx?: DbExecutor): Promise<string[]> {
-    const rows = await this.client(tx)
+  async expireCancelledAtPeriodEnd(now: Date, limit: number, tx?: DbExecutor): Promise<string[]> {
+    const client = this.client(tx);
+    // See expireTrials() for why the predicate is repeated on the outer UPDATE.
+    const rows = await client
       .update(accountSubscriptions)
       .set({
         status: 'cancelled',
@@ -356,6 +417,18 @@ export class SubscriptionRepository {
         updatedAt: now,
       })
       .where(and(
+        inArray(
+          accountSubscriptions.id,
+          client
+            .select({ id: accountSubscriptions.id })
+            .from(accountSubscriptions)
+            .where(and(
+              eq(accountSubscriptions.status, 'active'),
+              eq(accountSubscriptions.cancelAtPeriodEnd, true),
+              lt(accountSubscriptions.currentPeriodEnd, now),
+            ))
+            .limit(limit),
+        ),
         eq(accountSubscriptions.status, 'active'),
         eq(accountSubscriptions.cancelAtPeriodEnd, true),
         lt(accountSubscriptions.currentPeriodEnd, now),
@@ -371,8 +444,10 @@ export class SubscriptionRepository {
    * status explicit so `SubscriptionStatusGuard`'s hard-block path fires instead
    * of only the soft (window-expired) path.
    */
-  async expirePastDueGrace(now: Date, tx?: DbExecutor): Promise<string[]> {
-    const rows = await this.client(tx)
+  async expirePastDueGrace(now: Date, limit: number, tx?: DbExecutor): Promise<string[]> {
+    const client = this.client(tx);
+    // See expireTrials() for why the predicate is repeated on the outer UPDATE.
+    const rows = await client
       .update(accountSubscriptions)
       .set({
         status: 'expired',
@@ -380,6 +455,17 @@ export class SubscriptionRepository {
         updatedAt: now,
       })
       .where(and(
+        inArray(
+          accountSubscriptions.id,
+          client
+            .select({ id: accountSubscriptions.id })
+            .from(accountSubscriptions)
+            .where(and(
+              eq(accountSubscriptions.status, 'past_due'),
+              lt(accountSubscriptions.pastDueGraceUntil, now),
+            ))
+            .limit(limit),
+        ),
         eq(accountSubscriptions.status, 'past_due'),
         lt(accountSubscriptions.pastDueGraceUntil, now),
       ))

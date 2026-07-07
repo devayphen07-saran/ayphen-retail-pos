@@ -1,3 +1,4 @@
+import { Logger } from '@nestjs/common';
 import type { ThrottlerStorage } from '@nestjs/throttler';
 import type Redis from 'ioredis';
 
@@ -22,6 +23,8 @@ interface ThrottlerStorageRecord {
  * are returned in whole seconds (ceil), matching the built-in storage.
  */
 export class RedisThrottlerStorage implements ThrottlerStorage {
+  private readonly logger = new Logger(RedisThrottlerStorage.name);
+
   constructor(private readonly redis: Redis) {}
 
   // KEYS[1] = record key; ARGV = [ttlMs, limit, blockMs]. Uses Redis TIME so all
@@ -86,20 +89,28 @@ export class RedisThrottlerStorage implements ThrottlerStorage {
     blockDuration: number,
     throttlerName: string,
   ): Promise<ThrottlerStorageRecord> {
-    const result = (await this.redis.eval(
-      RedisThrottlerStorage.SCRIPT,
-      1,
-      `throttle:${throttlerName}:${key}`,
-      ttl,
-      limit,
-      blockDuration,
-    )) as [number, number, number, number];
+    try {
+      const result = (await this.redis.eval(
+        RedisThrottlerStorage.SCRIPT,
+        1,
+        `throttle:${throttlerName}:${key}`,
+        ttl,
+        limit,
+        blockDuration,
+      )) as [number, number, number, number];
 
-    return {
-      totalHits:         result[0],
-      timeToExpire:      result[1],
-      isBlocked:         result[2] === 1,
-      timeToBlockExpire: result[3],
-    };
+      return {
+        totalHits:         result[0],
+        timeToExpire:      result[1],
+        isBlocked:         result[2] === 1,
+        timeToBlockExpire: result[3],
+      };
+    } catch (err) {
+      // This is a DDoS backstop, not a security gate (see the module-level
+      // comment) — a Redis outage/slow response must degrade to "allow",
+      // not throw out of the global guard chain and 500 every request.
+      this.logger.warn(`Throttler storage unavailable, allowing request through: ${(err as Error).message}`);
+      return { totalHits: 0, timeToExpire: 0, isBlocked: false, timeToBlockExpire: 0 };
+    }
   }
 }

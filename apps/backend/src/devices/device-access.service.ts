@@ -1,6 +1,6 @@
 import { Injectable } from '@nestjs/common';
-import postgres from 'postgres';
 import { UnitOfWork } from '#db/db.module.js';
+import { unwrapPgError } from '#db/rethrow-unique-violation.js';
 import { ForbiddenError, NotFoundError } from '#common/exceptions/app.exception.js';
 import { ErrorCodes } from '#common/error-codes.js';
 import { EntitlementService } from '../subscription/entitlement.service.js';
@@ -49,12 +49,11 @@ export class DeviceAccessService {
   private async revokeLiveTokens(
     sessions: { id: string; currentJti: string | null; currentJtiExp: Date | null }[],
   ): Promise<void> {
-    for (const s of sessions) {
-      if (s.currentJti && s.currentJtiExp) {
-        await this.blacklist.addToBlacklist(s.currentJti, s.currentJtiExp);
-      }
-      await this.cacheInvalidator.invalidate(s.id);
-    }
+    const toBlacklist = sessions
+      .filter((s) => s.currentJti && s.currentJtiExp)
+      .map((s) => ({ jti: s.currentJti!, exp: s.currentJtiExp! }));
+    await this.blacklist.addManyToBlacklist(toBlacklist);
+    await this.cacheInvalidator.invalidateMany(sessions.map((s) => s.id));
   }
 
   /**
@@ -90,8 +89,11 @@ export class DeviceAccessService {
         if (!this.entitlements.canCreate(limit, active)) {
           // F3 needs the slot-holder list (sorted by last_accessed_at) so the
           // owner can see who's using a slot without a second round trip.
-          const holders = (await this.repo.listStoreDevices(storeId, tx))
-            .filter((d) => d.status === 'active');
+          // Active-only, filtered in SQL (not fetch-all-then-filter-in-JS) —
+          // this runs while holding lockStore's row lock, so the query must
+          // stay bounded to the plan-capped active count, not the store's
+          // full (ever-growing, never-purged) device history.
+          const holders = await this.repo.listActiveStoreDevices(storeId, tx);
           throw new ForbiddenError(
             ErrorCodes.DEVICE_LIMIT_REACHED,
             'Device limit reached for this store',
@@ -115,7 +117,7 @@ export class DeviceAccessService {
     } catch (err) {
       // Lost the race for the last slot: another request inserted the same
       // (store, device) active row. Treat as a successful idempotent re-claim.
-      if (err instanceof postgres.PostgresError && err.code === '23505') {
+      if (unwrapPgError(err)?.code === '23505') {
         return { access: 'granted', isNew: false };
       }
       throw err;
@@ -140,6 +142,14 @@ export class DeviceAccessService {
       const sessions = n > 0
         ? await this.repo.revokeDeviceSessions(targetDeviceId, 'store_device_removed', tx)
         : [];
+      if (n > 0) {
+        await this.audit.logInTransaction({
+          event: 'DEVICE_REMOVED', activityType: 'DEVICE_BLOCKED',
+          prefix: 'Device', suffix: 'removed from store',
+          userId: actorId, storeFk: storeId, isSuccess: true,
+          entityType: 'Device', entityId: targetDeviceId,
+        }, tx);
+      }
       return { slotRevoked: n, sessions };
     });
     if (!slotRevoked) throw new NotFoundError(ErrorCodes.DEVICE_SLOT_NOT_FOUND, 'Device slot not found');
@@ -147,13 +157,6 @@ export class DeviceAccessService {
     // Best-effort, post-commit — same reasoning as auth-logout.service.ts:
     // failure here shouldn't roll back a successful removal.
     await this.revokeLiveTokens(sessions);
-
-    await this.audit.log({
-      event: 'DEVICE_REMOVED', activityType: 'DEVICE_BLOCKED',
-      prefix: 'Device', suffix: 'removed from store',
-      userId: actorId, storeFk: storeId, isSuccess: true,
-      entityType: 'Device', entityId: targetDeviceId,
-    });
   }
 
   async listStoreDevices(storeId: string): Promise<StoreDeviceRow[]> {
@@ -169,6 +172,11 @@ export class DeviceAccessService {
       await this.repo.setBlocked(targetDeviceId, true, tx);
       const sessions = await this.repo.revokeDeviceSessions(targetDeviceId, 'device_blocked_stolen', tx);
       await this.repo.revokeAllSlotsForDevice(targetDeviceId, userId, 'stolen', tx);
+      await this.audit.logInTransaction({
+        event: 'DEVICE_BLOCKED', activityType: 'DEVICE_BLOCKED',
+        prefix: 'Device', suffix: 'blocked (stolen/lost)',
+        userId, isSuccess: true, entityType: 'Device', entityId: targetDeviceId,
+      }, tx);
       return sessions;
     });
 
@@ -176,12 +184,6 @@ export class DeviceAccessService {
     // instead of leaving them valid until natural expiry (the whole point of
     // "block a stolen device" is that it stops working immediately).
     await this.revokeLiveTokens(sessions);
-
-    await this.audit.log({
-      event: 'DEVICE_BLOCKED', activityType: 'DEVICE_BLOCKED',
-      prefix: 'Device', suffix: 'blocked (stolen/lost)',
-      userId, isSuccess: true, entityType: 'Device', entityId: targetDeviceId,
-    });
   }
 
   /** Unblock a recovered device (F9). Slots/sessions stay revoked — device is "fresh". */
@@ -189,11 +191,17 @@ export class DeviceAccessService {
     const device = await this.repo.findOwnedDevice(targetDeviceId, userId);
     if (!device) throw new NotFoundError(ErrorCodes.DEVICE_NOT_FOUND, 'Device not found');
     await this.repo.setBlocked(targetDeviceId, false);
-    await this.audit.log({
-      event: 'DEVICE_UNBLOCKED', activityType: 'DEVICE_BLOCKED',
-      prefix: 'Device', suffix: 'unblocked',
-      userId, isSuccess: true, entityType: 'Device', entityId: targetDeviceId,
-    });
+    // Single-statement write, no transaction to commit the audit row with —
+    // best-effort only, must never fail an already-applied unblock.
+    try {
+      await this.audit.log({
+        event: 'DEVICE_UNBLOCKED', activityType: 'DEVICE_BLOCKED',
+        prefix: 'Device', suffix: 'unblocked',
+        userId, isSuccess: true, entityType: 'Device', entityId: targetDeviceId,
+      });
+    } catch {
+      /* best-effort audit — the unblock already committed */
+    }
   }
 
   /** My Devices — all devices for the user, with the stores each currently accesses (F7). */

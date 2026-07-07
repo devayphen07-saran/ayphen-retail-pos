@@ -1,0 +1,1 @@
+CREATE UNIQUE INDEX "roles_one_owner_per_store_uq" ON "roles" USING btree ("store_fk","code") WHERE "roles"."code" = 'STORE_OWNER';

@@ -3,7 +3,7 @@ import { eq } from 'drizzle-orm';
 import { LRUCache } from 'lru-cache';
 import Redis from 'ioredis';
 import type { PostgresJsDatabase } from 'drizzle-orm/postgres-js';
-import { DRIZZLE } from '#db/db.module.js';
+import { DRIZZLE, type DbExecutor } from '#db/db.module.js';
 import * as schema from '#db/schema.js';
 import { revokedTokens } from '#db/schema.js';
 import { REDIS } from '#common/redis/redis.provider.js';
@@ -22,11 +22,16 @@ export class BlacklistCacheService {
     @Inject(DRIZZLE) private readonly db: PostgresJsDatabase<typeof schema>,
   ) {}
 
-  async addToBlacklist(jti: string, exp: Date): Promise<void> {
+  /** `tx`, when passed, lets the durable insert commit atomically with
+   *  whatever else the caller is revoking in the same transaction (e.g.
+   *  auth-logout.service.ts's session + refresh-token revocation) — a crash
+   *  between a stand-alone blacklist write and that revocation would
+   *  otherwise leave the JWT blacklisted while the session stays live. */
+  async addToBlacklist(jti: string, exp: Date, tx?: DbExecutor): Promise<void> {
     const ttl = this.secondsUntil(exp);
 
     // Durable record first. Redis is only an acceleration layer.
-    await this.db
+    await (tx ?? this.db)
       .insert(revokedTokens)
       .values({ jti, expiresAt: exp })
       .onConflictDoNothing();
@@ -45,6 +50,36 @@ export class BlacklistCacheService {
       await this.redis.setex(jtiKey(jti), ttl, '1');
     } catch (err) {
       this.logger.warn(`Failed to cache blacklisted JTI in Redis: ${this.errorMessage(err)}`);
+    }
+  }
+
+  /** Batched counterpart to `addToBlacklist` — one insert for every token
+   *  instead of N sequential DB round trips + N sequential Redis round trips
+   *  (logout-all / bulk device revocation can blacklist many sessions at once). */
+  async addManyToBlacklist(entries: { jti: string; exp: Date }[], tx?: DbExecutor): Promise<void> {
+    if (entries.length === 0) return;
+
+    // Durable record first. Redis is only an acceleration layer.
+    await (tx ?? this.db)
+      .insert(revokedTokens)
+      .values(entries.map((e) => ({ jti: e.jti, expiresAt: e.exp })))
+      .onConflictDoNothing();
+
+    const pipeline = this.redis.pipeline();
+    for (const { jti } of entries) pipeline.del(negKey(jti));
+    for (const { jti, exp } of entries) {
+      const ttl = this.secondsUntil(exp);
+      if (ttl > 0) pipeline.setex(jtiKey(jti), ttl, '1');
+    }
+    try {
+      await pipeline.exec();
+    } catch (err) {
+      this.logger.warn(`Failed to pipeline blacklisted JTIs to Redis: ${this.errorMessage(err)}`);
+    }
+
+    for (const { jti, exp } of entries) {
+      const ttl = this.secondsUntil(exp);
+      if (ttl > 0) this.lru.set(jti, true, { ttl: ttl * 1000 });
     }
   }
 

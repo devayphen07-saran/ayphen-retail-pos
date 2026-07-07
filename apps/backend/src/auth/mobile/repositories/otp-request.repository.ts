@@ -25,13 +25,25 @@ export class OtpRequestRepository {
     return requireRow(row);
   }
 
-  async findActiveRequest(id: string, phone: string): Promise<OtpRequest | null> {
+  /**
+   * An active (unconsumed, unexpired) OTP request for this id+phone, scoped to
+   * the flow that minted it. The `purpose` filter is a security control: without
+   * it, an OTP issued for one flow (e.g. `signup`) would satisfy another's
+   * verify (e.g. `login`), enabling cross-flow reachability / account
+   * enumeration. Callers pass the purpose they expect for their flow.
+   */
+  async findActiveRequest(
+    id: string,
+    phone: string,
+    purpose: OtpPurpose,
+  ): Promise<OtpRequest | null> {
     const [row] = await this.db
       .select()
       .from(otpRequests)
       .where(and(
         eq(otpRequests.id, id),
         eq(otpRequests.phone, phone),
+        eq(otpRequests.purpose, purpose),
         isNull(otpRequests.consumedAt),
         gt(otpRequests.expiresAt, new Date()),
       ));
@@ -46,11 +58,35 @@ export class OtpRequestRepository {
     return row ?? null;
   }
 
-  async incrementAttempts(id: string): Promise<void> {
-    await this.db
+  /**
+   * Atomically increment `attempts`, but only while still under `maxAttempts`.
+   * The guard lives in the `WHERE` clause (not a separate read-then-write), so
+   * concurrent verify calls for the same OTP serialize on the row and can never
+   * jointly exceed the configured attempt cap. Returns the post-increment
+   * count too, so the caller can tell the user how many tries are left.
+   */
+  async incrementAttemptsIfUnderLimit(
+    id: string,
+  ): Promise<{ underLimit: boolean; attempts: number; maxAttempts: number }> {
+    const rows = await this.db
       .update(otpRequests)
       .set({ attempts: sql`${otpRequests.attempts} + 1` })
+      .where(and(
+        eq(otpRequests.id, id),
+        sql`${otpRequests.attempts} < ${otpRequests.maxAttempts}`,
+      ))
+      .returning({ id: otpRequests.id, attempts: otpRequests.attempts, maxAttempts: otpRequests.maxAttempts });
+    if (rows.length > 0) {
+      return { underLimit: true, attempts: rows[0].attempts, maxAttempts: rows[0].maxAttempts };
+    }
+    // Already at the limit — the WHERE excluded the row, so re-read for the
+    // count to report (attempts/maxAttempts are immutable-once-set here, so
+    // this can't race with the update above in a way that changes the answer).
+    const [row] = await this.db
+      .select({ attempts: otpRequests.attempts, maxAttempts: otpRequests.maxAttempts })
+      .from(otpRequests)
       .where(eq(otpRequests.id, id));
+    return { underLimit: false, attempts: row?.attempts ?? 0, maxAttempts: row?.maxAttempts ?? 0 };
   }
 
   async markConsumed(id: string): Promise<void> {

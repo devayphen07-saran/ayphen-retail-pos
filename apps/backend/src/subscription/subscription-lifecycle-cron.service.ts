@@ -2,7 +2,7 @@ import { Inject, Injectable, Logger, OnModuleInit } from '@nestjs/common';
 import { SchedulerRegistry } from '@nestjs/schedule';
 import { CronJob } from 'cron';
 import type { Redis } from 'ioredis';
-import { env } from '#config/env.js';
+import { AppConfigService } from '#config/app-config.service.js';
 import { errorMessage } from '#common/error-message.js';
 import { REDIS } from '#common/redis/redis.provider.js';
 import { AuditService } from '#common/audit/audit.service.js';
@@ -22,6 +22,10 @@ const LOCK_TTL_SECONDS = 900;
 const OUTBOX_BATCH = 100;
 const MAX_OUTBOX_ATTEMPTS = 5;
 const INVALIDATE_CHUNK = 200;
+/** Each transition runs as a bounded `UPDATE ... LIMIT` per call, looped until
+ *  a batch comes back short — a mass same-day expiry must never run as one
+ *  unbounded statement/transaction. */
+const TRANSITION_BATCH_SIZE = 500;
 
 /** Past-due grace window (subscription §6) — not 1 day, too short for Indian retail. */
 const GRACE_DAYS = 7;
@@ -66,22 +70,23 @@ export class SubscriptionLifecycleCronService implements OnModuleInit {
     private readonly scheduler: SchedulerRegistry,
     @Inject(REDIS) private readonly redis: Redis,
     private readonly uow: UnitOfWork,
+    private readonly config: AppConfigService,
   ) {}
 
   onModuleInit(): void {
-    const recon = new CronJob(env.CRON_SUBSCRIPTION_RECONCILIATION, () => {
+    const recon = new CronJob(this.config.cronSubscriptionReconciliation, () => {
       void this.reconcile();
     });
     this.scheduler.addCronJob('subscription-reconcile', recon);
     recon.start();
 
-    const drain = new CronJob(env.CRON_SUBSCRIPTION_RECONCILIATION, () => {
+    const drain = new CronJob(this.config.cronSubscriptionReconciliation, () => {
       void this.drainOutbox();
     });
     this.scheduler.addCronJob('subscription-outbox-drain', drain);
     drain.start();
 
-    this.logger.log(`Subscription reconcile + outbox drain registered: ${env.CRON_SUBSCRIPTION_RECONCILIATION}`);
+    this.logger.log(`Subscription reconcile + outbox drain registered: ${this.config.cronSubscriptionReconciliation}`);
   }
 
   /** Run all time-based transitions once, under a distributed lock. */
@@ -98,10 +103,10 @@ export class SubscriptionLifecycleCronService implements OnModuleInit {
       // Each transition + its outbox rows commit in ONE transaction, so a crash
       // can't leave a transitioned subscription with no audit event (the row no
       // longer matches the WHERE predicate on the next tick, so it'd be lost).
-      const cancelled = await this.runTransition('SUBSCRIPTION_CANCELLED', (tx) => this.repo.expireCancelledAtPeriodEnd(now, tx));
-      const trialed   = await this.runTransition('SUBSCRIPTION_TRIAL_ENDED', (tx) => this.repo.expireTrials(now, tx));
-      const pastDued  = await this.runTransition('SUBSCRIPTION_PAST_DUE',    (tx) => this.repo.expireActiveToPastDue(now, GRACE_DAYS, tx));
-      const lapsed    = await this.runTransition('SUBSCRIPTION_GRACE_ENDED', (tx) => this.repo.expirePastDueGrace(now, tx));
+      const cancelled = await this.runTransitionInBatches('SUBSCRIPTION_CANCELLED', (tx, limit) => this.repo.expireCancelledAtPeriodEnd(now, limit, tx));
+      const trialed   = await this.runTransitionInBatches('SUBSCRIPTION_TRIAL_ENDED', (tx, limit) => this.repo.expireTrials(now, limit, tx));
+      const pastDued  = await this.runTransitionInBatches('SUBSCRIPTION_PAST_DUE',    (tx, limit) => this.repo.expireActiveToPastDue(now, GRACE_DAYS, limit, tx));
+      const lapsed    = await this.runTransitionInBatches('SUBSCRIPTION_GRACE_ENDED', (tx, limit) => this.repo.expirePastDueGrace(now, limit, tx));
 
       // Version was bumped in the UPDATE; invalidate caches post-commit so
       // devices see it fast. Chunked so a mass same-day expiry doesn't fire an
@@ -126,16 +131,34 @@ export class SubscriptionLifecycleCronService implements OnModuleInit {
     }
   }
 
-  /** Run one set-based transition and enqueue its outbox rows atomically. */
+  /** Run one bounded batch of a transition and enqueue its outbox rows
+   *  atomically (same transaction as the batch's UPDATE). */
   private async runTransition(
     eventType: string,
     transition: (tx: DbTransaction) => Promise<string[]>,
   ): Promise<string[]> {
     return this.uow.execute(async (tx) => {
       const accountIds = await transition(tx);
-      await Promise.all(accountIds.map((id) => this.repo.enqueueOutbox(id, eventType, {}, tx)));
+      await this.repo.enqueueOutboxMany(accountIds, eventType, {}, tx);
       return accountIds;
     });
+  }
+
+  /** Loops `runTransition` in `TRANSITION_BATCH_SIZE` batches until a batch
+   *  comes back short of the limit (fully drained) — each batch is its own
+   *  transaction, so a mass same-day expiry runs as many bounded statements
+   *  instead of one unbounded UPDATE across every affected row. */
+  private async runTransitionInBatches(
+    eventType: string,
+    transition: (tx: DbTransaction, limit: number) => Promise<string[]>,
+  ): Promise<string[]> {
+    const all: string[] = [];
+    for (;;) {
+      const batch = await this.runTransition(eventType, (tx) => transition(tx, TRANSITION_BATCH_SIZE));
+      all.push(...batch);
+      if (batch.length < TRANSITION_BATCH_SIZE) break;
+    }
+    return all;
   }
 
   /** Post-commit cache invalidation, chunked to bound the Redis fan-out. */
@@ -166,17 +189,22 @@ export class SubscriptionLifecycleCronService implements OnModuleInit {
             await this.repo.markOutboxProcessed(row.id, new Date());
             continue;
           }
-          await this.audit.log({
-            event:        row.eventType,
-            activityType: 'SUBSCRIPTION_CHANGED',
-            prefix:       'Subscription',
-            suffix:       row.eventType.toLowerCase().replace(/_/g, ' '),
-            userId:       actorUserId,
-            isSuccess:    true,
-            entityType:   'Subscription',
-            metadata:     { accountId: row.accountFk, ...payload },
+          // Audit write and outbox ack commit together — a crash between two
+          // separate statements here would leave the row unprocessed and
+          // replay the audit write on the next tick (flow-critic review §1).
+          await this.uow.execute(async (tx) => {
+            await this.audit.logInTransaction({
+              event:        row.eventType,
+              activityType: 'SUBSCRIPTION_CHANGED',
+              prefix:       'Subscription',
+              suffix:       row.eventType.toLowerCase().replace(/_/g, ' '),
+              userId:       actorUserId,
+              isSuccess:    true,
+              entityType:   'Subscription',
+              metadata:     { accountId: row.accountFk, ...payload },
+            }, tx);
+            await this.repo.markOutboxProcessed(row.id, new Date(), tx);
           });
-          await this.repo.markOutboxProcessed(row.id, new Date());
         } catch (err) {
           // Bounded retry: bump the attempt counter and dead-letter a poison row
           // after MAX_OUTBOX_ATTEMPTS so it can't head-of-line-block the queue

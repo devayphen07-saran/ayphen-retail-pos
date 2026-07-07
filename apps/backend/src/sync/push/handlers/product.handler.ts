@@ -3,7 +3,7 @@ import { z } from 'zod';
 import { lookup, productCases, products, taxRates, units } from '#db/schema.js';
 import { TombstoneRepository } from '../../repositories/tombstone.repository.js';
 import { MasterDataSyncHandler } from '../master-data.handler.js';
-import { money, prune, quantity } from './payload-helpers.js';
+import { money, prune, quantity, partialUpdateSchema } from './payload-helpers.js';
 
 const productBase = {
   name: z.string().min(1).max(200),
@@ -21,12 +21,7 @@ const productBase = {
 };
 
 const createSchema = z.object({ guuid: z.uuid(), ...productBase });
-const updateSchema = z.object({
-  guuid: z.uuid(),
-  ...Object.fromEntries(
-    Object.entries(productBase).map(([k, s]) => [k, (s as z.ZodType).optional()]),
-  ),
-}) as z.ZodType<Record<string, unknown>>;
+const updateSchema = partialUpdateSchema(productBase);
 
 @Injectable()
 export class ProductMutationHandler extends MasterDataSyncHandler {
@@ -101,12 +96,7 @@ const caseBase = {
 };
 
 const caseCreateSchema = z.object({ guuid: z.uuid(), ...caseBase });
-const caseUpdateSchema = z.object({
-  guuid: z.uuid(),
-  ...Object.fromEntries(
-    Object.entries(caseBase).map(([k, s]) => [k, (s as z.ZodType).optional()]),
-  ),
-}) as z.ZodType<Record<string, unknown>>;
+const caseUpdateSchema = partialUpdateSchema(caseBase);
 
 @Injectable()
 export class ProductCaseMutationHandler extends MasterDataSyncHandler {

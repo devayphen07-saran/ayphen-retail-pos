@@ -26,6 +26,32 @@ export type StoreContextSource =
   | `header.${string}`
   | 'none';
 
+/**
+ * Extract a raw id from the request per 'scope.key' — shared by TenantGuard
+ * (store id) and LocationGuard (location id) so this security-relevant input
+ * parsing has exactly one implementation instead of two independently
+ * maintained copies.
+ */
+export function readScopedSource(
+  req: Request,
+  source: StoreContextSource,
+): string | undefined {
+  const dot = source.indexOf('.');
+  if (dot < 0) return undefined;
+  const scope = source.slice(0, dot);
+  const key = source.slice(dot + 1);
+
+  let value: unknown;
+  switch (scope) {
+    case 'param':  value = req.params?.[key]; break;
+    case 'query':  value = req.query?.[key]; break;
+    case 'body':   value = (req.body as Record<string, unknown> | undefined)?.[key]; break;
+    case 'header': value = req.headers?.[key.toLowerCase()]; break;
+    default:       return undefined;
+  }
+  return typeof value === 'string' && value.length > 0 ? value : undefined;
+}
+
 export interface RequirePermissionsMeta {
   entity: EntityCode;
   action: CrudAction;
@@ -77,14 +103,11 @@ export const CurrentUser = createParamDecorator(
   },
 );
 
-/** Inject the full auth principal (alias of CurrentUser; parity with rbac.md §11). */
-export const CurrentAuth = CurrentUser;
-
 /** Inject the resolved numeric-safe store id from request.context (TenantGuard). */
 export const CurrentStoreId = createParamDecorator(
   (_data: unknown, ctx: ExecutionContext): string | undefined => {
     const req = ctx.switchToHttp().getRequest<Request>();
-    return (req as Request & { context?: ResolvedStoreContext }).context?.storeId;
+    return req.context?.storeId;
   },
 );
 
@@ -96,7 +119,7 @@ export const CurrentStoreId = createParamDecorator(
 export const CurrentStoreContext = createParamDecorator(
   (_data: unknown, ctx: ExecutionContext): ResolvedStoreContext => {
     const req = ctx.switchToHttp().getRequest<Request>();
-    const context = (req as Request & { context?: ResolvedStoreContext }).context;
+    const context = req.context;
     if (!context) {
       throw new ForbiddenError(ErrorCodes.STORE_CONTEXT_MISSING, 'Store context is missing');
     }

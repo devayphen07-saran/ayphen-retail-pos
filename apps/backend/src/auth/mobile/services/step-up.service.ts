@@ -2,8 +2,9 @@ import { Inject, Injectable } from '@nestjs/common';
 import Redis from 'ioredis';
 import { AppException, UnauthorizedError } from '#common/exceptions/app.exception.js';
 import { ErrorCodes } from '#common/error-codes.js';
-import { AuthConstantsService } from '../../core/auth-constants.service.js';
+import { AppConfigService } from '#config/app-config.service.js';
 import { CryptoService } from '../../core/crypto.service.js';
+import { RateLimitService } from '../../core/rate-limit.service.js';
 import { OtpService } from './otp.service.js';
 import { OtpRequestRepository } from '../repositories/otp-request.repository.js';
 import { AuthSessionRepository, type DeviceSession } from '../repositories/auth-session.repository.js';
@@ -45,8 +46,9 @@ export class StepUpService {
     @Inject(REDIS)         private readonly redis:      Redis,
     private readonly userRepo:    UserRepository,
     private readonly deviceRepo:  DeviceRepository,
-    private readonly constants:   AuthConstantsService,
+    private readonly config:      AppConfigService,
     private readonly crypto:      CryptoService,
+    private readonly rateLimit:   RateLimitService,
     private readonly otpService:  OtpService,
     private readonly otpRepo:     OtpRequestRepository,
     private readonly sessionRepo: AuthSessionRepository,
@@ -83,11 +85,11 @@ export class StepUpService {
       await this.verifyMethod(phone, publicKey, dto);
     } catch (err) {
       const count = await this.redis.incr(attemptsKey);
-      await this.redis.expire(attemptsKey, this.constants.STEP_UP_RATE_WINDOW_SECONDS);
+      await this.redis.expire(attemptsKey, this.config.stepUpRateWindowSeconds);
 
-      if (count >= this.constants.STEP_UP_MAX_ATTEMPTS) {
+      if (count >= this.config.stepUpMaxAttempts) {
         const lockedUntil = new Date(
-          Date.now() + this.constants.STEP_UP_RATE_WINDOW_SECONDS * 1000,
+          Date.now() + this.config.stepUpRateWindowSeconds * 1000,
         );
         await this.sessionRepo.setStepUpLockedUntil(deviceSessionId, lockedUntil);
         await this.cacheInvalidator.invalidate(deviceSessionId);
@@ -98,7 +100,7 @@ export class StepUpService {
     // 4. Success
     await this.redis.del(attemptsKey);
     const now        = new Date();
-    const window     = dto.intendedWindowSeconds ?? this.constants.STEP_UP_VALIDITY_SECONDS;
+    const window     = dto.intendedWindowSeconds ?? this.config.stepUpValiditySeconds;
     const validUntil = new Date(now.getTime() + window * 1000);
 
     const dbMethod = DTO_TO_DB_STEP_UP_METHOD[dto.method];
@@ -112,8 +114,10 @@ export class StepUpService {
     switch (dto.method) {
       case 'otp_sms': {
         if (!dto.otpRequestId) throw new AppException(ErrorCodes.VALIDATION_FAILED, 'otp_request_id required', 422);
-        const req = await this.otpRepo.findActiveRequest(dto.otpRequestId, phone);
+        const req = await this.otpRepo.findActiveRequest(dto.otpRequestId, phone, 'step_up');
         if (!req) throw new AppException(ErrorCodes.TOKEN_EXPIRED, 'OTP_EXPIRED', 422);
+        // Per-phone throttle at verify time — mirrors login/signup.
+        await this.rateLimit.checkPhoneOtpLimit(phone);
         await this.otpService.verifyOtp(phone, dto.credential, req);
         break;
       }

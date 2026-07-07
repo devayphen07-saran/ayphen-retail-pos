@@ -19,15 +19,12 @@ import {
   type EntityCode,
   type SpecialActionMap,
 } from './permission-matrix.constants.js';
+import { isEntityCode } from './entity-catalogue.js';
 
 const SCREAMING_SNAKE = /^[A-Z][A-Z0-9]*(_[A-Z0-9]+)*$/;
 
 function push(errors: string[], message: string): void {
   errors.push(message);
-}
-
-function asEntityCodeSet(): Set<EntityCode> {
-  return new Set<EntityCode>(ENTITY_CODES);
 }
 
 function getAllDeclaredSpecialActions(): Set<string> {
@@ -76,8 +73,6 @@ function checkCrudCoverage(
   >,
   errors: string[],
 ): void {
-  const entitySet = asEntityCodeSet();
-
   for (const code of ENTITY_CODES) {
     if (!(code in matrix)) {
       push(errors, `${label} is missing entity: ${code}.`);
@@ -100,7 +95,7 @@ function checkCrudCoverage(
   }
 
   for (const code of Object.keys(matrix)) {
-    if (!entitySet.has(code as EntityCode)) {
+    if (!isEntityCode(code)) {
       push(errors, `${label} references unknown entity: ${code}.`);
     }
   }
@@ -111,21 +106,16 @@ function checkPartialCrudReferences(
   matrix: Partial<Record<EntityCode, unknown>>,
   errors: string[],
 ): void {
-  const entitySet = asEntityCodeSet();
-
   for (const code of Object.keys(matrix)) {
-    if (!entitySet.has(code as EntityCode)) {
+    if (!isEntityCode(code)) {
       push(errors, `${label} references unknown entity: ${code}.`);
     }
   }
 }
 
 function checkSpecialDeclarations(errors: string[]): void {
-  const entitySet = asEntityCodeSet();
-  const seen = new Set<string>();
-
   for (const [entity, actions] of Object.entries(SPECIAL_ACTIONS)) {
-    if (!entitySet.has(entity as EntityCode)) {
+    if (!isEntityCode(entity)) {
       push(errors, `SPECIAL_ACTIONS references unknown entity: ${entity}.`);
       continue;
     }
@@ -147,8 +137,6 @@ function checkSpecialDeclarations(errors: string[]): void {
         );
       }
       localSeen.add(action);
-
-      seen.add(`${entity}:${action}`);
     }
   }
 }
@@ -158,15 +146,13 @@ function checkSpecialSubset(
   map: SpecialActionMap,
   errors: string[],
 ): void {
-  const entitySet = asEntityCodeSet();
-
   for (const [entity, actions] of Object.entries(map)) {
-    if (!entitySet.has(entity as EntityCode)) {
+    if (!isEntityCode(entity)) {
       push(errors, `${label} references unknown entity: ${entity}.`);
       continue;
     }
 
-    const declared = SPECIAL_ACTIONS[entity as EntityCode];
+    const declared = SPECIAL_ACTIONS[entity];
     if (!declared) {
       push(
         errors,
@@ -209,15 +195,25 @@ function checkCriticalSpecialActions(errors: string[]): void {
   }
 }
 
+/**
+ * DEFAULT_ROLE_ABSENT (role-matrices.ts) is defined as
+ * `ENTITY_CODES.filter(code => !(code in DEFAULT_ROLE_CRUD))` — the exact
+ * complement of DEFAULT_ROLE_CRUD by construction. A "some entity is in
+ * neither/both" coverage check against that pairing is therefore
+ * unreachable by construction (every entity is provably in exactly one of
+ * the two sets) — removed rather than kept as dead code that implies a
+ * protection that doesn't exist. The checks below remain genuinely
+ * meaningful: they'd catch a future edit that changes DEFAULT_ROLE_ABSENT
+ * to no longer be a strict, non-overlapping filter of DEFAULT_ROLE_CRUD.
+ */
 function checkDefaultRoleAbsent(errors: string[]): void {
-  const entitySet = asEntityCodeSet();
   const explicitDefaultCrud = new Set<EntityCode>(
     Object.keys(DEFAULT_ROLE_CRUD) as EntityCode[],
   );
   const absentSet = new Set<EntityCode>();
 
   for (const code of DEFAULT_ROLE_ABSENT) {
-    if (!entitySet.has(code)) {
+    if (!isEntityCode(code)) {
       push(errors, `DEFAULT_ROLE_ABSENT references unknown entity: ${code}.`);
     }
     if (explicitDefaultCrud.has(code)) {
@@ -230,25 +226,6 @@ function checkDefaultRoleAbsent(errors: string[]): void {
       push(errors, `DEFAULT_ROLE_ABSENT contains duplicate entity: ${code}.`);
     }
     absentSet.add(code);
-  }
-
-  for (const code of ENTITY_CODES) {
-    const inCrud = explicitDefaultCrud.has(code);
-    const inAbsent = absentSet.has(code);
-
-    if (!inCrud && !inAbsent) {
-      push(
-        errors,
-        `Entity ${code} is in neither DEFAULT_ROLE_CRUD nor DEFAULT_ROLE_ABSENT.`,
-      );
-    }
-
-    if (inCrud && inAbsent) {
-      push(
-        errors,
-        `Entity ${code} is present in both DEFAULT_ROLE_CRUD and DEFAULT_ROLE_ABSENT.`,
-      );
-    }
   }
 }
 

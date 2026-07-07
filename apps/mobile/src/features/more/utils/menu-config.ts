@@ -43,13 +43,34 @@ export interface MoreSectionConfig {
 
 export const MORE_SECTIONS: readonly MoreSectionConfig[] = [
   {
-    key: 'subscription',
-    title: 'Subscription',
-    description: 'Plan, billing, and upgrades',
-    iconName: 'Sparkles',
-    iconColor: 'primary',
-    route: '/(store)/subscription',
-    items: [],
+    key: 'shift-management',
+    title: 'Shift Management',
+    description: 'Shifts, cash drawer, and Z-Reports',
+    iconName: 'Clock3',
+    iconColor: 'neutral',
+    items: [
+      {
+        key: 'shifts',
+        label: 'Shifts',
+        description: 'Shift templates and schedules',
+        iconName: 'Clock3',
+        iconColor: 'info',
+      },
+      {
+        key: 'cash-drawer',
+        label: 'Cash Drawer',
+        description: 'Safe drops and petty cash entries',
+        iconName: 'LockKeyhole',
+        iconColor: 'warning',
+      },
+      {
+        key: 'z-reports',
+        label: 'Z-Reports',
+        description: 'End-of-shift reconciliation history',
+        iconName: 'FileChartColumn',
+        iconColor: 'teal',
+      },
+    ],
   },
 
   {
@@ -72,30 +93,6 @@ export const MORE_SECTIONS: readonly MoreSectionConfig[] = [
         description: 'Discounts, offers, and campaigns',
         iconName: 'TicketPercent',
         iconColor: 'warning',
-      },
-    ],
-  },
-
-  {
-    key: 'purchases',
-    title: 'Purchases',
-    description: 'Suppliers, stock-in, and payables',
-    iconName: 'PackageCheck',
-    iconColor: 'success',
-    items: [
-      {
-        key: 'suppliers',
-        label: 'Suppliers',
-        description: 'Vendor directory with GSTIN and terms',
-        iconName: 'Truck',
-        iconColor: 'success',
-      },
-      {
-        key: 'purchase-orders',
-        label: 'Purchase Orders',
-        description: 'Record stock-in from suppliers',
-        iconName: 'PackagePlus',
-        iconColor: 'info',
       },
     ],
   },
@@ -163,6 +160,30 @@ export const MORE_SECTIONS: readonly MoreSectionConfig[] = [
   },
 
   {
+    key: 'purchases',
+    title: 'Purchases',
+    description: 'Suppliers, stock-in, and payables',
+    iconName: 'PackageCheck',
+    iconColor: 'success',
+    items: [
+      {
+        key: 'suppliers',
+        label: 'Suppliers',
+        description: 'Vendor directory with GSTIN and terms',
+        iconName: 'Truck',
+        iconColor: 'success',
+      },
+      {
+        key: 'purchase-orders',
+        label: 'Purchase Orders',
+        description: 'Record stock-in from suppliers',
+        iconName: 'PackagePlus',
+        iconColor: 'info',
+      },
+    ],
+  },
+
+  {
     key: 'finance',
     title: 'Finance',
     description: 'Cash book and expense tracking',
@@ -187,31 +208,38 @@ export const MORE_SECTIONS: readonly MoreSectionConfig[] = [
   },
 
   {
-    key: 'shift-management',
-    title: 'Shift Management',
-    description: 'Shifts, cash drawer, and Z-Reports',
-    iconName: 'Clock3',
-    iconColor: 'neutral',
+    key: 'reports',
+    title: 'Reports',
+    description: 'Sales, tax, profit, and exports',
+    iconName: 'ChartBar',
+    iconColor: 'violet',
     items: [
       {
-        key: 'shifts',
-        label: 'Shifts',
-        description: 'Shift templates and schedules',
-        iconName: 'Clock3',
-        iconColor: 'info',
+        key: 'daily-sales',
+        label: 'Daily Sales',
+        description: 'Revenue, transactions, and top products',
+        iconName: 'TrendingUp',
+        iconColor: 'success',
       },
       {
-        key: 'cash-drawer',
-        label: 'Cash Drawer',
-        description: 'Safe drops and petty cash entries',
-        iconName: 'LockKeyhole',
-        iconColor: 'warning',
+        key: 'tax-summary',
+        label: 'Tax Summary',
+        description: 'CGST, SGST, IGST breakdown',
+        iconName: 'Calculator',
+        iconColor: 'primary',
       },
       {
-        key: 'z-reports',
-        label: 'Z-Reports',
-        description: 'End-of-shift reconciliation history',
-        iconName: 'FileChartColumn',
+        key: 'profit-loss',
+        label: 'Profit & Loss',
+        description: 'Revenue, COGS, expenses, net profit',
+        iconName: 'ChartPie',
+        iconColor: 'violet',
+      },
+      {
+        key: 'gstr1-export',
+        label: 'GSTR-1 Export',
+        description: 'Excel export for CA filing',
+        iconName: 'FileSpreadsheet',
         iconColor: 'teal',
       },
     ],
@@ -256,44 +284,6 @@ export const MORE_SECTIONS: readonly MoreSectionConfig[] = [
   },
 
   {
-    key: 'reports',
-    title: 'Reports',
-    description: 'Sales, tax, profit, and exports',
-    iconName: 'ChartBar',
-    iconColor: 'violet',
-    items: [
-      {
-        key: 'daily-sales',
-        label: 'Daily Sales',
-        description: 'Revenue, transactions, and top products',
-        iconName: 'TrendingUp',
-        iconColor: 'success',
-      },
-      {
-        key: 'tax-summary',
-        label: 'Tax Summary',
-        description: 'CGST, SGST, IGST breakdown',
-        iconName: 'Calculator',
-        iconColor: 'primary',
-      },
-      {
-        key: 'profit-loss',
-        label: 'Profit & Loss',
-        description: 'Revenue, COGS, expenses, net profit',
-        iconName: 'ChartPie',
-        iconColor: 'violet',
-      },
-      {
-        key: 'gstr1-export',
-        label: 'GSTR-1 Export',
-        description: 'Excel export for CA filing',
-        iconName: 'FileSpreadsheet',
-        iconColor: 'teal',
-      },
-    ],
-  },
-
-  {
     key: 'store',
     title: 'Store Settings',
     description: 'Profile, hours, and taxes',
@@ -330,7 +320,7 @@ export const MORE_SECTIONS: readonly MoreSectionConfig[] = [
       },
       {
         key: 'devices',
-        label: 'Devices',
+        label: 'Store Devices',
         description: 'Manage devices accessing this store',
         iconName: 'Smartphone',
         iconColor: 'teal',
@@ -343,6 +333,16 @@ export const MORE_SECTIONS: readonly MoreSectionConfig[] = [
         iconColor: 'info',
       },
     ],
+  },
+
+  {
+    key: 'subscription',
+    title: 'Subscription',
+    description: 'Plan, billing, and upgrades',
+    iconName: 'Sparkles',
+    iconColor: 'primary',
+    route: '/(store)/subscription',
+    items: [],
   },
 
   {

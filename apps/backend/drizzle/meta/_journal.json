@@ -162,6 +162,48 @@
       "when": 1783336277415,
       "tag": "0022_locations_sync_trigger",
       "breakpoints": true
+    },
+    {
+      "idx": 23,
+      "version": "7",
+      "when": 1783405105072,
+      "tag": "0023_wandering_stryfe",
+      "breakpoints": true
+    },
+    {
+      "idx": 24,
+      "version": "7",
+      "when": 1783407422553,
+      "tag": "0024_nice_richard_fisk",
+      "breakpoints": true
+    },
+    {
+      "idx": 25,
+      "version": "7",
+      "when": 1783414844955,
+      "tag": "0025_store_scope_sync_dedupe",
+      "breakpoints": true
+    },
+    {
+      "idx": 26,
+      "version": "7",
+      "when": 1783416707036,
+      "tag": "0026_invitation_pending_dedupe",
+      "breakpoints": true
+    },
+    {
+      "idx": 27,
+      "version": "7",
+      "when": 1783418699251,
+      "tag": "0027_add_missing_perf_indexes",
+      "breakpoints": true
+    },
+    {
+      "idx": 28,
+      "version": "7",
+      "when": 1783422670064,
+      "tag": "0028_freezing_sally_floyd",
+      "breakpoints": true
     }
   ]
 }

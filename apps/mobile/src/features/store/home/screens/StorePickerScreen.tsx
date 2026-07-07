@@ -1,7 +1,8 @@
 import { useMemo } from 'react';
-import { ScrollView } from 'react-native';
+import { ScrollView, View } from 'react-native';
+import styled from 'styled-components/native';
 import { useMobileTheme } from '@ayphen/mobile-theme';
-import { AppLayout, Column, ListRow, OverlayLoader } from '@ayphen/mobile-ui-components';
+import { AppLayout, Column, LucideIcon, Row, Typography, OverlayLoader } from '@ayphen/mobile-ui-components';
 import { useAuthStore, type StoreContext } from '@store';
 import { setLastOpenedStoreId } from '../../shared/utils/prefs';
 import { useEnterStore } from '../../shared/hooks/useEnterStore';
@@ -18,7 +19,7 @@ import { useEnterStore } from '../../shared/hooks/useEnterStore';
 export function StorePickerScreen() {
   const { theme } = useMobileTheme();
   const snapshot = useAuthStore((s) => s.snapshot);
-  const { enterStore, checking } = useEnterStore();
+  const { enterStore, checking, cancelChecking } = useEnterStore();
   const storeLocations = useMemo(() => snapshot?.storeLocations ?? [], [snapshot]);
 
   const openStore = async (store: StoreContext) => {
@@ -36,25 +37,76 @@ export function StorePickerScreen() {
   return (
     <AppLayout title="Choose a store">
       <ScrollView contentContainerStyle={{ padding: theme.sizing.large, flexGrow: 1 }}>
-        <Column gap={4}>
+        <Typography.Caption type="secondary" style={{ marginBottom: theme.sizing.medium }}>
+          Select a store to continue.
+        </Typography.Caption>
+        <Column gap={10}>
           {storeLocations.map((store) => {
             const count = store.locations?.length ?? 0;
             return (
-              <ListRow
-                key={store.store_id}
-                icon="Store"
-                title={store.name || 'Unnamed store'}
-                subtitle={`${count} location${count === 1 ? '' : 's'}`}
-                onPress={() => openStore(store)}
-              />
+              <StoreCard key={store.store_id} onPress={() => openStore(store)} activeOpacity={0.7}>
+                <Row align="center" gap={12}>
+                  <IconSlot>
+                    <LucideIcon name="Store" size={20} color={theme.color.primary.main} />
+                  </IconSlot>
+                  <Column flex={1} gap={4}>
+                    <Typography.Body weight="semiBold" numberOfLines={1}>
+                      {store.name || 'Unnamed store'}
+                    </Typography.Body>
+                    <Row align="center" gap={4}>
+                      <LucideIcon name="MapPin" size={12} color={theme.colorTextTertiary} />
+                      <Typography.Caption type="secondary">
+                        {count} location{count === 1 ? '' : 's'}
+                      </Typography.Caption>
+                    </Row>
+                  </Column>
+                  <ChevronSlot>
+                    <LucideIcon name="ChevronRight" size={16} color={theme.colorTextTertiary} />
+                  </ChevronSlot>
+                </Row>
+              </StoreCard>
             );
           })}
         </Column>
       </ScrollView>
       {/* The slot claim is a network round-trip with no other on-screen
           feedback — block the UI so the tap doesn't read as a no-op and the
-          store can't be double-entered (loading-agent.md §3). */}
-      <OverlayLoader visible={checking} message="Opening store…" />
+          store can't be double-entered (loading-agent.md §3). If the call
+          hangs, `timeoutMs` + `onCancel` give an actual way out instead of
+          trapping the user behind the overlay indefinitely. */}
+      <OverlayLoader
+        visible={checking}
+        message="Opening store…"
+        timeoutMs={12_000}
+        onCancel={cancelChecking}
+      />
     </AppLayout>
   );
 }
+
+const StoreCard = styled.TouchableOpacity`
+  background-color: ${({ theme }) => theme.colorBgContainer};
+  border-radius: ${({ theme }) => theme.borderRadius.xLarge}px;
+  border-width: ${({ theme }) => theme.borderWidth.thin}px;
+  border-color: ${({ theme }) => theme.colorBorder};
+  padding: ${({ theme }) => theme.sizing.medium}px;
+  ${({ theme }) => theme.shadow.sm}
+`;
+
+const IconSlot = styled(View)`
+  width: 44px;
+  height: 44px;
+  border-radius: ${({ theme }) => theme.borderRadius.large}px;
+  align-items: center;
+  justify-content: center;
+  background-color: ${({ theme }) => theme.color.primary.bg};
+`;
+
+const ChevronSlot = styled(View)`
+  width: 28px;
+  height: 28px;
+  border-radius: ${({ theme }) => theme.borderRadius.full}px;
+  align-items: center;
+  justify-content: center;
+  background-color: ${({ theme }) => theme.colorFillSecondary ?? theme.colorBgLayout};
+`;

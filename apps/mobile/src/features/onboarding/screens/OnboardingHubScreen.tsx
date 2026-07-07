@@ -456,7 +456,7 @@ const PillButton = styled(TouchableOpacity)`
   align-self: stretch;
   gap: 8px;
   background-color: ${({ theme }) => theme.colorPrimary};
-  border-radius: 100px;
+  border-radius: ${({ theme }) => theme.borderRadius.full}px;
   padding-vertical: 16px;
 `;
 
@@ -483,7 +483,7 @@ const SlideImage = styled(Image)`
 const IconCircle = styled.View`
   width: 40px;
   height: 40px;
-  border-radius: 20px;
+  border-radius: ${({ theme }) => theme.borderRadius.full}px;
   align-items: center;
   justify-content: center;
   background-color: ${({ theme }) => theme.color.grey.bg};
@@ -501,7 +501,7 @@ const BadgeDot = styled.View`
   right: -2px;
   min-width: 16px;
   height: 16px;
-  border-radius: 8px;
+  border-radius: ${({ theme }) => theme.borderRadius.regular}px;
   padding-horizontal: 3px;
   align-items: center;
   justify-content: center;

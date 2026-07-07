@@ -16,11 +16,12 @@ import {
 import { DowngradeDetectionService } from './downgrade-detection.service.js';
 import { ReconciliationService } from './reconciliation.service.js';
 import { subVersionPointerKey } from './subscription-cache.js';
-import { PLAN_PRICING } from './payment/plan-pricing.js';
+import { PLAN_PRICING, resolvePlanPrice } from './payment/plan-pricing.js';
 import { resolvePlanMeta } from './plan-meta.js';
 
-/** One paid period (subscription §9/§10: 30 days for monthly). */
+/** One paid period (subscription §9/§10: 30 days for monthly, 365 for annual). */
 export const BILLING_PERIOD_DAYS = 30;
+export const ANNUAL_BILLING_PERIOD_DAYS = 365;
 
 export type BannerSeverity = 'none' | 'info' | 'warning' | 'critical';
 
@@ -164,7 +165,12 @@ export class SubscriptionService {
     providerRef: string,
   ): Promise<void> {
     const now = new Date();
-    const periodEnd = new Date(now.getTime() + BILLING_PERIOD_DAYS * 86_400_000);
+    // Billing cycle (monthly vs annual) is keyed into planCode, not planFk —
+    // an annual purchase must not lapse into past_due after 30 days just
+    // because it shares a planFk with the monthly variant.
+    const billingCycle = resolvePlanPrice(planCode)?.billingCycle ?? 'monthly';
+    const periodDays = billingCycle === 'annual' ? ANNUAL_BILLING_PERIOD_DAYS : BILLING_PERIOD_DAYS;
+    const periodEnd = new Date(now.getTime() + periodDays * 86_400_000);
     await this.transact(accountId, 'SUBSCRIPTION_ACTIVATED', { providerRef }, async (tx) => {
       const claimed = await this.repo.claimPaymentEvent(accountId, orderId, providerRef, tx);
       if (!claimed) return null; // already activated by an earlier call — no-op, no outbox row

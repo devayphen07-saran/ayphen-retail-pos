@@ -61,11 +61,6 @@ const PLANS = [
       barcode_scanning: false,
       advanced_reports: false,
       offline_mode:     true,
-      // Free's max_locations_per_store is already 1, so this gate is belt-
-      // and-suspenders, not the primary limiter — but it must still be an
-      // explicit `false` row, not an absent one (LocationService.createLocation
-      // treats a missing plan_features row as "not entitled", same as `false`).
-      multi_store:      false,
     },
   },
   {
@@ -82,7 +77,6 @@ const PLANS = [
       barcode_scanning: true,
       advanced_reports: false,
       offline_mode:     true,
-      multi_store:      true,
     },
   },
   {
@@ -99,7 +93,6 @@ const PLANS = [
       barcode_scanning: true,
       advanced_reports: true,
       offline_mode:     true,
-      multi_store:      true,
     },
   },
 ] as const;

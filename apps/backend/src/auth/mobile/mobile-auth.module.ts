@@ -3,6 +3,7 @@ import { Module } from '@nestjs/common';
 // Providers
 import { SessionCacheInvalidatorService } from './services/session-cache-invalidator.service.js';
 import { BlacklistCacheService } from './services/blacklist-cache.service.js';
+import { PrincipalCacheService } from './services/principal-cache.service.js';
 import { ReplayProtectionService } from './services/replay-protection.service.js';
 import { DeviceChallengeService } from './services/device-challenge.service.js';
 import { DeviceService } from './services/device.service.js';
@@ -48,6 +49,7 @@ import { MeController } from './me.controller.js';
     // Services
     SessionCacheInvalidatorService,
     BlacklistCacheService,
+    PrincipalCacheService,
     ReplayProtectionService,
     DeviceChallengeService,
     DeviceService,

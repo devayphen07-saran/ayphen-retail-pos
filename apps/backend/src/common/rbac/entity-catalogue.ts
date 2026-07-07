@@ -217,18 +217,10 @@ export const ENTITY_BY_CODE: Readonly<
   >,
 );
 
-export const OFFLINE_SAFE_ENTITY_CODES = ENTITIES.filter(
-  (e) => e.isOfflineSafe,
-).map((e) => e.code) as readonly EntityCode[];
-
 export function isEntityCode(value: string): value is EntityCode {
   return (ENTITY_CODES as readonly string[]).includes(value);
 }
 
 export function supportsAttachments(entity: EntityCode): boolean {
   return ENTITY_BY_CODE[entity].supportsAttachments;
-}
-
-export function isOfflineSafeEntity(entity: EntityCode): boolean {
-  return ENTITY_BY_CODE[entity].isOfflineSafe;
 }

@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { ScrollView, View } from 'react-native';
 import { router } from 'expo-router';
 import styled from 'styled-components/native';
@@ -18,6 +18,7 @@ import {
   useReconciliationQuery,
   useResolveReconciliationMutation,
   type ReconciliationResponse,
+  type NormalizedError,
 } from '@ayphen/api-manager';
 import { DowngradeResolveLoading } from '../loading/DowngradeResolveLoading';
 
@@ -48,6 +49,12 @@ export function DowngradeResolveScreen() {
   const [keepLocationIds, setKeepLocationIds] = useState<Set<string>>(new Set());
   const [keepDeviceIds, setKeepDeviceIds] = useState<Set<string>>(new Set());
   const [submitting, setSubmitting] = useState(false);
+  const [fieldErrors, setFieldErrors] = useState<Record<string, string> | null>(null);
+  // Seed exactly ONCE. A background refetch of `ctx` (window-focus/reconnect,
+  // active once focusManager/onlineManager are wired) returns a fresh object and
+  // would otherwise re-run the seed effect below, silently resetting the owner's
+  // in-progress "keep" selections on an account-wide write-freeze screen.
+  const seeded = useRef(false);
 
   // The store the owner is using this screen from — must never end up
   // excluded (by default seed or by hand): dropping it signs this device out
@@ -61,7 +68,8 @@ export function DowngradeResolveScreen() {
   // The owner can change any of it before submitting — this is just a
   // reasonable default, not a silent auto-apply.
   useEffect(() => {
-    if (!ctx) return;
+    if (!ctx || seeded.current) return;
+    seeded.current = true;
     const orderedStores = [...ctx.stores].sort((a, b) => {
       const aCurrent = a.id === currentDeviceStoreId;
       const bCurrent = b.id === currentDeviceStoreId;
@@ -127,6 +135,7 @@ export function DowngradeResolveScreen() {
       Alert.info('Too many stores selected', `Your plan allows ${ctx.limits.max_stores}.`);
       return;
     }
+    setFieldErrors(null);
     setSubmitting(true);
     try {
       await resolve.mutateAsync({
@@ -138,8 +147,13 @@ export function DowngradeResolveScreen() {
       });
       Alert.info('Done', 'Your plan has been resolved.');
       router.back();
-    } catch {
-      Alert.info('Error', "Couldn't save your selection. Check the counts against your plan limits.");
+    } catch (err) {
+      const fe = (err as Partial<NormalizedError>)?.fieldErrors;
+      if (fe) {
+        setFieldErrors(fe);
+      } else {
+        Alert.info('Error', "Couldn't save your selection. Check the counts against your plan limits.");
+      }
     } finally {
       setSubmitting(false);
     }
@@ -177,6 +191,11 @@ export function DowngradeResolveScreen() {
               <Typography.Subtitle weight="bold">
                 Stores {ctx.limits.max_stores !== null ? `(keep up to ${ctx.limits.max_stores})` : ''}
               </Typography.Subtitle>
+              {fieldErrors?.keepStoreIds && (
+                <Typography.Caption color={theme.colorError}>
+                  {fieldErrors.keepStoreIds}
+                </Typography.Caption>
+              )}
               <Column gap={8}>
                 {ctx.stores.map((store) => {
                   const isCurrentDeviceStore = store.id === currentDeviceStoreId;
@@ -262,6 +281,21 @@ export function DowngradeResolveScreen() {
                 </Section>
               );
             })}
+
+            {(fieldErrors?.keepLocationIds || fieldErrors?.keepDeviceIds) && (
+              <Column gap={4}>
+                {fieldErrors.keepLocationIds && (
+                  <Typography.Caption color={theme.colorError}>
+                    {fieldErrors.keepLocationIds}
+                  </Typography.Caption>
+                )}
+                {fieldErrors.keepDeviceIds && (
+                  <Typography.Caption color={theme.colorError}>
+                    {fieldErrors.keepDeviceIds}
+                  </Typography.Caption>
+                )}
+              </Column>
+            )}
           </Column>
             );
           }}

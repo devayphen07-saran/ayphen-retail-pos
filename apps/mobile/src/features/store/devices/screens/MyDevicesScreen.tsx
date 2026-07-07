@@ -10,6 +10,7 @@ import {
   LucideIcon,
   Row,
   ScreenStateRenderer,
+  SectionHeader,
   Tag,
   Typography,
 } from '@ayphen/mobile-ui-components';
@@ -20,22 +21,12 @@ import {
 } from '@ayphen/api-manager';
 import type { MyDeviceResponse } from '@ayphen/api-manager';
 import { MyDevicesLoading } from '../loading/MyDevicesLoading';
+import { timeAgo } from '../utils/time-ago';
 
 function platformIcon(platform: string) {
   if (platform === 'ios') return 'Smartphone';
   if (platform === 'android') return 'Smartphone';
   return 'Monitor';
-}
-
-function timeAgo(iso: string): string {
-  const diffMs = Date.now() - new Date(iso).getTime();
-  const mins = Math.floor(diffMs / 60000);
-  if (mins < 1) return 'Now';
-  if (mins < 60) return `${mins}m ago`;
-  const hours = Math.floor(mins / 60);
-  if (hours < 24) return `${hours}h ago`;
-  const days = Math.floor(hours / 24);
-  return `${days}d ago`;
 }
 
 /** Devices registered to the current user, across every store (device-management
@@ -120,42 +111,52 @@ export function MyDevicesScreen() {
           onRetry={() => refetch()}
         >
           {() => (
-          <Column gap={16}>
+          <Column gap={20}>
             <Column gap={10}>
+              <SectionHeader
+                title={`Active Devices (${active.length})`}
+                containerStyle={{ paddingHorizontal: 0 }}
+              />
               {active.map((device) => (
                 <DeviceCard
                   key={device.device_id}
                   onPress={() => openDeviceActions(device)}
                   activeOpacity={0.7}
                   disabled={busyId === device.device_id}
-                  $disabled={busyId === device.device_id}
+                  $accent={device.is_current ? 'primary' : undefined}
+                  $busy={busyId === device.device_id}
                 >
                   <Row align="center" gap={12}>
-                    <IconSlot>
+                    <IconSlot $accent={device.is_current ? 'primary' : 'neutral'}>
                       <LucideIcon
                         name={platformIcon(device.platform)}
                         size={20}
-                        color={theme.colorPrimary}
+                        color={device.is_current ? theme.color.primary.main : theme.colorTextSecondary}
                       />
                     </IconSlot>
-                    <Column flex={1} gap={4}>
-                      <Typography.Body weight="medium">
-                        {device.model ?? device.platform}
-                      </Typography.Body>
+                    <Column flex={1} gap={5}>
+                      <Row align="center" gap={8}>
+                        <Typography.Body weight="semiBold" numberOfLines={1}>
+                          {device.model ?? device.platform}
+                        </Typography.Body>
+                        {device.is_current && <Tag label="This device" variant="info" size="sm" />}
+                        {device.trusted && <Tag label="Trusted" variant="success" size="sm" />}
+                      </Row>
                       <Typography.Caption type="secondary">
                         {[device.os_version, device.app_version].filter(Boolean).join(' · ')}
                         {device.os_version || device.app_version ? ' · ' : ''}
-                        Last seen: {timeAgo(device.last_seen_at)}
+                        Last seen {timeAgo(device.last_seen_at)}
                       </Typography.Caption>
-                      <Row gap={6}>
-                        {device.is_current && <Tag label="This device" variant="info" size="sm" />}
-                        {device.trusted && <Tag label="Trusted" variant="success" size="sm" />}
+                      <Row align="center" gap={4}>
+                        <LucideIcon name="Store" size={12} color={theme.colorTextTertiary} />
                         <Typography.Caption type="secondary">
                           {device.store_ids.length} store{device.store_ids.length === 1 ? '' : 's'}
                         </Typography.Caption>
                       </Row>
                     </Column>
-                    <LucideIcon name="ChevronRight" size={16} color={theme.colorTextTertiary} />
+                    <ChevronSlot>
+                      <LucideIcon name="ChevronRight" size={16} color={theme.colorTextTertiary} />
+                    </ChevronSlot>
                   </Row>
                 </DeviceCard>
               ))}
@@ -163,28 +164,37 @@ export function MyDevicesScreen() {
 
             {blocked.length > 0 && (
               <Column gap={10}>
-                <Typography.Caption type="secondary">BLOCKED</Typography.Caption>
+                <SectionHeader
+                  title={`Blocked Devices (${blocked.length})`}
+                  containerStyle={{ paddingHorizontal: 0 }}
+                />
                 {blocked.map((device) => (
                   <DeviceCard
                     key={device.device_id}
                     onPress={() => openDeviceActions(device)}
                     activeOpacity={0.7}
                     disabled={busyId === device.device_id}
-                    $disabled
+                    $accent="danger"
+                    $busy={busyId === device.device_id}
                   >
                     <Row align="center" gap={12}>
-                      <IconSlot $disabled>
-                        <LucideIcon name="ShieldOff" size={20} color={theme.colorError} />
+                      <IconSlot $accent="danger">
+                        <LucideIcon name="ShieldOff" size={20} color={theme.color.danger.main} />
                       </IconSlot>
-                      <Column flex={1} gap={4}>
-                        <Typography.Body weight="medium" color={theme.colorTextTertiary}>
-                          {device.model ?? device.platform}
-                        </Typography.Body>
-                        <Row gap={6}>
+                      <Column flex={1} gap={5}>
+                        <Row align="center" gap={8}>
+                          <Typography.Body weight="semiBold" color={theme.colorTextSecondary} numberOfLines={1}>
+                            {device.model ?? device.platform}
+                          </Typography.Body>
                           <Tag label="Blocked" variant="danger" size="sm" />
                         </Row>
+                        <Typography.Caption type="secondary">
+                          Signed out everywhere · tap to unblock
+                        </Typography.Caption>
                       </Column>
-                      <LucideIcon name="ChevronRight" size={16} color={theme.colorTextTertiary} />
+                      <ChevronSlot>
+                        <LucideIcon name="ChevronRight" size={16} color={theme.colorTextTertiary} />
+                      </ChevronSlot>
                     </Row>
                   </DeviceCard>
                 ))}
@@ -198,21 +208,46 @@ export function MyDevicesScreen() {
   );
 }
 
-const DeviceCard = styled.TouchableOpacity<{ $disabled?: boolean }>`
-  background-color: ${({ theme }) => theme.colorBgContainer};
+type CardAccent = 'primary' | 'danger';
+
+const DeviceCard = styled.TouchableOpacity<{ $accent?: CardAccent; $busy?: boolean }>`
+  background-color: ${({ theme, $accent }) =>
+    $accent === 'danger' ? theme.color.danger.bg : theme.colorBgContainer};
   border-radius: ${({ theme }) => theme.borderRadius.xLarge}px;
   border-width: ${({ theme }) => theme.borderWidth.thin}px;
-  border-color: ${({ theme }) => theme.colorBorder};
+  border-color: ${({ theme, $accent }) =>
+    $accent === 'danger' ? theme.color.danger.border : theme.colorBorder};
+  border-left-width: 3px;
+  border-left-color: ${({ theme, $accent }) =>
+    $accent === 'primary'
+      ? theme.color.primary.main
+      : $accent === 'danger'
+        ? theme.color.danger.main
+        : 'transparent'};
   padding: ${({ theme }) => theme.sizing.medium}px;
-  opacity: ${({ $disabled }) => ($disabled ? 0.7 : 1)};
+  opacity: ${({ $busy }) => ($busy ? 0.55 : 1)};
+  ${({ theme, $accent }) => ($accent === 'danger' ? '' : theme.shadow.sm)}
 `;
 
-const IconSlot = styled(View)<{ $disabled?: boolean }>`
-  width: 40px;
-  height: 40px;
+const IconSlot = styled(View)<{ $accent?: CardAccent | 'neutral' }>`
+  width: 44px;
+  height: 44px;
   border-radius: ${({ theme }) => theme.borderRadius.large}px;
   align-items: center;
   justify-content: center;
-  background-color: ${({ theme, $disabled }) =>
-    $disabled ? theme.colorFillSecondary ?? theme.colorBorder : theme.color.primary.bg};
+  background-color: ${({ theme, $accent }) =>
+    $accent === 'danger'
+      ? theme.color.danger.bg
+      : $accent === 'primary'
+        ? theme.color.primary.bg
+        : theme.colorFillSecondary ?? theme.colorBorder};
+`;
+
+const ChevronSlot = styled(View)`
+  width: 28px;
+  height: 28px;
+  border-radius: ${({ theme }) => theme.borderRadius.full}px;
+  align-items: center;
+  justify-content: center;
+  background-color: ${({ theme }) => theme.colorFillSecondary ?? theme.colorBgLayout};
 `;

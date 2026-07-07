@@ -21,6 +21,7 @@ export const ErrorCodes = {
   SESSION_NOT_FOUND:                  'SESSION_NOT_FOUND',
   SESSION_REVOKED:                    'SESSION_REVOKED',
   SESSION_EXPIRED:                    'SESSION_EXPIRED',
+  SESSION_REPLACED:                   'SESSION_REPLACED',
   ACCOUNT_LOCKED:                     'ACCOUNT_LOCKED',
   REPLAY_DETECTED:                    'REPLAY_DETECTED',
   MISSING_AUTH:                       'MISSING_AUTH',
@@ -52,6 +53,7 @@ export const ErrorCodes = {
   DEVICE_BLOCKED:                     'DEVICE_BLOCKED',
   DEVICE_REVOKED:                     'DEVICE_REVOKED',
   DEVICE_SLOT_NOT_FOUND:              'DEVICE_SLOT_NOT_FOUND',
+  DEVICE_SLOT_REQUIRED:               'DEVICE_SLOT_REQUIRED',
   CANNOT_REMOVE_CURRENT_DEVICE:       'CANNOT_REMOVE_CURRENT_DEVICE',
   DEVICE_LIMIT_REACHED:               'DEVICE_LIMIT_REACHED',
   OVER_DEVICE_LIMIT:                  'OVER_DEVICE_LIMIT',
@@ -93,10 +95,13 @@ export const ErrorCodes = {
   ROLE_ALREADY_EXISTS:                'ROLE_ALREADY_EXISTS',
   ROLE_NOT_EDITABLE:                  'ROLE_NOT_EDITABLE',
   ROLE_NOT_ASSIGNABLE:                'ROLE_NOT_ASSIGNABLE',
+  ROLE_NOT_REVOCABLE:                 'ROLE_NOT_REVOCABLE',
   ROLE_HAS_ACTIVE_ASSIGNMENTS:        'ROLE_HAS_ACTIVE_ASSIGNMENTS',
+  ROLE_RESERVED_CODE:                 'ROLE_RESERVED_CODE',
   ASSIGNMENT_ALREADY_EXISTS:          'ASSIGNMENT_ALREADY_EXISTS',
   ASSIGNMENT_NOT_FOUND:               'ASSIGNMENT_NOT_FOUND',
   INVALID_ENTITY_CODE:                'INVALID_ENTITY_CODE',
+  GRANT_EXCEEDS_ACTOR_PERMISSIONS:    'GRANT_EXCEEDS_ACTOR_PERMISSIONS',
 
   // ── Invitations ────────────────────────────────────────────────────────
   INVITATION_NOT_FOUND:               'INVITATION_NOT_FOUND',
@@ -105,6 +110,7 @@ export const ErrorCodes = {
   INVITATION_EXPIRED:                 'INVITATION_EXPIRED',
   INVITATION_CONTACT_REQUIRED:        'INVITATION_CONTACT_REQUIRED',
   USER_LIMIT_REACHED:                 'USER_LIMIT_REACHED',
+  OVER_USER_LIMIT:                    'OVER_USER_LIMIT',
 
   // ── Subscription & billing ─────────────────────────────────────────────
   SUBSCRIPTION_NOT_FOUND:               'SUBSCRIPTION_NOT_FOUND',
@@ -148,6 +154,7 @@ export const ErrorCodes = {
   LOOKUP_VALUE_NOT_FOUND:             'LOOKUP_VALUE_NOT_FOUND',
   LOOKUP_CODE_EXISTS:                 'LOOKUP_CODE_EXISTS',
   LOOKUP_VALUE_PROTECTED:             'LOOKUP_VALUE_PROTECTED',
+  LOOKUP_VALUE_VERSION_CONFLICT:      'LOOKUP_VALUE_VERSION_CONFLICT',
   ENTITY_TYPE_NOT_FOUND:              'ENTITY_TYPE_NOT_FOUND',
 
   // ── Sync engine (sync-engine.md) ───────────────────────────────────────

@@ -52,6 +52,14 @@ interface AuthState {
   /** Bootstrap exhausted its retries — AppGate shows a retry screen instead
    *  of falling through to mode-select on stale null data. */
   bootstrapFailed: boolean;
+  /** The protected path the user was bounced to login FROM (deep link / expired
+   *  session). Consumed once after login so they resume where they intended
+   *  instead of always landing on Home. null = go to the default entry gate. */
+  pendingReturnTo: string | null;
+  /** A (store) sub-route the user deep-linked into with no active store yet —
+   *  stashed by (store)/_layout on its picker bounce, consumed once by the
+   *  store-enter flow so entering the store resumes that route instead of Home. */
+  pendingStoreRoute: string | null;
 
   setReady: () => void;
   setBootstrapped: () => void;
@@ -65,10 +73,18 @@ interface AuthState {
   /** Optimistic local update after a successful `PATCH /me/account-mode` —
    *  avoids a full bootstrap round-trip just to reflect the user's own choice. */
   setAccountMode: (mode: AccountMode) => void;
+  /** Stash the intended post-login destination (AuthGate, on redirect). */
+  setPendingReturnTo: (href: string | null) => void;
+  /** Read-and-clear the stashed destination (post-login routing). One-shot. */
+  consumePendingReturnTo: () => string | null;
+  /** Stash the intended (store) sub-route ((store)/_layout, on picker bounce). */
+  setPendingStoreRoute: (href: string | null) => void;
+  /** Read-and-clear the stashed store sub-route (store-enter flow). One-shot. */
+  consumePendingStoreRoute: () => string | null;
   clear: () => void;
 }
 
-export const useAuthStore = create<AuthState>((set) => ({
+export const useAuthStore = create<AuthState>((set, get) => ({
   isAuthReady: false,
   isBootstrapped: false,
   isAuthenticated: false,
@@ -85,6 +101,8 @@ export const useAuthStore = create<AuthState>((set) => ({
   isLastOpenedResolved: false,
   restoreFailed: false,
   bootstrapFailed: false,
+  pendingReturnTo: null,
+  pendingStoreRoute: null,
 
   setReady: () => set({ isAuthReady: true }),
 
@@ -119,6 +137,22 @@ export const useAuthStore = create<AuthState>((set) => ({
 
   setAccountMode: (mode) => set({ lastAccountMode: mode }),
 
+  setPendingReturnTo: (href) => set({ pendingReturnTo: href }),
+
+  consumePendingReturnTo: () => {
+    const href = get().pendingReturnTo;
+    if (href) set({ pendingReturnTo: null });
+    return href;
+  },
+
+  setPendingStoreRoute: (href) => set({ pendingStoreRoute: href }),
+
+  consumePendingStoreRoute: () => {
+    const href = get().pendingStoreRoute;
+    if (href) set({ pendingStoreRoute: null });
+    return href;
+  },
+
   clear: () =>
     set({
       isAuthenticated: false,
@@ -136,5 +170,7 @@ export const useAuthStore = create<AuthState>((set) => ({
       pendingInvitationCount: 0,
       lastOpenedStoreId: null,
       isLastOpenedResolved: false,
+      pendingReturnTo: null,
+      pendingStoreRoute: null,
     }),
 }));

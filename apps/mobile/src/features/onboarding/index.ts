@@ -3,3 +3,5 @@ export * from './screens/InvitationsScreen';
 export * from './screens/ModeSelectScreen';
 export * from './screens/OnboardingHubScreen';
 export * from './screens/PersonalWorkspaceScreen';
+export * from './components/InviteCard';
+export * from './components/ModeCard';

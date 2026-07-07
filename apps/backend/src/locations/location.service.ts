@@ -108,30 +108,33 @@ export class LocationService {
           throw nameConflict();
         }
 
+        // Clear any existing default BEFORE inserting this one as the new
+        // default — the new row doesn't exist yet, so there's no id to
+        // exclude. Same uk_location_default ordering fix as setDefault.
+        if (input.isDefault) await this.repo.clearOtherDefaults(storeId, undefined, tx);
+
         const loc = await this.repo.insert(
           { storeFk: storeId, name: input.name, isDefault: input.isDefault ?? false },
           tx,
         );
-        // Setting a new default clears any other default (one per store).
-        if (loc.isDefault) await this.repo.clearOtherDefaults(storeId, loc.id, tx);
         // The creator isn't implicitly a member of every location the way
         // STORE_OWNER is (location.guard.ts owner bypass) — without this, a
         // non-owner with a granted Location:create permission would create a
         // location it then can't access (LOCATION_ACCESS_DENIED on its own
         // creation).
         await this.userLocationRepo.assign(actorId, loc.id, actorId, tx);
+        await this.audit.logInTransaction({
+          event: 'LOCATION_CREATED', activityType: 'PERMISSION_CHANGED',
+          prefix: 'Location', suffix: `"${input.name}" created`,
+          userId: actorId, storeFk: storeId, isSuccess: true,
+          entityType: 'Location', entityId: loc.id,
+        }, tx);
         return loc;
       }),
       nameConflict,
       'uk_location_name',
     );
 
-    await this.audit.log({
-      event: 'LOCATION_CREATED', activityType: 'PERMISSION_CHANGED',
-      prefix: 'Location', suffix: `"${input.name}" created`,
-      userId: actorId, storeFk: storeId, isSuccess: true,
-      entityType: 'Location', entityId: created.id,
-    });
     return this.toResult(created);
   }
 
@@ -165,16 +168,22 @@ export class LocationService {
     }
 
     await rethrowUniqueViolationAs(
-      this.repo.update(locationId, { name: input.name, enable: input.enable }),
+      this.repo.update(locationId, storeId, { name: input.name, enable: input.enable }),
       nameConflict,
       'uk_location_name',
     );
-    await this.audit.log({
-      event: 'LOCATION_UPDATED', activityType: 'PERMISSION_CHANGED',
-      prefix: 'Location', suffix: 'updated',
-      userId: actorId, storeFk: storeId, isSuccess: true,
-      entityType: 'Location', entityId: locationId,
-    });
+    // A single-statement write has no transaction to commit the audit row
+    // with — best-effort only, must never fail an already-applied update.
+    try {
+      await this.audit.log({
+        event: 'LOCATION_UPDATED', activityType: 'PERMISSION_CHANGED',
+        prefix: 'Location', suffix: 'updated',
+        userId: actorId, storeFk: storeId, isSuccess: true,
+        entityType: 'Location', entityId: locationId,
+      });
+    } catch {
+      /* best-effort audit — the update already committed */
+    }
   }
 
   /** Make this location the store default (clears the previous one). */
@@ -184,14 +193,18 @@ export class LocationService {
     if (loc.isDefault) return; // already default — no-op
 
     await this.uow.execute(async (tx) => {
-      await this.repo.update(locationId, { isDefault: true }, tx);
+      // Clear the old default FIRST — uk_location_default allows at most one
+      // isDefault=true row per store, so setting the new one before clearing
+      // the old would violate it on every real call (a store always already
+      // has a default; Head Office is auto-provisioned as one).
       await this.repo.clearOtherDefaults(storeId, locationId, tx);
-    });
-    await this.audit.log({
-      event: 'LOCATION_DEFAULT_CHANGED', activityType: 'PERMISSION_CHANGED',
-      prefix: 'Location', suffix: 'set as default',
-      userId: actorId, storeFk: storeId, isSuccess: true,
-      entityType: 'Location', entityId: locationId,
+      await this.repo.update(locationId, storeId, { isDefault: true }, tx);
+      await this.audit.logInTransaction({
+        event: 'LOCATION_DEFAULT_CHANGED', activityType: 'PERMISSION_CHANGED',
+        prefix: 'Location', suffix: 'set as default',
+        userId: actorId, storeFk: storeId, isSuccess: true,
+        entityType: 'Location', entityId: locationId,
+      }, tx);
     });
   }
 
@@ -216,7 +229,7 @@ export class LocationService {
     // rollback while the tombstone doesn't (or vice versa), either of which
     // desyncs devices that already cached this location.
     await this.uow.execute(async (tx) => {
-      await this.repo.softDelete(locationId, tx);
+      await this.repo.softDelete(locationId, storeId, tx);
       await this.tombstones.write(tx, {
         storeFk: storeId,
         entityType: 'location',
@@ -224,12 +237,12 @@ export class LocationService {
         entityId: locationId,
         deletedByUserFk: actorId,
       });
-    });
-    await this.audit.log({
-      event: 'LOCATION_DELETED', activityType: 'PERMISSION_CHANGED',
-      prefix: 'Location', suffix: `"${loc.name}" deleted`,
-      userId: actorId, storeFk: storeId, isSuccess: true,
-      entityType: 'Location', entityId: locationId,
+      await this.audit.logInTransaction({
+        event: 'LOCATION_DELETED', activityType: 'PERMISSION_CHANGED',
+        prefix: 'Location', suffix: `"${loc.name}" deleted`,
+        userId: actorId, storeFk: storeId, isSuccess: true,
+        entityType: 'Location', entityId: locationId,
+      }, tx);
     });
   }
 

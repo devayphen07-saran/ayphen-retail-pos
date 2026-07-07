@@ -17,10 +17,11 @@ import {
 } from '#auth/mobile/guards/subscription-status.guard.js';
 import { TenantGuard } from '#common/rbac/guards/tenant.guard.js';
 import { PermissionsGuard } from '#common/rbac/guards/permissions.guard.js';
+import { SyncRateLimitGuard, SyncRateLimit } from './guards/sync-rate-limit.guard.js';
+import { DeviceSlotGuard } from './guards/device-slot.guard.js';
 import {
   CurrentUser,
   CurrentStoreContext,
-  RequirePermissions,
   StoreContext,
 } from '#common/rbac/decorators/rbac.decorators.js';
 import type { MobilePrincipal } from '#common/types/principal.js';
@@ -44,12 +45,19 @@ import {
 /**
  * The sync engine's HTTP surface (sync-engine.md §2). Standard guard chain;
  * @SkipTransform because clients parse the PRD wire shapes at the top level.
+ *
+ * No @RequirePermissions here: TenantGuard already confirms the caller is a
+ * member of this store, and the entity-type-level filters inside the sync
+ * engine (§18) gate individual entities by their own `view` permission — a
+ * blanket Store:view on top would lock out every staff role (Store isn't in
+ * DEFAULT_ROLE_CRUD by design) before that per-entity logic ever runs.
+ *
  * /delta carries @AllowExpiredSubscription — the guard's hard write-block is
  * replaced by the per-mutation point-in-time gate (§20): offline sales stamped
  * before access_valid_until must still apply after a lapse.
  */
 @Controller('stores/:storeId/sync')
-@UseGuards(MobileJwtGuard, TenantGuard, PermissionsGuard, SubscriptionStatusGuard)
+@UseGuards(MobileJwtGuard, SyncRateLimitGuard, TenantGuard, DeviceSlotGuard, PermissionsGuard, SubscriptionStatusGuard)
 @StoreContext('param.storeId')
 @SkipTransform()
 export class SyncController {
@@ -62,7 +70,6 @@ export class SyncController {
 
   /** Cold-start dump — one entity type per call, resumable (F-SYNC-1). */
   @Get('initial')
-  @RequirePermissions({ entity: 'Store', action: 'view' })
   async pullInitial(
     @Param('storeId', ParseUUIDPipe) storeId: string,
     @CurrentUser() user: MobilePrincipal,
@@ -80,7 +87,7 @@ export class SyncController {
 
   /** Delta pull — upserts + tombstones since the cursor (F-SYNC-3/4). */
   @Get('changes')
-  @RequirePermissions({ entity: 'Store', action: 'view' })
+  @SyncRateLimit('changes')
   async pullChanges(
     @Param('storeId', ParseUUIDPipe) storeId: string,
     @CurrentUser() user: MobilePrincipal,
@@ -93,8 +100,8 @@ export class SyncController {
   /** Combined mutation push + delta pull (F-SYNC-5). Always HTTP 200; outcomes are per-mutation. */
   @Post('delta')
   @HttpCode(200)
+  @SyncRateLimit('delta')
   @AllowExpiredSubscription()
-  @RequirePermissions({ entity: 'Store', action: 'view' })
   async pushDelta(
     @Param('storeId', ParseUUIDPipe) storeId: string,
     @CurrentUser() user: MobilePrincipal,
@@ -106,13 +113,13 @@ export class SyncController {
 
   /** Open conflicts for the resolution screen (§11), filterable by conflict_type (§11.1). */
   @Get('conflicts')
-  @RequirePermissions({ entity: 'Store', action: 'view' })
   async listConflicts(
     @Param('storeId', ParseUUIDPipe) storeId: string,
+    @CurrentUser() user: MobilePrincipal,
     @Query() query: Record<string, unknown>,
   ): Promise<ConflictListResponse> {
     const q = parse(query, ConflictListQuerySchema);
-    const rows = await this.conflicts.list(storeId, {
+    const rows = await this.conflicts.list(storeId, user.userId, {
       status: q.status,
       conflictType: q.conflict_type,
     });
@@ -122,7 +129,6 @@ export class SyncController {
   /** Bookkeeping only — the client rebases and resubmits under the new row_version. */
   @Patch('conflicts/:mutationId')
   @AllowExpiredSubscription()
-  @RequirePermissions({ entity: 'Store', action: 'view' })
   async resolveConflict(
     @Param('storeId', ParseUUIDPipe) storeId: string,
     @Param('mutationId') mutationId: string,
@@ -130,7 +136,7 @@ export class SyncController {
     @Body() body: unknown,
   ): Promise<ConflictResponse> {
     const b = parse(body, ConflictResolveSchema);
-    const row = await this.conflicts.resolve(storeId, mutationId, {
+    const row = await this.conflicts.resolve(storeId, user.userId, mutationId, {
       status: b.status,
       note: b.note,
       resolvedBy: user.userId,

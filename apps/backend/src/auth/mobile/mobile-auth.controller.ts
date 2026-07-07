@@ -14,12 +14,9 @@ import {
 } from '@nestjs/common';
 import type { Request } from 'express';
 import { Throttle } from '@nestjs/throttler';
-import { Public } from '#common/rbac/decorators/rbac.decorators.js';
+import { CurrentUser, Public, StoreContext } from '#common/rbac/decorators/rbac.decorators.js';
 import { parse } from '#common/validation/parse.js';
-import {
-  clampLimit,
-  type PaginatedResponse,
-} from '#common/pagination/paginated-response.js';
+import type { PaginatedResponse } from '#common/pagination/paginated-response.js';
 import { MobileJwtGuard } from './guards/mobile-jwt.guard.js';
 import { SnapshotRefreshInterceptor } from './interceptors/snapshot-refresh.interceptor.js';
 import { AuthLoginService } from './services/auth-login.service.js';
@@ -49,6 +46,7 @@ import {
   StepUpVerifyDtoSchema,
   type StepUpVerifyDto,
 } from './dto/request/step-up.request.js';
+import { SessionListQuerySchema } from './dto/request/session-list.request.js';
 
 // ── Response DTOs ──
 import type { OtpChallengeResponse } from './dto/response/otp.response.js';
@@ -69,11 +67,8 @@ import { DeviceRequestMapper } from './mappers/device.request-mapper.js';
 import type { MobilePrincipal } from '#common/types/principal.js';
 import { getRequestIp } from '#common/request-ip.js';
 
-function principalOf(req: Request): MobilePrincipal {
-  return req.user as MobilePrincipal;
-}
-
 @Controller('auth/mobile')
+@StoreContext('none')
 export class MobileAuthController {
   constructor(
     private readonly loginService: AuthLoginService,
@@ -201,21 +196,20 @@ export class MobileAuthController {
   @Post('logout')
   @HttpCode(204)
   @UseGuards(MobileJwtGuard)
-  async logout(@Req() req: Request): Promise<void> {
-    const p = principalOf(req);
+  async logout(@CurrentUser() p: MobilePrincipal): Promise<void> {
     await this.logoutService.logout(
       p.userId,
       p.deviceSessionId,
-      p.currentJti!,
-      p.currentJtiExp!,
+      p.currentJti,
+      p.currentJtiExp,
     );
   }
 
   @Post('logout/all')
   @HttpCode(204)
   @UseGuards(MobileJwtGuard)
-  async logoutAll(@Req() req: Request): Promise<void> {
-    await this.logoutService.logoutAll(principalOf(req).userId);
+  async logoutAll(@CurrentUser() user: MobilePrincipal): Promise<void> {
+    await this.logoutService.logoutAll(user.userId);
   }
 
   // ── SESSIONS ───────────────────────────────────────────────────────────────
@@ -224,14 +218,13 @@ export class MobileAuthController {
   @UseGuards(MobileJwtGuard)
   @UseInterceptors(SnapshotRefreshInterceptor)
   async listSessions(
-    @Req() req: Request,
-    @Query('limit') limit?: string,
-    @Query('cursor') cursor?: string,
+    @CurrentUser() p: MobilePrincipal,
+    @Query() query: Record<string, unknown>,
   ): Promise<PaginatedResponse<SessionResponse>> {
-    const p = principalOf(req);
+    const q = parse(query, SessionListQuerySchema);
     const page = await this.logoutService.listSessions(p.userId, {
-      limit: clampLimit(limit),
-      cursor,
+      limit: q.limit,
+      cursor: q.cursor,
     });
     return SessionMapper.toSessionListResponse(page, p.deviceSessionId);
   }
@@ -241,19 +234,17 @@ export class MobileAuthController {
   @UseGuards(MobileJwtGuard)
   async revokeSession(
     @Param('id', ParseUUIDPipe) sessionId: string,
-    @Req() req: Request,
+    @CurrentUser() user: MobilePrincipal,
   ): Promise<void> {
-    await this.logoutService.revokeSession(sessionId, principalOf(req).userId);
+    await this.logoutService.revokeSession(sessionId, user.userId);
   }
 
   // ── STEP-UP ────────────────────────────────────────────────────────────────
 
   @Post('step-up/challenge')
   @UseGuards(MobileJwtGuard)
-  async issueChallenge(@Req() req: Request): Promise<ChallengeResponse> {
-    const challengeId = await this.challenge.issueChallenge(
-      principalOf(req).deviceId,
-    );
+  async issueChallenge(@CurrentUser() user: MobilePrincipal): Promise<ChallengeResponse> {
+    const challengeId = await this.challenge.issueChallenge(user.deviceId);
     return SessionMapper.toChallengeResponse(challengeId);
   }
 
@@ -262,13 +253,14 @@ export class MobileAuthController {
   @UseGuards(MobileJwtGuard)
   async stepUpOtpRequest(
     @Body() body: unknown,
+    @CurrentUser() user: MobilePrincipal,
     @Req() req: Request,
   ): Promise<OtpChallengeResponse> {
     // Validate the body shape but IGNORE any client-supplied phone — step-up
     // OTP always targets the authenticated user's own registered number.
     parse(body, StepUpRequestDtoSchema);
     const result = await this.loginService.stepUpStageOne(
-      principalOf(req).userId,
+      user.userId,
       getRequestIp(req),
     );
     return AuthMapper.toOtpChallengeResponse(result);
@@ -279,10 +271,9 @@ export class MobileAuthController {
   @UseGuards(MobileJwtGuard)
   async stepUpVerify(
     @Body() body: unknown,
-    @Req() req: Request,
+    @CurrentUser() p: MobilePrincipal,
   ): Promise<StepUpResponse> {
     const dto: StepUpVerifyDto = parse(body, StepUpVerifyDtoSchema);
-    const p = principalOf(req);
     const result = await this.stepUpService.verify(
       p.userId,
       p.deviceSessionId,

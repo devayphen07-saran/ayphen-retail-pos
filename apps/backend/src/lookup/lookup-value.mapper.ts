@@ -7,6 +7,7 @@ export interface LookupValueResponse {
   description: string | null;
   sort_order:  number;
   is_system:   boolean;
+  row_version: number;
 }
 
 /** Pure domain → snake_case mapper (layered-architecture §3.7). */
@@ -19,6 +20,7 @@ export const LookupValueMapper = {
       description: row.description,
       sort_order:  row.sortOrder,
       is_system:   row.isSystem,
+      row_version: row.rowVersion,
     };
   },
   toList(rows: LookupValueRow[]): LookupValueResponse[] {

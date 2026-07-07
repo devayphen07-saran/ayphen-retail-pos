@@ -2,7 +2,6 @@ import { Module } from '@nestjs/common';
 import { AuthCoreModule } from '#auth/core/auth-core.module.js';
 import { MobileAuthModule } from '#auth/mobile/mobile-auth.module.js';
 import { SubscriptionModule } from '../subscription/subscription.module.js';
-import { DeviceAccessRepository } from './device-access.repository.js';
 import { DeviceAccessService } from './device-access.service.js';
 import {
   StoreDeviceController,
@@ -14,6 +13,8 @@ import { MyDeviceController } from './my-device.controller.js';
  * Device slot + store-access management (device-management §7–§14). Reuses
  * EntitlementService (max_devices_per_store) from SubscriptionModule and the
  * auth guards from MobileAuthModule / global RbacModule.
+ * DeviceAccessRepository comes from the global SharedRepositoriesModule
+ * (#common/shared-repositories.module.js).
  */
 @Module({
   imports: [AuthCoreModule, MobileAuthModule, SubscriptionModule],
@@ -22,6 +23,6 @@ import { MyDeviceController } from './my-device.controller.js';
     StoreAccessController,
     MyDeviceController,
   ],
-  providers: [DeviceAccessRepository, DeviceAccessService],
+  providers: [DeviceAccessService],
 })
 export class DevicesModule {}

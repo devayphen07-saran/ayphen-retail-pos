@@ -3,7 +3,7 @@ import { z } from 'zod';
 import { customers, lookup } from '#db/schema.js';
 import { TombstoneRepository } from '../../repositories/tombstone.repository.js';
 import { MasterDataSyncHandler } from '../master-data.handler.js';
-import { money, prune } from './payload-helpers.js';
+import { money, prune, partialUpdateSchema } from './payload-helpers.js';
 
 const base = {
   name: z.string().min(1).max(200),
@@ -16,12 +16,7 @@ const base = {
 };
 
 const createSchema = z.object({ guuid: z.uuid(), ...base });
-const updateSchema = z.object({
-  guuid: z.uuid(),
-  ...Object.fromEntries(
-    Object.entries(base).map(([k, s]) => [k, (s as z.ZodType).optional()]),
-  ),
-}) as z.ZodType<Record<string, unknown>>;
+const updateSchema = partialUpdateSchema(base);
 
 @Injectable()
 export class CustomerMutationHandler extends MasterDataSyncHandler {

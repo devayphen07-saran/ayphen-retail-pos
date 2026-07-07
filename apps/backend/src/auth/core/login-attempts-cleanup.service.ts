@@ -6,7 +6,7 @@ import type { PostgresJsDatabase } from 'drizzle-orm/postgres-js';
 import { DRIZZLE } from '#db/db.module.js';
 import * as schema from '#db/schema.js';
 import { loginAttempts } from '#db/schema.js';
-import { env } from '#config/env.js';
+import { AppConfigService } from '#config/app-config.service.js';
 import { errorMessage } from '#common/error-message.js';
 
 export interface LoginAttemptsCleanupStats {
@@ -37,15 +37,16 @@ export class LoginAttemptsCleanupService implements OnModuleInit {
   constructor(
     @Inject(DRIZZLE) private readonly db: PostgresJsDatabase<typeof schema>,
     private readonly schedulerRegistry:   SchedulerRegistry,
+    private readonly config:              AppConfigService,
   ) {}
 
   onModuleInit(): void {
-    const job = new CronJob(env.CRON_LOGIN_ATTEMPTS_CLEANUP, async () => {
+    const job = new CronJob(this.config.cronLoginAttemptsCleanup, async () => {
       await this.cleanOldAttempts();
     });
     this.schedulerRegistry.addCronJob('login-attempts-cleanup', job);
     job.start();
-    this.logger.log(`Login-attempts cleanup cron registered: ${env.CRON_LOGIN_ATTEMPTS_CLEANUP}`);
+    this.logger.log(`Login-attempts cleanup cron registered: ${this.config.cronLoginAttemptsCleanup}`);
   }
 
   async cleanOldAttempts(): Promise<void> {
@@ -53,7 +54,7 @@ export class LoginAttemptsCleanupService implements OnModuleInit {
     this.isRunning = true;
     const start = Date.now();
     try {
-      const cutoff = new Date(Date.now() - env.LOGIN_ATTEMPTS_RETENTION_DAYS * 24 * 60 * 60 * 1000);
+      const cutoff = new Date(Date.now() - this.config.loginAttemptsRetentionDays * 24 * 60 * 60 * 1000);
       const deleted = await this.db
         .delete(loginAttempts)
         .where(lt(loginAttempts.createdAt, cutoff))
@@ -63,7 +64,7 @@ export class LoginAttemptsCleanupService implements OnModuleInit {
       this.stats.lastDurationMs   = Date.now() - start;
       this.stats.lastRemovedCount = count;
       this.stats.error            = null;
-      this.logger.log(`Login-attempts cleanup: removed ${count} rows older than ${env.LOGIN_ATTEMPTS_RETENTION_DAYS}d`);
+      this.logger.log(`Login-attempts cleanup: removed ${count} rows older than ${this.config.loginAttemptsRetentionDays}d`);
     } catch (err) {
       this.stats.error = errorMessage(err);
       this.logger.error('Login-attempts cleanup failed', err);

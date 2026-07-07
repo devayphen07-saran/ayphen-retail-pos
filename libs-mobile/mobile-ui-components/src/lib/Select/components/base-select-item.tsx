@@ -29,6 +29,9 @@ export function BaseSelectItem(props: BaseSelectItemProps) {
     isSelected,
     rightText,
     iconName,
+    accessibilityRole,
+    accessibilityLabel,
+    accessibilityState,
     ...touchProps
   } = props;
 
@@ -40,6 +43,9 @@ export function BaseSelectItem(props: BaseSelectItemProps) {
       $isSelected={isSelected}
       {...touchProps}
       disabled={disabled}
+      accessibilityRole={accessibilityRole ?? "button"}
+      accessibilityLabel={accessibilityLabel ?? (subTitle ? `${title}, ${subTitle}` : title)}
+      accessibilityState={{ selected: isSelected, disabled, ...accessibilityState }}
     >
       <Row padding={"xxSmall"} justify="space-between" align="center">
         <Row gap={"small"} align="center">

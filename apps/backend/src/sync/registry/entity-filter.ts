@@ -49,7 +49,10 @@ export interface SyncEntityFilter {
   estimateCount(ctx: SyncPullContext): Promise<number>;
 }
 
-const camelToSnake = (s: string) => s.replace(/[A-Z]/g, (c) => `_${c.toLowerCase()}`);
+/** camelCase → snake_case key conversion for wire rows — shared with
+ *  push/master-data.handler.ts's `wireRow`, which needs the identical rule
+ *  for the conflict/applied-data serialization it does on the push side. */
+export const camelToSnake = (s: string) => s.replace(/[A-Z]/g, (c) => `_${c.toLowerCase()}`);
 
 /**
  * Serialize a DB row to the wire: snake_case keys, ISO timestamps, and

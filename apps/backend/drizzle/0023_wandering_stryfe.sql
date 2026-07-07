@@ -1,0 +1,1 @@
+ALTER TABLE "roles" ADD CONSTRAINT "roles_no_reserved_code_when_editable" CHECK (NOT ("roles"."is_editable" AND "roles"."code" IN ('STORE_OWNER', 'SUPER_ADMIN', 'USER')));

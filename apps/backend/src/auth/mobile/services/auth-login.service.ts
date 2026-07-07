@@ -4,7 +4,7 @@ import { UnitOfWork, type DbExecutor } from '#db/db.module.js';
 import { AppException } from '#common/exceptions/app.exception.js';
 import { ErrorCodes } from '#common/error-codes.js';
 import { AuditService } from '#common/audit/audit.service.js';
-import { AuthConstantsService } from '../../core/auth-constants.service.js';
+import { AppConfigService } from '#config/app-config.service.js';
 import { CryptoService } from '../../core/crypto.service.js';
 import { RateLimitService } from '../../core/rate-limit.service.js';
 import { OtpRequestService } from './otp-request.service.js';
@@ -33,7 +33,7 @@ export class AuthLoginService {
     private readonly tokenService:  RefreshTokenService,
     private readonly snapshot:      SnapshotService,
     private readonly crypto:        CryptoService,
-    private readonly constants:     AuthConstantsService,
+    private readonly config:        AppConfigService,
     private readonly audit:         AuditService,
     private readonly uow:           UnitOfWork,
   ) {}
@@ -47,7 +47,7 @@ export class AuthLoginService {
       // OTP_EXPIRED, identical to a genuine lapsed request.
       return {
         otpSent: true,
-        expiresIn: this.constants.OTP_TTL_SECONDS,
+        expiresIn: this.config.otpTtlSeconds,
         otpRequestId: randomUUID(),
       };
     }
@@ -66,7 +66,10 @@ export class AuthLoginService {
     if (!user?.phone) {
       throw new AppException(ErrorCodes.USER_NOT_FOUND, 'USER_NOT_FOUND', 404);
     }
-    const result = await this.otpReqService.requestOtp(user.phone, 'login', ip);
+    // Mint with the `step_up` purpose (not `login`) so a step-up OTP can't be
+    // replayed against login/verify and vice-versa — step-up verify scopes to
+    // the same purpose.
+    const result = await this.otpReqService.requestOtp(user.phone, 'step_up', ip);
     return { otpSent: true, expiresIn: result.expiresIn, otpRequestId: result.otpRequestId };
   }
 
@@ -80,16 +83,17 @@ export class AuthLoginService {
   ): Promise<LoginResult> {
     await this.rateLimit.checkIpLimit(ip);
 
-    const otpRequest = await this.otpRepo.findActiveRequest(otpRequestId, phone);
+    const otpRequest = await this.otpRepo.findActiveRequest(otpRequestId, phone, 'login');
     if (!otpRequest) throw new AppException(ErrorCodes.TOKEN_EXPIRED, 'OTP_EXPIRED', 422);
 
     const user = await this.userRepo.findByPhone(phone);
     if (!user) {
-      throw new AppException(
-        ErrorCodes.NOT_FOUND,
-        'No account is registered with this number. Create an account to get started.',
-        401,
-      );
+      // Uniform with a lapsed request — never reveal "no account exists here"
+      // as a distinct signal (enumeration oracle). Combined with the fake
+      // otpRequestId loginStageOne returns for unregistered numbers (no OTP
+      // row is ever minted for them), this branch is only reachable in the
+      // narrow race where the user was deleted between stage one and two.
+      throw new AppException(ErrorCodes.TOKEN_EXPIRED, 'OTP_EXPIRED', 422);
     }
 
     if (user.accountLockedUntil && user.accountLockedUntil > new Date()) {
@@ -99,6 +103,23 @@ export class AuthLoginService {
         429,
       );
     }
+
+    // Admin-applied blocks must reject login outright — a valid OTP proves
+    // phone possession, not that the block should lift. Deliberately NOT
+    // checking status==='locked' here: that's the failed-attempts lockout
+    // already covered by accountLockedUntil above, and a successful login is
+    // exactly how it's meant to clear (see markSuccessfulLogin).
+    if (user.isBlocked) {
+      throw new AppException(ErrorCodes.USER_BLOCKED, 'This account has been blocked', 403);
+    }
+    if (user.status === 'suspended') {
+      throw new AppException(ErrorCodes.USER_SUSPENDED, 'This account has been suspended', 403);
+    }
+
+    // Per-phone throttle at verify time, not just at OTP-request time — closes
+    // the gap where verify was rate-limited by IP only, so an attacker
+    // spreading requests across IPs faced no phone-scoped limit at all.
+    await this.rateLimit.checkPhoneOtpLimit(phone);
 
     try {
       await this.otpService.verifyOtp(phone, otpCode, otpRequest);
@@ -118,7 +139,7 @@ export class AuthLoginService {
       const session = await this.sessionRepo.create({
         userFk:       user.id,
         deviceFk:     device.id,
-        expiresAt:    new Date(Date.now() + this.constants.REFRESH_TOKEN_TTL_SECONDS * 1000),
+        expiresAt:    new Date(Date.now() + this.config.refreshTokenTtlSeconds * 1000),
         ipAtCreation: ip,
         appVersion:   deviceInfo.appVersion,
         platform:     deviceInfo.platform,
@@ -126,21 +147,25 @@ export class AuthLoginService {
       }, tx);
 
       const refreshToken = await this.tokenService.issueRefreshToken(session.id, tx);
+
+      // Committed in the same transaction as the effect it records — a
+      // transient audit-write failure must roll back the login, not leave a
+      // durably-issued session with no audit trail for it.
+      await this.audit.logInTransaction({
+        event:        'LOGIN_SUCCESS',
+        activityType: 'AUTH_LOGIN',
+        prefix:       'User',
+        suffix:       `logged in from ${ip}`,
+        userId:       user.id,
+        ipAddress:    ip,
+        metadata:     { platform: deviceInfo.platform },
+      }, tx);
+
       return { device, session, refreshToken };
     });
 
     // Post-transaction: token signing + external side effects.
     const accessToken = await this.crypto.signJwt(user.id, session.id, user.permissionsVersion);
-
-    await this.audit.log({
-      event:        'LOGIN_SUCCESS',
-      activityType: 'AUTH_LOGIN',
-      prefix:       'User',
-      suffix:       `logged in from ${ip}`,
-      userId:       user.id,
-      ipAddress:    ip,
-      metadata:     { platform: deviceInfo.platform },
-    });
 
     await this.rateLimit.recordAttempt({ ip, phone, purpose: 'login', success: true });
 
@@ -196,10 +221,10 @@ export class AuthLoginService {
     // Atomic increment returns the fresh count (concurrent failures can't lose
     // an increment); if it crosses the threshold, apply the lockout.
     const attempts = await this.userRepo.incrementFailedAttempts(userId);
-    if (attempts >= this.constants.MAX_FAILED_LOGIN_ATTEMPTS) {
+    if (attempts >= this.config.maxFailedLoginAttempts) {
       await this.userRepo.applyLockout(
         userId,
-        new Date(Date.now() + this.constants.ACCOUNT_LOCKOUT_DURATION_MINUTES * 60_000),
+        new Date(Date.now() + this.config.accountLockoutDurationMinutes * 60_000),
       );
     }
   }

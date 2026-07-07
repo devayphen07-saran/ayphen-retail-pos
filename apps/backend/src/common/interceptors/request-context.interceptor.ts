@@ -4,7 +4,7 @@ import {
   Injectable,
   NestInterceptor,
 } from '@nestjs/common';
-import { Observable } from 'rxjs';
+import { Observable, Subscription } from 'rxjs';
 import type { Request } from 'express';
 import { RequestContextService } from '#common/request-context/request-context.service.js';
 import type { MobilePrincipal } from '#common/types/principal.js';
@@ -32,6 +32,7 @@ export class RequestContextInterceptor implements NestInterceptor {
     const storeContext = req.context;
 
     return new Observable((subscriber) => {
+      let subscription: Subscription | undefined;
       RequestContextService.run(
         {
           user:      principal,
@@ -45,13 +46,17 @@ export class RequestContextInterceptor implements NestInterceptor {
           accountId: storeContext?.accountId,
         },
         () => {
-          next.handle().subscribe({
+          subscription = next.handle().subscribe({
             next:     (v) => subscriber.next(v),
             error:    (e) => subscriber.error(e),
             complete: ()  => subscriber.complete(),
           });
         },
       );
+      // Propagate unsubscription (client disconnect/timeout) to the inner
+      // handler pipeline — without this teardown, an early outer unsubscribe
+      // never tears down the subscription driving every downstream handler.
+      return () => subscription?.unsubscribe();
     });
   }
 }

@@ -54,7 +54,10 @@ export function CustomTabBar({ state, descriptors, navigation }: BottomTabBarPro
             accessibilityRole="button"
             accessibilityState={isFocused ? { selected: true } : {}}
             accessibilityLabel={label}
-            style={{ flex: 1, alignItems: 'center' }}
+            // The real hit area was just the icon+label cluster (well under
+            // the 44pt minimum) — this is the single most-tapped control in
+            // the app, so stretch the pressable to the full bar height.
+            style={{ flex: 1, alignItems: 'center', justifyContent: 'center', minHeight: 44 }}
           >
             <Column align="center" gap={2}>
               <LucideIcon name={TAB_ICON[route.name] ?? 'Circle'} size={22} color={color} />

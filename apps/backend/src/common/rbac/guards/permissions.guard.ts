@@ -10,6 +10,8 @@ import { Reflector } from '@nestjs/core';
 import type { Request } from 'express';
 import { RbacService } from '../rbac.service.js';
 import { AuditService } from '#common/audit/audit.service.js';
+import type { MobilePrincipal } from '#common/types/principal.js';
+import type { EffectivePermissions } from '../effective-permissions.js';
 import {
   IS_PUBLIC_KEY,
   ONLINE_ONLY_KEY,
@@ -19,7 +21,14 @@ import {
   type RequireSpecialMeta,
 } from '../decorators/rbac.decorators.js';
 import { CRITICAL_SPECIAL_ACTIONS } from '../permission-matrix.constants.js';
-import type { ResolvedStoreContext } from '../resolved-store-context.js';
+import '../resolved-store-context.js';
+
+interface RouteRbacMeta {
+  isPublic: boolean;
+  permission?: RequirePermissionsMeta;
+  special?: RequireSpecialMeta;
+  onlineOnly?: boolean;
+}
 
 /**
  * PermissionsGuard (rbac.md §10C) — the core RBAC gate. Runs after TenantGuard.
@@ -41,40 +50,24 @@ export class PermissionsGuard implements CanActivate {
   ) {}
 
   async canActivate(ctx: ExecutionContext): Promise<boolean> {
-    const isPublic = this.reflector.getAllAndOverride<boolean>(IS_PUBLIC_KEY, [
-      ctx.getHandler(),
-      ctx.getClass(),
-    ]);
-    if (isPublic) return true;
-
-    const permission = this.reflector.getAllAndOverride<RequirePermissionsMeta>(
-      REQUIRE_PERMISSIONS_KEY,
-      [ctx.getHandler(), ctx.getClass()],
-    );
-    const special = this.reflector.getAllAndOverride<RequireSpecialMeta>(
-      REQUIRE_SPECIAL_KEY,
-      [ctx.getHandler(), ctx.getClass()],
-    );
+    const meta = this.resolveMetadata(ctx);
+    if (meta.isPublic) return true;
     // Neither @RequirePermissions nor @RequireSpecial → no RBAC enforcement.
     // A @RequireSpecial without @RequirePermissions still enforces on its own.
-    if (!permission && !special) return true;
+    if (!meta.permission && !meta.special) return true;
 
     const req = ctx.switchToHttp().getRequest<Request>();
     const principal = req.user;
     if (!principal) throw new UnauthorizedException('MISSING_AUTH');
 
     // @OnlineOnly: reject offline-replay requests (§10C).
-    const onlineOnly = this.reflector.getAllAndOverride<boolean>(ONLINE_ONLY_KEY, [
-      ctx.getHandler(),
-      ctx.getClass(),
-    ]);
-    if (onlineOnly && req.headers['x-client-mode'] === 'offline_replay') {
+    if (meta.onlineOnly && req.headers['x-client-mode'] === 'offline_replay') {
       throw new ForbiddenException('ONLINE_REQUIRED');
     }
 
     // Store must be resolved by TenantGuard. Missing → fail closed, not 500,
     // to prevent cross-store escalation on a broken guard chain (§19).
-    const context = (req as Request & { context?: ResolvedStoreContext }).context;
+    const context = req.context;
     if (!context?.storeId) {
       this.logger.error(
         `[SECURITY] PermissionsGuard reached without a resolved store context ` +
@@ -84,47 +77,104 @@ export class PermissionsGuard implements CanActivate {
     }
     const storeId = context.storeId;
 
-    // H-6 (§16): JWT pv vs current permissionsVersion mismatch → bust cache first.
-    if (principal.jwtPv !== principal.permissionsVersion) {
-      await this.rbac.invalidateUserStoreCache(principal.userId, storeId);
-    }
+    await this.bustCacheOnVersionMismatch(principal, storeId);
 
-    // Critical = delete CRUD, or a critical special action (§7) → 30s TTL.
-    const isCritical =
-      permission?.action === 'delete' ||
-      (special !== undefined && CRITICAL_SPECIAL_ACTIONS.has(special.actionCode));
-
+    const isCritical = this.computeCriticality(meta.permission, meta.special);
     const permissions = await this.rbac.getCachedPermissions(
       principal.userId,
       storeId,
       isCritical,
     );
 
-    // CRUD check (only when @RequirePermissions is present).
-    if (permission && !this.rbac.checkCrud(permissions, permission.entity, permission.action)) {
-      await this.denyAudit(principal.userId, storeId, req, {
-        entity: permission.entity,
-        action: permission.action,
-        code: 'PERMISSION_DENIED',
-      });
-      throw new ForbiddenException('PERMISSION_DENIED');
-    }
-
-    // Special-action check (stacks on top of CRUD).
-    if (special) {
-      if (!this.rbac.checkSpecial(permissions, special.entity, special.actionCode)) {
-        await this.denyAudit(principal.userId, storeId, req, {
-          entity: special.entity,
-          action: special.actionCode,
-          code: 'SPECIAL_PERMISSION_DENIED',
-        });
-        throw new ForbiddenException('SPECIAL_PERMISSION_DENIED');
-      }
-    }
+    await this.enforceCrud(permissions, meta.permission, principal.userId, storeId, req);
+    await this.enforceSpecial(permissions, meta.special, principal.userId, storeId, req);
 
     // Expose resolved permissions to downstream handlers.
     context.permissions = permissions;
     return true;
+  }
+
+  private resolveMetadata(ctx: ExecutionContext): RouteRbacMeta {
+    const target = [ctx.getHandler(), ctx.getClass()];
+    return {
+      isPublic: this.reflector.getAllAndOverride<boolean>(IS_PUBLIC_KEY, target) ?? false,
+      permission: this.reflector.getAllAndOverride<RequirePermissionsMeta>(
+        REQUIRE_PERMISSIONS_KEY,
+        target,
+      ),
+      special: this.reflector.getAllAndOverride<RequireSpecialMeta>(REQUIRE_SPECIAL_KEY, target),
+      onlineOnly: this.reflector.getAllAndOverride<boolean>(ONLINE_ONLY_KEY, target),
+    };
+  }
+
+  /**
+   * H-6 (§16): JWT pv vs current permissionsVersion mismatch → bust cache
+   * first. Best-effort: a Redis outage here must not 500 the request — worst
+   * case, getCachedPermissions below serves an entry within its documented
+   * staleness window instead of a fully-busted cache (mirrors the degrade
+   * policy in RbacService.getCachedPermissions).
+   */
+  private async bustCacheOnVersionMismatch(
+    principal: MobilePrincipal,
+    storeId: string,
+  ): Promise<void> {
+    if (principal.jwtPv === principal.permissionsVersion) return;
+    try {
+      await this.rbac.invalidateUserStoreCache(principal.userId, storeId);
+    } catch (err) {
+      this.logger.warn(
+        `Cache bust failed for user ${principal.userId} store ${storeId}: ${
+          err instanceof Error ? err.message : 'unknown Redis error'
+        }`,
+      );
+    }
+  }
+
+  /** Critical = delete CRUD, or a critical special action (§7) → 30s TTL. */
+  private computeCriticality(
+    permission: RequirePermissionsMeta | undefined,
+    special: RequireSpecialMeta | undefined,
+  ): boolean {
+    return (
+      permission?.action === 'delete' ||
+      (special !== undefined && CRITICAL_SPECIAL_ACTIONS.has(special.actionCode))
+    );
+  }
+
+  /** CRUD check (only when @RequirePermissions is present). */
+  private async enforceCrud(
+    permissions: EffectivePermissions,
+    permission: RequirePermissionsMeta | undefined,
+    userId: string,
+    storeId: string,
+    req: Request,
+  ): Promise<void> {
+    if (!permission) return;
+    if (this.rbac.checkCrud(permissions, permission.entity, permission.action)) return;
+    await this.denyAudit(userId, storeId, req, {
+      entity: permission.entity,
+      action: permission.action,
+      code: 'PERMISSION_DENIED',
+    });
+    throw new ForbiddenException('PERMISSION_DENIED');
+  }
+
+  /** Special-action check (stacks on top of CRUD). */
+  private async enforceSpecial(
+    permissions: EffectivePermissions,
+    special: RequireSpecialMeta | undefined,
+    userId: string,
+    storeId: string,
+    req: Request,
+  ): Promise<void> {
+    if (!special) return;
+    if (this.rbac.checkSpecial(permissions, special.entity, special.actionCode)) return;
+    await this.denyAudit(userId, storeId, req, {
+      entity: special.entity,
+      action: special.actionCode,
+      code: 'SPECIAL_PERMISSION_DENIED',
+    });
+    throw new ForbiddenException('SPECIAL_PERMISSION_DENIED');
   }
 
   /** SOC2 CC6.3 denial audit — written before the ForbiddenException (§20). */
@@ -134,18 +184,29 @@ export class PermissionsGuard implements CanActivate {
     req: Request,
     meta: { entity: string; action: string; code: string },
   ): Promise<void> {
-    await this.audit.log({
-      event:        meta.code,
-      activityType: meta.code === 'SPECIAL_PERMISSION_DENIED'
-        ? 'SPECIAL_PERMISSION_DENIED'
-        : 'PERMISSION_DENIED',
-      prefix:       'Access',
-      suffix:       `denied on ${meta.entity}.${meta.action}`,
-      userId,
-      storeFk:      storeId,
-      isSuccess:    false,
-      entityType:   meta.entity,
-      metadata:     { action: meta.action, route: `${req.method} ${req.url}` },
-    });
+    // Best-effort: the denial itself is the security outcome. If the audit
+    // insert fails, it must NOT convert the 403 into a 500 (the caller throws
+    // ForbiddenException right after) or swallow the denial — log and move on.
+    try {
+      await this.audit.log({
+        event:        meta.code,
+        activityType: meta.code === 'SPECIAL_PERMISSION_DENIED'
+          ? 'SPECIAL_PERMISSION_DENIED'
+          : 'PERMISSION_DENIED',
+        prefix:       'Access',
+        suffix:       `denied on ${meta.entity}.${meta.action}`,
+        userId,
+        storeFk:      storeId,
+        isSuccess:    false,
+        entityType:   meta.entity,
+        metadata:     { action: meta.action, route: `${req.method} ${req.url}` },
+      });
+    } catch (err) {
+      this.logger.error(
+        `Failed to write denial audit for ${meta.code} on ${meta.entity}.${meta.action} (user ${userId}): ${
+          err instanceof Error ? err.message : 'unknown error'
+        }`,
+      );
+    }
   }
 }

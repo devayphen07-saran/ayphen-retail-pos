@@ -23,44 +23,49 @@ export class AuthLogoutService {
 
   /** Log out the current session — blacklist its JWT, revoke it + its refresh tokens, drop its cache. */
   async logout(userId: string, deviceSessionId: string, currentJti: string, jtiExp: Date): Promise<void> {
-    await this.blacklist.addToBlacklist(currentJti, jtiExp);
-    // Session + refresh-token revocation commit together or not at all —
-    // previously two separate un-transactioned writes.
+    // Blacklist insert + session/refresh-token revocation commit together or
+    // not at all — previously the blacklist write ran before this transaction,
+    // so a crash between the two could blacklist the JWT while leaving the
+    // session (and its refresh token) live.
     await this.uow.execute(async (tx) => {
+      await this.blacklist.addToBlacklist(currentJti, jtiExp, tx);
       await this.sessionRepo.revokeSession(deviceSessionId, 'user_logout', tx);
       await this.refreshTokenRepo.revokeBySession(deviceSessionId, 'user_logout', tx);
+      await this.audit.logInTransaction({
+        event: 'LOGOUT', activityType: 'AUTH_LOGOUT',
+        prefix: 'User', suffix: 'logged out',
+        userId,
+      }, tx);
     });
     await this.cacheInvalidator.invalidate(deviceSessionId);
-    await this.audit.log({
-      event: 'LOGOUT', activityType: 'AUTH_LOGOUT',
-      prefix: 'User', suffix: 'logged out',
-      userId,
-    });
   }
 
   /** Log out every active session for the user, blacklisting each active JWT. */
   async logoutAll(userId: string): Promise<void> {
     const sessions = await this.sessionRepo.getActiveSessionsWithJti(userId);
-    for (const s of sessions) {
-      if (s.currentJti && s.currentJtiExp) {
-        await this.blacklist.addToBlacklist(s.currentJti, s.currentJtiExp);
-      }
-    }
-    // All sessions + all their refresh tokens revoked as one atomic unit.
+    const toBlacklist = sessions
+      .filter((s) => s.currentJti && s.currentJtiExp)
+      .map((s) => ({ jti: s.currentJti!, exp: s.currentJtiExp! }));
+
+    // Blacklist inserts + all sessions + all their refresh tokens revoked as
+    // one atomic unit (same reasoning as logout() above).
     await this.uow.execute(async (tx) => {
-      for (const s of sessions) {
-        await this.refreshTokenRepo.revokeBySession(s.id, 'user_logout_all', tx);
-      }
+      await this.blacklist.addManyToBlacklist(toBlacklist, tx);
+      await this.refreshTokenRepo.revokeByManySessions(
+        sessions.map((s) => s.id),
+        'user_logout_all',
+        tx,
+      );
       await this.sessionRepo.revokeAllUserSessions(userId, 'user_logout_all', tx);
+      // Audit the global logout — it's more consequential than a single-session
+      // logout (which is already audited), so it must leave a trail too.
+      await this.audit.logInTransaction({
+        event: 'LOGOUT_ALL', activityType: 'AUTH_LOGOUT',
+        prefix: 'User', suffix: `logged out of all sessions (${sessions.length})`,
+        userId,
+      }, tx);
     });
     await this.cacheInvalidator.invalidateAllForUser(userId);
-    // Audit the global logout — it's more consequential than a single-session
-    // logout (which is already audited), so it must leave a trail too.
-    await this.audit.log({
-      event: 'LOGOUT_ALL', activityType: 'AUTH_LOGOUT',
-      prefix: 'User', suffix: `logged out of all sessions (${sessions.length})`,
-      userId,
-    });
   }
 
   /** Cursor-paginated list of a user's active sessions. */
@@ -84,18 +89,18 @@ export class AuthLogoutService {
     if (!target) {
       throw new AppException(ErrorCodes.NOT_FOUND, 'Session not found', 404);
     }
-    if (target.currentJti && target.currentJtiExp) {
-      await this.blacklist.addToBlacklist(target.currentJti, target.currentJtiExp);
-    }
     await this.uow.execute(async (tx) => {
+      if (target.currentJti && target.currentJtiExp) {
+        await this.blacklist.addToBlacklist(target.currentJti, target.currentJtiExp, tx);
+      }
       await this.sessionRepo.revokeSession(sessionId, 'user_revoked', tx);
       await this.refreshTokenRepo.revokeBySession(sessionId, 'user_revoked', tx);
+      await this.audit.logInTransaction({
+        event: 'SESSION_REVOKED', activityType: 'AUTH_LOGOUT',
+        prefix: 'User', suffix: 'revoked a session',
+        userId,
+      }, tx);
     });
     await this.cacheInvalidator.invalidate(sessionId);
-    await this.audit.log({
-      event: 'SESSION_REVOKED', activityType: 'AUTH_LOGOUT',
-      prefix: 'User', suffix: 'revoked a session',
-      userId,
-    });
   }
 }

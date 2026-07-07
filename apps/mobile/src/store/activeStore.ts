@@ -9,8 +9,10 @@
  * store's shape until a dedicated "my stores" endpoint exists (see
  * store-picker.tsx's note).
  */
+import { useMemo } from 'react';
 import { create } from 'zustand';
 import type { PermissionSnapshot } from '@ayphen/api-manager';
+import { useAuthStore } from './authStore';
 
 /** One entry of PermissionSnapshot.storeLocations. */
 export type StoreContext = PermissionSnapshot['storeLocations'][number];
@@ -34,3 +36,21 @@ export const useActiveStoreStore = create<ActiveStoreState>((set) => ({
   setActiveStore: (store) => set({ store, storeId: store.store_id }),
   clearActiveStore: () => set({ store: null, storeId: null }),
 }));
+
+/**
+ * The active store's context, DERIVED from the live permission snapshot by
+ * `storeId` — so a store rename or location add/remove (which refreshes the
+ * snapshot) reflects immediately, instead of the frozen copy taken at
+ * enter-store time going stale (Commandment 5: no duplicated server data).
+ * Falls back to that copy only until the snapshot carries the store (e.g. the
+ * first render right after entering).
+ */
+export function useActiveStoreContext(): StoreContext | null {
+  const storeId = useActiveStoreStore((s) => s.storeId);
+  const fallback = useActiveStoreStore((s) => s.store);
+  const snapshot = useAuthStore((s) => s.snapshot);
+  return useMemo(() => {
+    if (!storeId) return null;
+    return snapshot?.storeLocations.find((s) => s.store_id === storeId) ?? fallback;
+  }, [storeId, snapshot, fallback]);
+}

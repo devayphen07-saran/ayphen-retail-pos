@@ -2,7 +2,7 @@ import { Inject, Injectable } from '@nestjs/common';
 import type Redis from 'ioredis';
 import { CORE_REDIS } from '../../core/core.tokens.js';
 import { RateLimitService } from '../../core/rate-limit.service.js';
-import { AuthConstantsService } from '../../core/auth-constants.service.js';
+import { AppConfigService } from '#config/app-config.service.js';
 import {
   OtpRequestRepository,
   type OtpPurpose,
@@ -24,7 +24,7 @@ export class OtpRequestService {
   constructor(
     @Inject(CORE_REDIS) private readonly redis: Redis,
     private readonly rateLimitService: RateLimitService,
-    private readonly constants: AuthConstantsService,
+    private readonly config: AppConfigService,
     private readonly otpRepo: OtpRequestRepository,
     private readonly otpService: OtpService,
   ) {}
@@ -51,7 +51,7 @@ export class OtpRequestService {
       const prev = await this.otpRepo.findById(resendOf);
       if (prev) {
         const elapsed = (Date.now() - prev.createdAt.getTime()) / 1000;
-        if (elapsed < this.constants.OTP_RESEND_COOLDOWN_SECONDS) {
+        if (elapsed < this.config.otpResendCooldownSeconds) {
           throw new AppException(
             ErrorCodes.RATE_LIMIT_EXCEEDED,
             'Resend not yet available — please wait before requesting another OTP',
@@ -61,13 +61,13 @@ export class OtpRequestService {
       }
     }
 
-    const ttl = this.constants.OTP_TTL_SECONDS;
+    const ttl = this.config.otpTtlSeconds;
     const expiresAt = new Date(Date.now() + ttl * 1000);
 
     const request = await this.otpRepo.insert({
       phone,
       purpose,
-      maxAttempts: this.constants.OTP_MAX_ATTEMPTS,
+      maxAttempts: this.config.otpMaxAttempts,
       expiresAt,
     });
 
@@ -84,8 +84,8 @@ export class OtpRequestService {
       otpRequestId: request.id,
       phoneMasked: this.maskPhone(phone),
       expiresIn: ttl,
-      resendAvailableIn: this.constants.OTP_RESEND_COOLDOWN_SECONDS,
-      maxAttempts: this.constants.OTP_MAX_ATTEMPTS,
+      resendAvailableIn: this.config.otpResendCooldownSeconds,
+      maxAttempts: this.config.otpMaxAttempts,
     };
   }
 

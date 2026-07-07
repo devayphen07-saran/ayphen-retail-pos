@@ -1,5 +1,6 @@
-import type { ReactNode } from 'react';
+import { useEffect, type ReactNode } from 'react';
 import { Redirect } from 'expo-router';
+import { Alert } from '@ayphen/mobile-ui-components';
 import { usePermission } from './usePermission';
 
 /**
@@ -21,6 +22,15 @@ export function RequirePermission({
   children: ReactNode;
 }) {
   const allowed = usePermission(entity, action);
+
+  // A bare redirect leaves the user guessing why the screen bounced them —
+  // tell them once per denial (not on every re-render while still denied).
+  useEffect(() => {
+    if (!allowed) {
+      Alert.info("Not allowed", "You don't have access to this. Ask your store owner if you need it.");
+    }
+  }, [allowed]);
+
   if (!allowed) return <Redirect href={fallbackHref} />;
   return <>{children}</>;
 }

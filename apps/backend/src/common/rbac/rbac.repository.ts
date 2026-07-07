@@ -1,5 +1,6 @@
 import { Inject, Injectable } from '@nestjs/common';
-import { and, eq, gt, inArray, isNotNull, isNull, lte, or, sql } from 'drizzle-orm';
+import { and, eq, gt, inArray, isNull, lte, or, sql } from 'drizzle-orm';
+import { union } from 'drizzle-orm/pg-core';
 import type { PostgresJsDatabase } from 'drizzle-orm/postgres-js';
 
 import { DRIZZLE, type DbExecutor } from '#db/db.module.js';
@@ -177,6 +178,15 @@ export class RbacRepository {
    * (the ownerUserFk OR is defensive — they normally also hold STORE_OWNER on every
    * store they create, but this survives a revoked owner mapping).
    */
+  /**
+   * Every store id this user can reach: owns the account, or holds a live
+   * (non-revoked, non-expired) role assignment in the store. Written as a
+   * UNION of two independently-indexed queries (idx_accounts_owner,
+   * idx_user_role_mappings_user_store) rather than one query with an OR
+   * across two outer-joined tables — the OR form can't be served by any
+   * single index and forces a scan proportional to total platform store
+   * count on every cache-miss, for every active user.
+   */
   async findAccessibleStoreIds(
     userId: string,
     tx?: DbExecutor,
@@ -184,33 +194,30 @@ export class RbacRepository {
     const client = this.getClient(tx);
     const now = new Date();
 
-    const rows = await client
-      .selectDistinct({ id: stores.id })
+    const owned = client
+      .select({ id: stores.id })
       .from(stores)
       .innerJoin(accounts, eq(accounts.id, stores.accountFk))
-      .leftJoin(
-        userRoleMappings,
+      .where(and(isNull(stores.deletedAt), eq(accounts.ownerUserFk, userId)));
+
+    const assigned = client
+      .select({ id: stores.id })
+      .from(userRoleMappings)
+      .innerJoin(stores, eq(stores.id, userRoleMappings.storeFk))
+      .where(
         and(
-          eq(userRoleMappings.storeFk, stores.id),
           eq(userRoleMappings.userFk, userId),
           isNull(userRoleMappings.revokedAt),
           or(
             isNull(userRoleMappings.expiresAt),
             gt(userRoleMappings.expiresAt, now),
           ),
-        ),
-      )
-      .where(
-        and(
           isNull(stores.deletedAt),
-          or(
-            eq(accounts.ownerUserFk, userId),
-            isNotNull(userRoleMappings.id),
-          ),
         ),
       );
 
-    return [...new Set(rows.map((row) => row.id))];
+    const rows = await union(owned, assigned);
+    return rows.map((row) => row.id);
   }
 
   /**
@@ -294,6 +301,14 @@ export class RbacRepository {
    *
    * Returns true only if:
    * - the user had an active role assignment at `asOf`
+   * - that role is scoped to THIS store (roles.storeFk === storeId) — same
+   *   invariant RbacService.resolveFromDb enforces for live checks: a
+   *   system-wide role (USER, SUPER_ADMIN) must never authorize a store CRUD
+   *   action, here or there. Without this filter, a system-wide role's
+   *   mapping (userRoleMappings.storeFk IS NULL) would satisfy the OR below
+   *   for ANY storeId, and if that role ever carried a rolePermissions grant,
+   *   offline replay could authorize a mutation in a store the grant was
+   *   never meant to reach.
    * - the role grant existed at `asOf`
    * - neither assignment nor grant had been revoked by `asOf`
    */
@@ -316,7 +331,8 @@ export class RbacRepository {
       .where(
         and(
           eq(userRoleMappings.userFk, userId),
-          or(eq(userRoleMappings.storeFk, storeId), isNull(userRoleMappings.storeFk)),
+          eq(userRoleMappings.storeFk, storeId),
+          eq(roles.storeFk, storeId),
           isNull(roles.deletedAt),
 
           // assignment active at asOf

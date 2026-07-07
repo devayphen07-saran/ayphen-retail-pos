@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import {
   ActivityIndicator,
   KeyboardAvoidingView,
@@ -9,8 +9,14 @@ import {
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import styled from 'styled-components/native';
-import { router } from 'expo-router';
-import { Controller, useFieldArray, useForm, useWatch } from 'react-hook-form';
+import { router, useNavigation } from 'expo-router';
+import {
+  Controller,
+  useFieldArray,
+  useForm,
+  useWatch,
+  type FieldErrors,
+} from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
 import { useMobileTheme } from '@ayphen/mobile-theme';
 import {
@@ -73,6 +79,54 @@ const STEP_META = [
 const DAY_NAMES = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'];
 const DAY_SHORT_NAMES = ['Su', 'Mo', 'Tu', 'We', 'Th', 'Fr', 'Sa'];
 
+// Maps a top-level form field back to the wizard step it's shown on, so a
+// submit-time validation failure (which validates the FULL schema, unlike the
+// per-step `trigger()` calls) can jump the user to the offending step instead
+// of failing invisibly on step 5 (see `handleWizardValidationError`).
+const FIELD_STEP: Record<string, number> = {
+  name: 1,
+  category: 1,
+  description: 1,
+  phone: 2,
+  email: 2,
+  website: 2,
+  line1: 3,
+  line2: 3,
+  city: 3,
+  state: 3,
+  pincode: 3,
+  currency: 4,
+  gstin: 4,
+  gstRegistrationType: 4,
+  pan: 4,
+  businessRegNumber: 4,
+  migrationDate: 4,
+  makeDefault: 4,
+  openingHours: 5,
+};
+
+const FIELD_LABEL: Record<string, string> = {
+  name: 'Store name',
+  category: 'Business category',
+  description: 'Description',
+  phone: 'Store phone',
+  email: 'Store email',
+  website: 'Website',
+  line1: 'Address line 1',
+  line2: 'Address line 2',
+  city: 'City',
+  state: 'State',
+  pincode: 'PIN code',
+  currency: 'Currency',
+  gstin: 'GSTIN',
+  gstRegistrationType: 'GST registration type',
+  pan: 'PAN',
+  businessRegNumber: 'Business registration number',
+  migrationDate: 'Migration date',
+  makeDefault: 'Default store',
+  openingHours: 'Opening hours',
+};
+
 /**
  * Reached from the Onboarding Hub's "Create your store" CTA — always
  * available, regardless of pending invitations.
@@ -88,7 +142,12 @@ export function CreateStoreScreen() {
   const { theme } = useMobileTheme();
   const { isAuthenticated, refetchUser } = useAuth();
   const createStore = useCreateStoreMutation();
+  const navigation = useNavigation();
   const [step, setStep] = useState(1);
+  // Set when final-submit validation (which spans all 5 steps, unlike the
+  // per-step `trigger()` calls) fails on a field that isn't on the current
+  // step — see `handleWizardValidationError`. Cleared on any step change.
+  const [validationBanner, setValidationBanner] = useState<string | null>(null);
 
   // Fire all dropdown lookups as soon as the form opens instead of lazily per
   // step — the Select components below share these query keys via React
@@ -155,6 +214,9 @@ export function CreateStoreScreen() {
       // is the one success path in the app that silently deviated from the
       // pattern (also true if the mutation succeeds and refetch is retried).
       reset();
+      // Success is not user intent to abandon the form — bypass the
+      // unsaved-changes guard below so `router.replace` isn't intercepted.
+      bypassGuardRef.current = true;
       router.replace('/(app)');
     } catch (err) {
       handleFormError(err, setError, 'Could not create the store.');
@@ -162,20 +224,40 @@ export function CreateStoreScreen() {
   };
 
   const handleNextStep1 = async () => {
+    setValidationBanner(null);
     if (await trigger(['name', 'category'])) setStep(2);
   };
   const handleNextStep2 = async () => {
+    setValidationBanner(null);
     if (await trigger(['phone', 'email', 'website'])) setStep(3);
   };
   const handleNextStep3 = async () => {
+    setValidationBanner(null);
     if (await trigger(['line1', 'line2', 'city', 'state', 'pincode'])) setStep(4);
   };
   const handleNextStep4 = async () => {
+    setValidationBanner(null);
     if (await trigger(['currency', 'gstin', 'gstRegistrationType', 'pan', 'businessRegNumber'])) {
       setStep(5);
     }
   };
-  const handleNextStep5 = handleSubmit(onSubmit, onValidationError);
+
+  // Final submit validates the FULL schema across all 5 steps — unlike the
+  // per-step `trigger()` calls above, a cross-step rule can fail on a field
+  // that isn't on the visible step. Jump to that step and name the field
+  // instead of letting `onValidationError`'s silent log-and-return be the
+  // only feedback (previously: tapping "Create Store" could appear to do
+  // nothing at all).
+  const handleWizardValidationError = (errors: FieldErrors<CreateStoreForm>) => {
+    onValidationError(errors);
+    const firstField = Object.keys(errors)[0];
+    if (!firstField) return;
+    const targetStep = FIELD_STEP[firstField] ?? step;
+    const label = FIELD_LABEL[firstField] ?? firstField;
+    setValidationBanner(`Please check ${label} — step ${targetStep} of ${STEP_META.length}.`);
+    if (targetStep !== step) setStep(targetStep);
+  };
+  const handleNextStep5 = handleSubmit(onSubmit, handleWizardValidationError);
 
   const NEXT_HANDLERS = [
     handleNextStep1,
@@ -186,9 +268,39 @@ export function CreateStoreScreen() {
   ] as const;
 
   const handleNext = NEXT_HANDLERS[step - 1];
-  const handleBack = () => setStep((s) => s - 1);
+  const handleBack = () => {
+    setValidationBanner(null);
+    setStep((s) => s - 1);
+  };
   const isLastStep = step === 5;
   const hasUnsavedChanges = Object.keys(dirtyFields).length > 0;
+
+  // Guards EVERY exit vector — iOS swipe-back and Android hardware back
+  // previously exited this 5-step form with zero confirmation; only the
+  // in-screen "X" (handleClose, below) was guarded. Mirrors FormScreen's
+  // `beforeRemove` pattern (forms-agent.md §5/§13.7).
+  const dirtyRef = useRef(hasUnsavedChanges);
+  dirtyRef.current = hasUnsavedChanges;
+  const bypassGuardRef = useRef(false);
+
+  useEffect(() => {
+    const sub = navigation.addListener('beforeRemove', (e) => {
+      if (bypassGuardRef.current || !dirtyRef.current) return;
+      e.preventDefault();
+      Alert.show('Discard store setup?', 'Your progress will be lost.', [
+        { text: 'Keep editing', style: 'cancel' },
+        {
+          text: 'Discard',
+          style: 'destructive',
+          onPress: () => {
+            bypassGuardRef.current = true;
+            navigation.dispatch(e.data.action);
+          },
+        },
+      ]);
+    });
+    return sub;
+  }, [navigation]);
 
   // Closing a partially-filled wizard is destructive — confirm before discarding
   // (forms-agent.md §5/§13.7). Nothing entered → close straight away.
@@ -203,6 +315,9 @@ export function CreateStoreScreen() {
         text: 'Discard',
         style: 'destructive',
         onPress: () => {
+          // This IS the confirmation the beforeRemove guard above would
+          // otherwise show again on the `router.back()` it triggers.
+          bypassGuardRef.current = true;
           reset();
           router.back();
         },
@@ -262,6 +377,15 @@ export function CreateStoreScreen() {
           <Typography.Body color={theme.colorTextSecondary} style={{ marginBottom: 28 }}>
             {STEP_META[step - 1].subtitle}
           </Typography.Body>
+
+          {validationBanner ? (
+            <ValidationBanner>
+              <LucideIcon name="AlertCircle" size={16} color={theme.colorWarning} />
+              <Typography.Caption color={theme.colorWarning} style={{ flex: 1 }}>
+                {validationBanner}
+              </Typography.Caption>
+            </ValidationBanner>
+          ) : null}
 
           {/* ─── Step 1: Identity ─── */}
           {step === 1 && (
@@ -673,6 +797,15 @@ const CloseButton = styled(TouchableOpacity)`
   background-color: ${({ theme }) => theme.colorBgLayout};
   align-items: center;
   justify-content: center;
+`;
+
+const ValidationBanner = styled(Row)`
+  align-items: center;
+  gap: ${({ theme }) => theme.sizing.xSmall}px;
+  padding: ${({ theme }) => theme.sizing.small}px ${({ theme }) => theme.sizing.regular}px;
+  border-radius: ${({ theme }) => theme.borderRadius.large}px;
+  background-color: ${({ theme }) => theme.colorWarningBg};
+  margin-bottom: ${({ theme }) => theme.sizing.medium}px;
 `;
 
 const ProgressTrack = styled(View)`

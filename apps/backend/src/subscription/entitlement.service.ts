@@ -6,7 +6,6 @@ import * as schema from '#db/schema.js';
 import {
   accountSubscriptions,
   planEntitlements,
-  planFeatures,
 } from '#db/schema.js';
 
 /** Known entitlement keys (plan_entitlements.key). Integer value; null = unlimited. */
@@ -54,22 +53,6 @@ export class EntitlementService {
       );
     if (!row) return 0;
     return row.value;
-  }
-
-  /** Boolean feature flag for an account (plan_features). Missing row = false. */
-  async feature(accountId: string, key: string, tx?: DbExecutor): Promise<boolean> {
-    const client = tx ?? this.db;
-    const [row] = await client
-      .select({ enabled: planFeatures.enabled })
-      .from(accountSubscriptions)
-      .innerJoin(planFeatures, eq(planFeatures.planFk, accountSubscriptions.planFk))
-      .where(
-        and(
-          eq(accountSubscriptions.accountFk, accountId),
-          eq(planFeatures.key, key),
-        ),
-      );
-    return row?.enabled ?? false;
   }
 
   /** null limit = unlimited; otherwise strict less-than (subscription §3A). */

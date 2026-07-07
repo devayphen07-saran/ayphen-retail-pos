@@ -4,7 +4,6 @@ import { LinearGradient } from 'expo-linear-gradient';
 import styled from 'styled-components/native';
 import { useMobileTheme } from '@ayphen/mobile-theme';
 import {
-  Alert,
   AppLayout,
   Column,
   Divider,
@@ -40,48 +39,81 @@ import { SubscriptionLoading } from '../loading/SubscriptionLoading';
 const TRIAL_WINDOW_DAYS = 15;
 const BILLING_WINDOW_DAYS = 30;
 
-const ENTITLEMENT_ROWS: Array<{ key: string; label: string; iconName: LucideIconNameType }> = [
-  { key: 'max_stores',              label: 'Stores',               iconName: 'Store' },
-  { key: 'max_locations_per_store', label: 'Locations per store',  iconName: 'MapPin' },
-  { key: 'max_users_per_store',     label: 'Staff per store',      iconName: 'UsersRound' },
-  { key: 'max_devices_per_store',   label: 'Devices per store',    iconName: 'Smartphone' },
+const ENTITLEMENT_ROWS: Array<{
+  key: string;
+  label: string;
+  iconName: LucideIconNameType;
+}> = [
+  { key: 'max_stores', label: 'Stores', iconName: 'Store' },
+  {
+    key: 'max_locations_per_store',
+    label: 'Locations per store',
+    iconName: 'MapPin',
+  },
+  {
+    key: 'max_users_per_store',
+    label: 'Staff per store',
+    iconName: 'UsersRound',
+  },
+  {
+    key: 'max_devices_per_store',
+    label: 'Devices per store',
+    iconName: 'Smartphone',
+  },
 ];
 
-const BANNER_COLOR_KEY: Record<Exclude<BannerSeverity, 'none'>, 'primary' | 'warning' | 'danger'> = {
-  info:     'primary',
-  warning:  'warning',
+const BANNER_COLOR_KEY: Record<
+  Exclude<BannerSeverity, 'none'>,
+  'primary' | 'warning' | 'danger'
+> = {
+  info: 'primary',
+  warning: 'warning',
   critical: 'danger',
 };
 
-const BANNER_ICON: Record<Exclude<BannerSeverity, 'none'>, LucideIconNameType> = {
-  info:     'Info',
-  warning:  'TriangleAlert',
+const BANNER_ICON: Record<
+  Exclude<BannerSeverity, 'none'>,
+  LucideIconNameType
+> = {
+  info: 'Info',
+  warning: 'TriangleAlert',
   critical: 'CircleAlert',
 };
 
 function statusLabel(status: string): string {
   switch (status) {
-    case 'trialing': return 'Trial';
-    case 'active': return 'Active';
-    case 'past_due': return 'Payment overdue';
-    case 'cancelled': return 'Cancelled';
-    case 'expired': return 'Expired';
-    case 'paused': return 'Suspended';
-    default: return status;
+    case 'trialing':
+      return 'Trial';
+    case 'active':
+      return 'Active';
+    case 'past_due':
+      return 'Payment overdue';
+    case 'cancelled':
+      return 'Cancelled';
+    case 'expired':
+      return 'Expired';
+    case 'paused':
+      return 'Suspended';
+    default:
+      return status;
   }
 }
 
 function daysLeft(sub: SubscriptionResponse): number | null {
-  const target = sub.status === 'trialing' ? sub.trial_ends_at : sub.current_period_end;
+  const target =
+    sub.status === 'trialing' ? sub.trial_ends_at : sub.current_period_end;
   if (!target) return null;
-  const days = Math.ceil((new Date(target).getTime() - Date.now()) / 86_400_000);
+  const days = Math.ceil(
+    (new Date(target).getTime() - Date.now()) / 86_400_000,
+  );
   return days < 0 ? null : days;
 }
 
 function daysLeftLabel(sub: SubscriptionResponse): string | null {
   const days = daysLeft(sub);
   if (days === null) return null;
-  if (sub.status === 'trialing') return `${days} day${days === 1 ? '' : 's'} left in your trial`;
+  if (sub.status === 'trialing')
+    return `${days} day${days === 1 ? '' : 's'} left in your trial`;
   return `Renews in ${days} day${days === 1 ? '' : 's'}`;
 }
 
@@ -90,25 +122,35 @@ function daysLeftLabel(sub: SubscriptionResponse): string | null {
 function elapsedFraction(sub: SubscriptionResponse): number | null {
   const days = daysLeft(sub);
   if (days === null) return null;
-  const window = sub.status === 'trialing' ? TRIAL_WINDOW_DAYS : BILLING_WINDOW_DAYS;
+  const window =
+    sub.status === 'trialing' ? TRIAL_WINDOW_DAYS : BILLING_WINDOW_DAYS;
   return Math.min(1, Math.max(0.04, 1 - days / window));
-}
-
-function showComingSoon(label: string) {
-  Alert.info(label, "This isn't wired up yet — coming soon.");
 }
 
 export function SubscriptionScreen() {
   const { theme } = useMobileTheme();
-  const { data: sub, isLoading, isError, refetch, isRefetching } = useSubscriptionQuery();
+  const {
+    data: sub,
+    isLoading,
+    isError,
+    refetch,
+    isRefetching,
+  } = useSubscriptionQuery();
 
   return (
     <AppLayout title="Subscription" onBack={() => router.back()}>
       <ScrollView
-        contentContainerStyle={{ padding: theme.sizing.large, paddingTop: theme.sizing.small, flexGrow: 1 }}
+        contentContainerStyle={{
+          padding: theme.sizing.large,
+          paddingTop: theme.sizing.small,
+          flexGrow: 1,
+        }}
         showsVerticalScrollIndicator={false}
         refreshControl={
-          <RefreshControl refreshing={isRefetching && !isLoading} onRefresh={refetch} />
+          <RefreshControl
+            refreshing={isRefetching && !isLoading}
+            onRefresh={refetch}
+          />
         }
       >
         <ScreenStateRenderer<SubscriptionResponse>
@@ -124,167 +166,225 @@ export function SubscriptionScreen() {
             // widens to `T | T[]`); only reached when sub is present.
             const sub = data as SubscriptionResponse;
             return (
-          <Column gap={20}>
-            {sub.reconciliation_status === 'pending' && (
-              <NoticeBanner $severity="critical">
-                <NoticeIconSlot $severity="critical">
-                  <LucideIcon name="CircleAlert" size={16} color={theme.colorError} />
-                </NoticeIconSlot>
-                <Column gap={8} style={{ flex: 1 }}>
-                  <Typography.Caption color={theme.colorErrorText} weight="semiBold">
-                    Your plan changed and some stores, locations, or devices are over the new
-                    limit. Choose what to keep — nothing is deleted, but writes are blocked until
-                    you resolve this.
-                  </Typography.Caption>
-                  <ResolveLink
-                    onPress={() => router.push('/(store)/downgrade-resolve')}
-                    activeOpacity={0.7}
-                  >
-                    <Typography.Caption color={theme.colorError} weight="bold">
-                      Resolve now
-                    </Typography.Caption>
-                    <LucideIcon name="ArrowRight" size={14} color={theme.colorError} />
-                  </ResolveLink>
-                </Column>
-              </NoticeBanner>
-            )}
-
-            {sub.show_upgrade_banner && sub.banner_severity !== 'none' && (
-              <NoticeBanner $severity={sub.banner_severity}>
-                <NoticeIconSlot $severity={sub.banner_severity}>
-                  <LucideIcon
-                    name={BANNER_ICON[sub.banner_severity]}
-                    size={16}
-                    color={theme.color[BANNER_COLOR_KEY[sub.banner_severity]]?.main}
-                  />
-                </NoticeIconSlot>
-                <Typography.Caption
-                  color={theme.color[BANNER_COLOR_KEY[sub.banner_severity]]?.text}
-                  weight="medium"
-                  style={{ flex: 1 }}
-                >
-                  {sub.status === 'trialing'
-                    ? (daysLeftLabel(sub) ?? 'Your trial is ending soon')
-                    : sub.status === 'past_due'
-                      ? 'Payment failed — renew to avoid interruption'
-                      : sub.status === 'expired'
-                        ? 'Your plan has expired'
-                        : 'Action needed on your subscription'}
-                </Typography.Caption>
-              </NoticeBanner>
-            )}
-
-            <PlanCardShadow>
-              <PlanCardGradient
-                colors={[theme.color.primary.main, theme.color.primary.active]}
-                start={{ x: 0, y: 0 }}
-                end={{ x: 1, y: 1 }}
-              >
-                <Row align="center" justify="space-between">
-                  <Row align="center" gap={8}>
-                    <PlanIconBadge>
-                      <LucideIcon name="Sparkles" size={16} color={theme.colorWhite} />
-                    </PlanIconBadge>
-                    <Typography.Overline color={theme.overlay.onDark55}>
-                      CURRENT PLAN
-                    </Typography.Overline>
-                  </Row>
-                  <StatusPill $status={sub.status}>
-                    <Typography.Caption weight="bold" color={theme.colorWhite}>
-                      {statusLabel(sub.status)}
-                    </Typography.Caption>
-                  </StatusPill>
-                </Row>
-
-                <Typography.H2
-                  weight="bold"
-                  color={theme.colorWhite}
-                  style={{ marginTop: theme.sizing.small }}
-                >
-                  {sub.plan.name}
-                </Typography.H2>
-
-                {daysLeftLabel(sub) && (
-                  <Column gap={6} style={{ marginTop: theme.sizing.small }}>
-                    <ProgressTrack>
-                      <ProgressFill style={{ width: `${(elapsedFraction(sub) ?? 0) * 100}%` }} />
-                    </ProgressTrack>
-                    <Typography.Caption color={theme.colorWhite} weight="medium">
-                      {daysLeftLabel(sub)}
-                    </Typography.Caption>
-                  </Column>
+              <Column gap={20}>
+                {sub.reconciliation_status === 'pending' && (
+                  <NoticeBanner $severity="critical">
+                    <NoticeIconSlot $severity="critical">
+                      <LucideIcon
+                        name="CircleAlert"
+                        size={16}
+                        color={theme.colorError}
+                      />
+                    </NoticeIconSlot>
+                    <Column gap={8} style={{ flex: 1 }}>
+                      <Typography.Caption
+                        color={theme.colorErrorText}
+                        weight="semiBold"
+                      >
+                        Your plan changed and some stores, locations, or devices
+                        are over the new limit. Choose what to keep — nothing is
+                        deleted, but writes are blocked until you resolve this.
+                      </Typography.Caption>
+                      <ResolveLink
+                        onPress={() =>
+                          router.push('/(store)/downgrade-resolve')
+                        }
+                        activeOpacity={0.7}
+                      >
+                        <Typography.Caption
+                          color={theme.colorError}
+                          weight="bold"
+                        >
+                          Resolve now
+                        </Typography.Caption>
+                        <LucideIcon
+                          name="ArrowRight"
+                          size={14}
+                          color={theme.colorError}
+                        />
+                      </ResolveLink>
+                    </Column>
+                  </NoticeBanner>
                 )}
 
-                <ViewPlansButton
-                  onPress={() => router.push('/(store)/subscription-plans')}
-                  activeOpacity={0.85}
-                >
-                  <Typography.Body weight="bold" color={theme.color.primary.main}>
-                    View plans
-                  </Typography.Body>
-                  <LucideIcon name="ArrowRight" size={16} color={theme.color.primary.main} />
-                </ViewPlansButton>
-              </PlanCardGradient>
-            </PlanCardShadow>
+                {sub.show_upgrade_banner && sub.banner_severity !== 'none' && (
+                  <NoticeBanner $severity={sub.banner_severity}>
+                    <NoticeIconSlot $severity={sub.banner_severity}>
+                      <LucideIcon
+                        name={BANNER_ICON[sub.banner_severity]}
+                        size={16}
+                        color={
+                          theme.color[BANNER_COLOR_KEY[sub.banner_severity]]
+                            ?.main
+                        }
+                      />
+                    </NoticeIconSlot>
+                    <Typography.Caption
+                      color={
+                        theme.color[BANNER_COLOR_KEY[sub.banner_severity]]?.text
+                      }
+                      weight="medium"
+                      style={{ flex: 1 }}
+                    >
+                      {sub.status === 'trialing'
+                        ? (daysLeftLabel(sub) ?? 'Your trial is ending soon')
+                        : sub.status === 'past_due'
+                          ? 'Payment failed — renew to avoid interruption'
+                          : sub.status === 'expired'
+                            ? 'Your plan has expired'
+                            : 'Action needed on your subscription'}
+                    </Typography.Caption>
+                  </NoticeBanner>
+                )}
 
-            <Column gap={10}>
-              <Typography.Subtitle weight="bold">Plan limits</Typography.Subtitle>
-              <LimitsCard>
-                {ENTITLEMENT_ROWS.map((row, i) => {
-                  const limit = sub.plan.entitlements[row.key];
-                  return (
-                    <View key={row.key}>
-                      <Row
-                        align="center"
-                        justify="space-between"
-                        style={{
-                          paddingVertical: theme.sizing.small,
-                          paddingHorizontal: theme.sizing.medium,
-                        }}
-                      >
-                        <Row align="center" gap={10}>
-                          <LimitIconSlot>
-                            <LucideIcon name={row.iconName} size={16} color={theme.color.primary.main} />
-                          </LimitIconSlot>
-                          <Typography.Body>{row.label}</Typography.Body>
-                        </Row>
-                        <Typography.Body weight="bold">
-                          {limit === null || limit === undefined ? 'Unlimited' : limit}
-                        </Typography.Body>
+                <PlanCardShadow>
+                  <PlanCardGradient
+                    colors={[
+                      theme.color.primary.main,
+                      theme.color.primary.active,
+                    ]}
+                    start={{ x: 0, y: 0 }}
+                    end={{ x: 1, y: 1 }}
+                  >
+                    <Row align="center" justify="space-between">
+                      <Row align="center" gap={8}>
+                        <PlanIconBadge>
+                          <LucideIcon
+                            name="Sparkles"
+                            size={16}
+                            color={theme.colorWhite}
+                          />
+                        </PlanIconBadge>
+                        <Typography.Overline color={theme.overlay.onDark55}>
+                          CURRENT PLAN
+                        </Typography.Overline>
                       </Row>
-                      {i < ENTITLEMENT_ROWS.length - 1 && (
-                        <Divider color={theme.colorBorderSecondary} thickness={1} marginVertical={0} insetLeft={46} />
-                      )}
-                    </View>
-                  );
-                })}
-              </LimitsCard>
-            </Column>
+                      <StatusPill $status={sub.status}>
+                        <Typography.Caption
+                          weight="bold"
+                          color={theme.colorWhite}
+                        >
+                          {statusLabel(sub.status)}
+                        </Typography.Caption>
+                      </StatusPill>
+                    </Row>
 
-            <GroupedMenu
-              data={[
-                {
-                  label: 'Billing',
-                  items: [
+                    <Typography.H2
+                      weight="bold"
+                      color={theme.colorWhite}
+                      style={{ marginTop: theme.sizing.small }}
+                    >
+                      {sub.plan.name}
+                    </Typography.H2>
+
+                    {daysLeftLabel(sub) && (
+                      <Column gap={6} style={{ marginTop: theme.sizing.small }}>
+                        <ProgressTrack>
+                          <ProgressFill
+                            style={{
+                              width: `${(elapsedFraction(sub) ?? 0) * 100}%`,
+                            }}
+                          />
+                        </ProgressTrack>
+                        <Typography.Caption
+                          color={theme.colorWhite}
+                          weight="medium"
+                        >
+                          {daysLeftLabel(sub)}
+                        </Typography.Caption>
+                      </Column>
+                    )}
+
+                    <ViewPlansButton
+                      onPress={() => router.push('/(store)/subscription-plans')}
+                      activeOpacity={0.85}
+                    >
+                      <Typography.Body
+                        weight="bold"
+                        color={theme.color.primary.main}
+                      >
+                        View plans
+                      </Typography.Body>
+                      <LucideIcon
+                        name="ArrowRight"
+                        size={16}
+                        color={theme.color.primary.main}
+                      />
+                    </ViewPlansButton>
+                  </PlanCardGradient>
+                </PlanCardShadow>
+
+                <Column gap={10}>
+                  <Typography.Subtitle weight="bold">
+                    Plan limits
+                  </Typography.Subtitle>
+                  <LimitsCard>
+                    {ENTITLEMENT_ROWS.map((row, i) => {
+                      const limit = sub.plan.entitlements[row.key];
+                      return (
+                        <View key={row.key}>
+                          <Row
+                            align="center"
+                            justify="space-between"
+                            style={{
+                              paddingVertical: theme.sizing.small,
+                              paddingHorizontal: theme.sizing.medium,
+                            }}
+                          >
+                            <Row align="center" gap={10}>
+                              <LimitIconSlot>
+                                <LucideIcon
+                                  name={row.iconName}
+                                  size={16}
+                                  color={theme.color.primary.main}
+                                />
+                              </LimitIconSlot>
+                              <Typography.Body>{row.label}</Typography.Body>
+                            </Row>
+                            <Typography.Body weight="bold">
+                              {limit === null || limit === undefined
+                                ? 'Unlimited'
+                                : limit}
+                            </Typography.Body>
+                          </Row>
+                          {i < ENTITLEMENT_ROWS.length - 1 && (
+                            <Divider
+                              color={theme.colorBorderSecondary}
+                              thickness={1}
+                              marginVertical={0}
+                              insetLeft={46}
+                            />
+                          )}
+                        </View>
+                      );
+                    })}
+                  </LimitsCard>
+                </Column>
+
+                <GroupedMenu
+                  data={[
                     {
-                      icon: 'Receipt',
-                      iconColor: theme.color?.blue?.main,
-                      title: 'Billing & invoices',
-                      subtitle: 'Payment history and receipts',
-                      onPress: () => showComingSoon('Billing & invoices'),
+                      label: 'Billing',
+                      items: [
+                        {
+                          icon: 'Receipt',
+                          iconColor: theme.color?.blue?.main,
+                          title: 'Billing & invoices',
+                          subtitle: 'Coming soon',
+                          disabled: true,
+                        },
+                        {
+                          icon: 'Wallet',
+                          iconColor: theme.color?.violet?.main,
+                          title: 'Payment method',
+                          subtitle: 'Coming soon',
+                          disabled: true,
+                        },
+                      ],
                     },
-                    {
-                      icon: 'Wallet',
-                      iconColor: theme.color?.violet?.main,
-                      title: 'Payment method',
-                      subtitle: 'Card or UPI on file',
-                      onPress: () => showComingSoon('Payment method'),
-                    },
-                  ],
-                },
-              ]}
-            />
-          </Column>
+                  ]}
+                />
+              </Column>
             );
           }}
         </ScreenStateRenderer>

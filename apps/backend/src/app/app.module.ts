@@ -2,8 +2,6 @@ import { MiddlewareConsumer, Module, NestModule, RequestMethod } from '@nestjs/c
 import { APP_GUARD } from '@nestjs/core';
 import { ScheduleModule } from '@nestjs/schedule';
 import { ThrottlerGuard } from '@nestjs/throttler';
-import { AppController } from './app.controller.js';
-import { AppService } from './app.service.js';
 import { AppConfigModule } from '#config/config.module.js';
 import { LoggerModule } from '../logger/logger.module.js';
 import { DbModule } from '#db/db.module.js';
@@ -17,6 +15,7 @@ import { RouteCoverageModule } from '#common/rbac/route-coverage.module.js';
 import { RedisModule } from '#common/redis/redis.module.js';
 import { RequestContextModule } from '#common/request-context/request-context.module.js';
 import { AuditModule } from '#common/audit/audit.module.js';
+import { SharedRepositoriesModule } from '#common/shared-repositories.module.js';
 import { StoresModule } from '../stores/stores.module.js';
 import { SubscriptionModule } from '../subscription/subscription.module.js';
 import { DevicesModule } from '../devices/devices.module.js';
@@ -37,6 +36,7 @@ import { SyncModule } from '../sync/sync.module.js';
     RedisModule,
     RequestContextModule,
     AuditModule,
+    SharedRepositoriesModule,
     AuthCoreModule,
     RbacModule,
     MobileAuthModule,
@@ -50,9 +50,7 @@ import { SyncModule } from '../sync/sync.module.js';
     SyncModule,
     RouteCoverageModule,   // last — runs route-config validation after all routes wired
   ],
-  controllers: [AppController],
   providers: [
-    AppService,
     {
       provide:  APP_GUARD,
       useClass: ThrottlerGuard,

@@ -31,6 +31,15 @@ export interface SerializedPermissions {
   special: Partial<Record<EntityCode, string[]>>;
 }
 
+/** A cached permissions entry, tagged with the epoch-ms time it was resolved
+ *  from the DB. Freshness is judged from this field — read atomically as part
+ *  of the same GET as the payload — rather than from Redis key TTL, which
+ *  requires a second round trip and can race a concurrent cache write. */
+export interface CachedPermissionsEntry {
+  permissions: EffectivePermissions;
+  resolvedAt: number;
+}
+
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === 'object' && value !== null && !Array.isArray(value);
 }
@@ -76,29 +85,13 @@ export function emptyPermissions(): EffectivePermissions {
 }
 
 /**
- * Defensive clone so callers never share mutable nested objects by reference.
- */
-export function clonePermissions(
-  input: EffectivePermissions,
-): EffectivePermissions {
-  const crud = new Map<EntityCode, CrudPermissions>();
-  for (const [entity, flags] of input.crud) {
-    crud.set(entity, { ...flags });
-  }
-
-  const special = new Map<EntityCode, Set<string>>();
-  for (const [entity, codes] of input.special) {
-    special.set(entity, new Set(codes));
-  }
-
-  return { crud, special };
-}
-
-/**
- * Serialize to a stable JSON string for Redis.
+ * Serialize to a stable JSON string for Redis, tagged with the epoch-ms time
+ * it was resolved (see CachedPermissionsEntry — freshness is read from this
+ * field, not from Redis key TTL).
  */
 export function serializePermissions(
   permissions: EffectivePermissions,
+  resolvedAt: number,
 ): string {
   const crud: Partial<Record<EntityCode, CrudPermissions>> = {};
   for (const [entity, flags] of permissions.crud) {
@@ -115,31 +108,15 @@ export function serializePermissions(
     special[entity] = [...codes].sort();
   }
 
-  const payload: SerializedPermissions = { crud, special };
+  const payload: SerializedPermissions & { resolvedAt: number } = {
+    crud,
+    special,
+    resolvedAt,
+  };
   return JSON.stringify(payload);
 }
 
-/**
- * Deserialize cached permissions.
- *
- * Throws on malformed JSON or unexpected shape.
- * Caller should treat a thrown error as cache corruption and rebuild from DB.
- */
-export function deserializePermissions(raw: string): EffectivePermissions {
-  let parsed: unknown;
-
-  try {
-    parsed = JSON.parse(raw);
-  } catch {
-    throw new Error('Malformed cached permissions payload: invalid JSON.');
-  }
-
-  if (!isRecord(parsed)) {
-    throw new Error(
-      'Malformed cached permissions payload: root must be an object.',
-    );
-  }
-
+function parsePermissionsBody(parsed: Record<string, unknown>): EffectivePermissions {
   const rawCrud = parsed.crud;
   const rawSpecial = parsed.special;
 
@@ -175,61 +152,60 @@ export function deserializePermissions(raw: string): EffectivePermissions {
 }
 
 /**
- * Union source permissions into target permissions.
- * Used while resolving grants from multiple roles.
+ * Deserialize cached permissions.
+ *
+ * Throws on malformed JSON or unexpected shape.
+ * Caller should treat a thrown error as cache corruption and rebuild from DB.
  */
-export function mergePermissions(
-  target: EffectivePermissions,
-  source: EffectivePermissions,
-): EffectivePermissions {
-  const merged = clonePermissions(target);
+export function deserializePermissions(raw: string): EffectivePermissions {
+  let parsed: unknown;
 
-  for (const [entity, flags] of source.crud) {
-    const current = merged.crud.get(entity);
-    if (!current) {
-      merged.crud.set(entity, { ...flags });
-      continue;
-    }
-
-    merged.crud.set(entity, {
-      view: current.view || flags.view,
-      create: current.create || flags.create,
-      edit: current.edit || flags.edit,
-      delete: current.delete || flags.delete,
-    });
+  try {
+    parsed = JSON.parse(raw);
+  } catch {
+    throw new Error('Malformed cached permissions payload: invalid JSON.');
   }
 
-  for (const [entity, codes] of source.special) {
-    const current = merged.special.get(entity) ?? new Set<string>();
-    for (const code of codes) current.add(code);
-    merged.special.set(entity, current);
+  if (!isRecord(parsed)) {
+    throw new Error(
+      'Malformed cached permissions payload: root must be an object.',
+    );
   }
 
-  return merged;
+  return parsePermissionsBody(parsed);
 }
 
 /**
- * Grant or overwrite CRUD for one entity.
+ * Deserialize a cache entry written by serializePermissions, including its
+ * resolvedAt freshness tag. Throws on malformed JSON, unexpected shape, or a
+ * missing/non-numeric resolvedAt — same cache-corruption contract as
+ * deserializePermissions.
  */
-export function setCrud(
-  permissions: EffectivePermissions,
-  entity: EntityCode,
-  crud: CrudPermissions,
-): void {
-  permissions.crud.set(entity, { ...crud });
-}
+export function deserializeCachedEntry(raw: string): CachedPermissionsEntry {
+  let parsed: unknown;
 
-/**
- * Add one special permission code for an entity.
- */
-export function addSpecial(
-  permissions: EffectivePermissions,
-  entity: EntityCode,
-  actionCode: string,
-): void {
-  const current = permissions.special.get(entity) ?? new Set<string>();
-  current.add(actionCode);
-  permissions.special.set(entity, current);
+  try {
+    parsed = JSON.parse(raw);
+  } catch {
+    throw new Error('Malformed cached permissions payload: invalid JSON.');
+  }
+
+  if (!isRecord(parsed)) {
+    throw new Error(
+      'Malformed cached permissions payload: root must be an object.',
+    );
+  }
+
+  if (typeof parsed.resolvedAt !== 'number' || !Number.isFinite(parsed.resolvedAt)) {
+    throw new Error(
+      'Malformed cached permissions payload: "resolvedAt" must be a number.',
+    );
+  }
+
+  return {
+    permissions: parsePermissionsBody(parsed),
+    resolvedAt: parsed.resolvedAt,
+  };
 }
 
 /**
@@ -252,13 +228,4 @@ export function checkSpecial(
   actionCode: string,
 ): boolean {
   return permissions.special.get(entity)?.has(actionCode) ?? false;
-}
-
-/**
- * Optional utility for logs / debugging / tests.
- */
-export function permissionsToObject(
-  permissions: EffectivePermissions,
-): SerializedPermissions {
-  return JSON.parse(serializePermissions(permissions)) as SerializedPermissions;
 }

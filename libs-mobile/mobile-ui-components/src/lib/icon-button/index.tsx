@@ -25,6 +25,9 @@ export const IconButton: FC<IconButtonProps> = ({
   color,
   variant = "primary",
   disabled,
+  accessibilityRole,
+  accessibilityLabel,
+  accessibilityState,
   ...rest
 }) => {
   const { theme } = useMobileTheme();
@@ -40,6 +43,9 @@ export const IconButton: FC<IconButtonProps> = ({
       $size={size}
       $backgroundColor={backgroundColor}
       $variant={variant}
+      accessibilityRole={accessibilityRole ?? "button"}
+      accessibilityLabel={accessibilityLabel ?? label ?? iconName}
+      accessibilityState={{ disabled, ...accessibilityState }}
       {...rest}
     >
       {iconName && <LucideIcon name={iconName} size={size * 0.6} color={iconColor} />}

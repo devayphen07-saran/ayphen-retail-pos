@@ -15,14 +15,10 @@ export function handleFormError<T extends FieldValues>(
   setError: UseFormSetError<T>,
   fallbackMessage = 'Something went wrong. Please try again.',
 ): void {
-  const error = err as Partial<NormalizedError> & {
-    fieldErrors?: Record<string, string>;
-    data?: { error?: { fieldErrors?: Record<string, string> } };
-  };
+  const error = err as Partial<NormalizedError>;
 
   // 1. Field-specific server validation errors.
-  const fieldErrors =
-    error?.fieldErrors ?? error?.data?.error?.fieldErrors ?? undefined;
+  const fieldErrors = error?.fieldErrors;
   if (fieldErrors && typeof fieldErrors === 'object') {
     for (const [field, message] of Object.entries(fieldErrors)) {
       setError(field as Path<T>, { type: 'server', message: String(message) });

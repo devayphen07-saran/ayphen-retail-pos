@@ -130,3 +130,15 @@ export function getDefaultCrudForEntity(
 ): Readonly<CrudMatrix> {
   return DEFAULT_ROLE_CRUD[entity] ?? NONE;
 }
+
+/**
+ * Role codes that are system-managed, not custom roles a store owner creates.
+ * Reserved (can't be used as a custom role name), non-assignable/-revocable
+ * through the normal role-management endpoints, and excluded from the
+ * store's editable role list.
+ */
+export const SYSTEM_ROLE_CODES: ReadonlySet<string> = new Set([
+  'USER',
+  'STORE_OWNER',
+  'SUPER_ADMIN',
+]);

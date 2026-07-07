@@ -1,0 +1,1 @@
+export { LocalTablesScreen as default } from '@features/store/developer/screens/LocalTablesScreen';

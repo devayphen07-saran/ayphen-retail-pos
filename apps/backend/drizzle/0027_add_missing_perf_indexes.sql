@@ -1,0 +1,6 @@
+CREATE INDEX "idx_accsub_trialing" ON "account_subscriptions" USING btree ("trial_ends_at") WHERE "account_subscriptions"."status" = 'trialing';--> statement-breakpoint
+CREATE INDEX "idx_accsub_active_period_end" ON "account_subscriptions" USING btree ("current_period_end") WHERE "account_subscriptions"."status" = 'active' AND "account_subscriptions"."cancel_at_period_end" = false;--> statement-breakpoint
+CREATE INDEX "idx_accsub_cancel_period_end" ON "account_subscriptions" USING btree ("current_period_end") WHERE "account_subscriptions"."status" = 'active' AND "account_subscriptions"."cancel_at_period_end" = true;--> statement-breakpoint
+CREATE INDEX "idx_accsub_pastdue_grace" ON "account_subscriptions" USING btree ("past_due_grace_until") WHERE "account_subscriptions"."status" = 'past_due';--> statement-breakpoint
+CREATE INDEX "idx_login_attempts_created" ON "login_attempts" USING btree ("created_at");--> statement-breakpoint
+CREATE INDEX "idx_revoked_tokens_expires_at" ON "revoked_tokens" USING btree ("expires_at");

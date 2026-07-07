@@ -4,7 +4,7 @@ import Redis from 'ioredis';
 import { UnauthorizedError } from '#common/exceptions/app.exception.js';
 import { ErrorCodes } from '#common/error-codes.js';
 import { REDIS } from '#common/redis/redis.provider.js';
-import { AuthConstantsService } from '../../core/auth-constants.service.js';
+import { AppConfigService } from '#config/app-config.service.js';
 
 const challengeKey = (id: string) => `device_challenge:${id}`;
 
@@ -12,14 +12,14 @@ const challengeKey = (id: string) => `device_challenge:${id}`;
 export class DeviceChallengeService {
   constructor(
     @Inject(REDIS) private readonly redis: Redis,
-    private readonly constants: AuthConstantsService,
+    private readonly config: AppConfigService,
   ) {}
 
   async issueChallenge(deviceId: string): Promise<string> {
     const challengeId = randomUUID();
     await this.redis.setex(
       challengeKey(challengeId),
-      this.constants.DEVICE_CHALLENGE_TTL_SECONDS,
+      this.config.deviceChallengeTtlSeconds,
       deviceId,
     );
     return challengeId;

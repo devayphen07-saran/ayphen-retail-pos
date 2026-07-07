@@ -1,11 +1,11 @@
 import { Injectable } from '@nestjs/common';
-import postgres from 'postgres';
 import { UnitOfWork } from '#db/db.module.js';
+import { unwrapPgError } from '#db/rethrow-unique-violation.js';
 import { AppException } from '#common/exceptions/app.exception.js';
 import { ErrorCodes } from '#common/error-codes.js';
 import { UserRepository } from '../repositories/user.repository.js';
 import { AuditService } from '#common/audit/audit.service.js';
-import { AuthConstantsService } from '../../core/auth-constants.service.js';
+import { AppConfigService } from '#config/app-config.service.js';
 import { CryptoService } from '../../core/crypto.service.js';
 import { RateLimitService } from '../../core/rate-limit.service.js';
 import { OtpRequestService } from './otp-request.service.js';
@@ -29,7 +29,7 @@ export class AuthSignupService {
     private readonly sessionRepo: AuthSessionRepository,
     private readonly tokenService: RefreshTokenService,
     private readonly crypto: CryptoService,
-    private readonly constants: AuthConstantsService,
+    private readonly config: AppConfigService,
     private readonly audit: AuditService,
     private readonly accountBootstrap: AccountBootstrapService,
     private readonly uow: UnitOfWork,
@@ -56,20 +56,23 @@ export class AuthSignupService {
   ): Promise<LoginResult> {
     await this.rateLimit.checkIpLimit(ip);
 
-    const existing = await this.userRepo.findByPhone(phone);
-    if (existing)
-      throw new AppException(
-        ErrorCodes.DUPLICATE_ENTRY,
-        'USER_ALREADY_EXISTS',
-        409,
-      );
-
+    // Verify OTP FIRST — proof of phone control — BEFORE revealing whether the
+    // number is registered. Checking existence first (the old order) leaked a
+    // 409 vs 422 enumeration oracle to a caller with no valid OTP: a registered
+    // number returned USER_ALREADY_EXISTS, an unregistered one OTP_EXPIRED. Now
+    // the existence check is unreachable without solving the OTP, so a caller
+    // can only probe numbers they actually control.
     const otpRequest = await this.otpRepo.findActiveRequest(
       otpRequestId,
       phone,
+      'signup',
     );
     if (!otpRequest)
       throw new AppException(ErrorCodes.TOKEN_EXPIRED, 'OTP_EXPIRED', 422);
+
+    // Per-phone throttle at verify time — mirrors login, closes the IP-only gap.
+    await this.rateLimit.checkPhoneOtpLimit(phone);
+
     try {
       await this.otpService.verifyOtp(phone, otpCode, otpRequest);
     } catch (err) {
@@ -82,6 +85,16 @@ export class AuthSignupService {
       throw err;
     }
 
+    // OTP proven — now safe to reveal the account already exists (tell the user
+    // to log in instead). Only someone who controls the phone reaches this.
+    const existing = await this.userRepo.findByPhone(phone);
+    if (existing)
+      throw new AppException(
+        ErrorCodes.DUPLICATE_ENTRY,
+        'USER_ALREADY_EXISTS',
+        409,
+      );
+
     const { user, device, session, refreshToken } = await this.createUserAtomically(
       phone,
       name,
@@ -90,15 +103,6 @@ export class AuthSignupService {
     );
 
     const accessToken = await this.crypto.signJwt(user.id, session.id, user.permissionsVersion);
-
-    await this.audit.log({
-      event: 'SIGNUP',
-      activityType: 'AUTH_SIGNUP',
-      prefix: 'User',
-      suffix: `signed up with phone`,
-      userId: user.id,
-      ipAddress: ip,
-    });
 
     return {
       accessToken,
@@ -153,7 +157,7 @@ export class AuthSignupService {
             userFk: user.id,
             deviceFk: device.id,
             expiresAt: new Date(
-              Date.now() + this.constants.REFRESH_TOKEN_TTL_SECONDS * 1000,
+              Date.now() + this.config.refreshTokenTtlSeconds * 1000,
             ),
             ipAtCreation: ip,
             appVersion: deviceInfo.appVersion,
@@ -166,10 +170,23 @@ export class AuthSignupService {
           session.id,
           tx,
         );
+
+        // Committed in the same transaction as account creation — a
+        // transient audit-write failure must roll back the signup, not
+        // leave a durably-created account with no audit trail for it.
+        await this.audit.logInTransaction({
+          event: 'SIGNUP',
+          activityType: 'AUTH_SIGNUP',
+          prefix: 'User',
+          suffix: `signed up with phone`,
+          userId: user!.id,
+          ipAddress: ip,
+        }, tx);
+
         return { user: user!, device, session, refreshToken };
       });
     } catch (err) {
-      if (err instanceof postgres.PostgresError && err.code === '23505') {
+      if (unwrapPgError(err)?.code === '23505') {
         throw new AppException(ErrorCodes.DUPLICATE_ENTRY, 'USER_ALREADY_EXISTS', 409);
       }
       throw err;

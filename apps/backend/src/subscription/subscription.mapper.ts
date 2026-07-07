@@ -109,12 +109,14 @@ export const SubscriptionResponseMapper = {
         max_stores:    ctx.limits.maxStores,
         max_locations: ctx.limits.maxLocations,
         max_devices:   ctx.limits.maxDevices,
+        max_users:     ctx.limits.maxUsers,
       },
       stores: ctx.stores.map((s) => ({
         id: s.id,
         name: s.name,
         location_count: s.locationCount,
         device_count: s.deviceCount,
+        user_count: s.userCount,
       })),
       locations: ctx.locations.map((l) => ({
         id: l.id,

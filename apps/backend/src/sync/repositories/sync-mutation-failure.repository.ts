@@ -13,28 +13,30 @@ import { syncMutationFailures } from '#db/schema.js';
 export class SyncMutationFailureRepository {
   constructor(@Inject(DRIZZLE) private readonly db: Database) {}
 
-  async count(mutationId: string, userId: string): Promise<number> {
+  async count(mutationId: string, userId: string, storeId: string): Promise<number> {
     const [row] = await this.db
       .select({ n: syncMutationFailures.failureCount })
       .from(syncMutationFailures)
       .where(and(
         eq(syncMutationFailures.mutationId, mutationId),
         eq(syncMutationFailures.userFk, userId),
+        eq(syncMutationFailures.storeFk, storeId),
       ));
     return row?.n ?? 0;
   }
 
-  async bump(mutationId: string, userId: string, message: string): Promise<number> {
+  async bump(mutationId: string, userId: string, storeId: string, message: string): Promise<number> {
     const [row] = await this.db
       .insert(syncMutationFailures)
       .values({
         mutationId,
         userFk: userId,
+        storeFk: storeId,
         failureCount: 1,
         lastErrorMessage: message.slice(0, 500),
       })
       .onConflictDoUpdate({
-        target: [syncMutationFailures.mutationId, syncMutationFailures.userFk],
+        target: [syncMutationFailures.mutationId, syncMutationFailures.userFk, syncMutationFailures.storeFk],
         set: {
           failureCount: sql`${syncMutationFailures.failureCount} + 1`,
           lastErrorMessage: message.slice(0, 500),

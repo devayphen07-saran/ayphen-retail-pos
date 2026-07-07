@@ -2,6 +2,7 @@ import { appliersRegistry } from '../appliers/appliers.registry';
 import { syncCursorRepository } from '../repositories/sync-cursor.repository';
 import { pullChanges } from '../transport/sync-transport';
 import { applyChangesPage } from './apply-changes';
+import { retryFailedApplies } from './retry-failed-applies';
 import type { SyncDb } from '../db/types';
 
 /** Steady-state delta pull (sync-engine.md §7, mobile-11 §5). Drains
@@ -19,4 +20,8 @@ export async function pullDeltaToCompletion(db: SyncDb, storeId: string): Promis
     await applyChangesPage(db, storeId, result.changes, result.sync_cursor, result.server_time);
     hasMore = result.has_more;
   }
+
+  // Now that every page's rows are committed, re-attempt any DLQ rows whose
+  // missing-FK parent may have arrived in this drain (mobile-10 §3).
+  await retryFailedApplies(db, storeId, new Date().toISOString());
 }

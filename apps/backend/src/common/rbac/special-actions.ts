@@ -3,7 +3,6 @@
  * Split out of the former `permission-matrix.constants.ts` god-file;
  * re-exported from that barrel for backward compatibility.
  */
-import type { EntityCode } from './entity-catalogue.js';
 import type { SpecialActionMap } from './crud-matrices.js';
 
 /**
@@ -92,11 +91,3 @@ export const CRITICAL_SPECIAL_ACTIONS: ReadonlySet<string> = new Set([
   'REMOTE_WIPE',
   'ISSUE',
 ]);
-
-export function getSpecialActions(entity: EntityCode): readonly string[] {
-  return SPECIAL_ACTIONS[entity] ?? [];
-}
-
-export function isCriticalSpecialAction(actionCode: string): boolean {
-  return CRITICAL_SPECIAL_ACTIONS.has(actionCode);
-}

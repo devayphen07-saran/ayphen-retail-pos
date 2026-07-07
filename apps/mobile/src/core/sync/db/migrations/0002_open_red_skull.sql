@@ -1,0 +1,2 @@
+DELETE FROM `failed_applies` WHERE `id` NOT IN (SELECT MAX(`id`) FROM `failed_applies` GROUP BY `store_id`, `entity_type`, `entity_guuid`);--> statement-breakpoint
+CREATE UNIQUE INDEX `failed_applies_store_entity_unq` ON `failed_applies` (`store_id`,`entity_type`,`entity_guuid`);

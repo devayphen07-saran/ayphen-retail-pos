@@ -30,6 +30,10 @@ export interface StoreDeviceRow {
   userName:       string;
 }
 
+export interface StoreDeviceRowWithStore extends StoreDeviceRow {
+  storeFk: string;
+}
+
 /** Data access for the device↔store slot model (device-management §3.3, §7). */
 @Injectable()
 export class DeviceAccessRepository {
@@ -85,6 +89,21 @@ export class DeviceAccessRepository {
     return row?.n ?? 0;
   }
 
+  /** Batched counterpart to `countActiveSlots` — one grouped query for every
+   *  store in the set instead of N sequential per-store counts. */
+  async countActiveSlotsByStores(storeIds: string[], tx?: DbExecutor): Promise<Map<string, number>> {
+    if (storeIds.length === 0) return new Map();
+    const rows = await this.client(tx)
+      .select({ storeFk: storeDeviceAccess.storeFk, n: sql<number>`count(*)::int` })
+      .from(storeDeviceAccess)
+      .where(and(
+        inArray(storeDeviceAccess.storeFk, storeIds),
+        eq(storeDeviceAccess.status, 'active'),
+      ))
+      .groupBy(storeDeviceAccess.storeFk);
+    return new Map(rows.map((r) => [r.storeFk, r.n]));
+  }
+
   /** Touch an existing slot's heartbeat (F2 re-claim / BR-DEV-004). */
   async touchSlot(id: string, tx?: DbExecutor): Promise<void> {
     await this.client(tx)
@@ -130,6 +149,63 @@ export class DeviceAccessRepository {
       .innerJoin(devices, eq(storeDeviceAccess.deviceFk, devices.id))
       .innerJoin(users, eq(storeDeviceAccess.userFk, users.id))
       .where(eq(storeDeviceAccess.storeFk, storeId))
+      .orderBy(desc(storeDeviceAccess.lastAccessedAt));
+  }
+
+  /** Active-only variant of `listStoreDevices` — filters in SQL rather than
+   *  fetching every historical (incl. revoked) row and filtering in JS. Used
+   *  by `claimSlot`'s over-limit path, which runs this while holding
+   *  `lockStore`'s row lock — the SQL filter keeps that query bounded to the
+   *  (plan-capped) active slot count instead of the store's full device
+   *  history, which only ever grows. */
+  async listActiveStoreDevices(storeId: string, tx?: DbExecutor): Promise<StoreDeviceRow[]> {
+    return this.client(tx)
+      .select({
+        id:              storeDeviceAccess.id,
+        deviceFk:        storeDeviceAccess.deviceFk,
+        userFk:          storeDeviceAccess.userFk,
+        status:          storeDeviceAccess.status,
+        deviceLabel:     storeDeviceAccess.deviceLabel,
+        lastAccessedAt:  storeDeviceAccess.lastAccessedAt,
+        firstAccessedAt: storeDeviceAccess.firstAccessedAt,
+        revokedAt:       storeDeviceAccess.revokedAt,
+        revokedReason:   storeDeviceAccess.revokedReason,
+        model:           devices.model,
+        platform:        devices.platform,
+        userName:        users.name,
+      })
+      .from(storeDeviceAccess)
+      .innerJoin(devices, eq(storeDeviceAccess.deviceFk, devices.id))
+      .innerJoin(users, eq(storeDeviceAccess.userFk, users.id))
+      .where(and(eq(storeDeviceAccess.storeFk, storeId), eq(storeDeviceAccess.status, 'active')))
+      .orderBy(desc(storeDeviceAccess.lastAccessedAt));
+  }
+
+  /** Batched counterpart to `listStoreDevices` — one query for every store in
+   *  the set instead of N sequential per-store calls (each row carries its
+   *  own `storeFk` for the caller to group by). */
+  async listStoreDevicesByStores(storeIds: string[], tx?: DbExecutor): Promise<StoreDeviceRowWithStore[]> {
+    if (storeIds.length === 0) return [];
+    return this.client(tx)
+      .select({
+        id:              storeDeviceAccess.id,
+        storeFk:         storeDeviceAccess.storeFk,
+        deviceFk:        storeDeviceAccess.deviceFk,
+        userFk:          storeDeviceAccess.userFk,
+        status:          storeDeviceAccess.status,
+        deviceLabel:     storeDeviceAccess.deviceLabel,
+        lastAccessedAt:  storeDeviceAccess.lastAccessedAt,
+        firstAccessedAt: storeDeviceAccess.firstAccessedAt,
+        revokedAt:       storeDeviceAccess.revokedAt,
+        revokedReason:   storeDeviceAccess.revokedReason,
+        model:           devices.model,
+        platform:        devices.platform,
+        userName:        users.name,
+      })
+      .from(storeDeviceAccess)
+      .innerJoin(devices, eq(storeDeviceAccess.deviceFk, devices.id))
+      .innerJoin(users, eq(storeDeviceAccess.userFk, users.id))
+      .where(inArray(storeDeviceAccess.storeFk, storeIds))
       .orderBy(desc(storeDeviceAccess.lastAccessedAt));
   }
 
@@ -292,14 +368,6 @@ export class DeviceAccessRepository {
       else result.set(row.deviceFk, [row.storeFk]);
     }
     return result;
-  }
-
-  /** Set a per-store device label (F4). */
-  async setDeviceLabel(slotId: string, label: string, tx?: DbExecutor): Promise<void> {
-    await this.client(tx)
-      .update(storeDeviceAccess)
-      .set({ deviceLabel: label, modifiedAt: new Date() })
-      .where(eq(storeDeviceAccess.id, slotId));
   }
 
 }

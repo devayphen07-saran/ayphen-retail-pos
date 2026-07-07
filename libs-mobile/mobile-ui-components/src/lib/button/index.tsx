@@ -32,6 +32,9 @@ export const Button: React.FC<ButtonProps> = ({
   iconElement,
   borderColor,
   textColor,
+  accessibilityRole,
+  accessibilityLabel,
+  accessibilityState,
   ...rest
 }) => {
   const { theme } = useMobileTheme();
@@ -50,6 +53,9 @@ export const Button: React.FC<ButtonProps> = ({
       $size={size}
       $scale={scale}
       $borderColor={borderColor}
+      accessibilityRole={accessibilityRole ?? "button"}
+      accessibilityLabel={accessibilityLabel ?? label}
+      accessibilityState={{ disabled: disabled || loading, busy: loading, ...accessibilityState }}
       {...rest}
     >
       {loading ? (

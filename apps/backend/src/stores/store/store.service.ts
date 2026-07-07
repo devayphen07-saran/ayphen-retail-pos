@@ -138,6 +138,18 @@ export class StoreService {
       // Bump so a stale JWT re-bootstraps and picks up the new store role (H-6).
       await this.repo.bumpUserPermissionsVersion(userId, tx);
 
+      await this.audit.logInTransaction({
+        event:        'STORE_CREATED',
+        activityType: 'ROLE_ASSIGNMENT_CREATED',
+        prefix:       'Store',
+        suffix:       `created and STORE_OWNER assigned`,
+        userId,
+        storeFk:      store.id,
+        isSuccess:    true,
+        entityType:   'Store',
+        entityId:     store.id,
+      }, tx);
+
       return store;
     });
 
@@ -148,18 +160,6 @@ export class StoreService {
     // keeps seeing the pre-store snapshot until SNAPSHOT_CACHE_TTL_SECONDS
     // expires, even though permissionsVersion was just bumped.
     await this.snapshot.invalidate(userId);
-
-    await this.audit.log({
-      event:        'STORE_CREATED',
-      activityType: 'ROLE_ASSIGNMENT_CREATED',
-      prefix:       'Store',
-      suffix:       `created and STORE_OWNER assigned`,
-      userId,
-      storeFk:      created.id,
-      isSuccess:    true,
-      entityType:   'Store',
-      entityId:     created.id,
-    });
 
     return { id: created.id, name: created.name };
   }

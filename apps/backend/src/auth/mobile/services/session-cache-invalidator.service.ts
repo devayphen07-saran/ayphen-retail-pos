@@ -20,6 +20,13 @@ export class SessionCacheInvalidatorService {
     await this.redis.del(sessionKey(deviceSessionId));
   }
 
+  /** Batched counterpart to `invalidate` — one DEL for every session instead
+   *  of N sequential round trips (logout-all / bulk device revocation). */
+  async invalidateMany(deviceSessionIds: string[]): Promise<void> {
+    if (deviceSessionIds.length === 0) return;
+    await this.redis.del(...deviceSessionIds.map(sessionKey));
+  }
+
   async invalidateAllForUser(userFk: string): Promise<void> {
     const sessions = await this.db
       .select({ id: deviceSessions.id })

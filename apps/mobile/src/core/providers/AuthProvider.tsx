@@ -12,8 +12,9 @@ import { createContext, useCallback, useContext, useEffect, type ReactNode } fro
 import { useQueryClient } from '@tanstack/react-query';
 import { API, LOGOUT, BOOTSTRAP, subscriptionKeys } from '@ayphen/api-manager';
 import type { LoginResponse, BootstrapResponse } from '@ayphen/api-manager';
-import { useAuthStore } from '@store';
+import { useAuthStore, useActiveStoreStore } from '@store';
 import {
+  bootstrapServerTimeOffset,
   classifyRefreshFailure,
   installAuthInterceptors,
   runRefresh,
@@ -29,6 +30,7 @@ import {
   clearTokens,
 } from '../auth/token-store';
 import { getLastOpenedStoreId } from '@features/store/shared/utils/prefs';
+import { logger } from '../../utils/logger';
 
 interface AuthContextType {
   isAuthReady: boolean;
@@ -47,12 +49,41 @@ function delay(ms: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
+/** Aggregate ceiling for the launch-time refresh/bootstrap chain — distinct
+ *  from the shared axios instance's own 15s per-call timeout. Without this,
+ *  refresh's own retry/backoff plus bootstrap's 2-attempt loop can each take
+ *  up to ~30s, stacking into a ~60s+ apparent hang on a bad connection before
+ *  either retry screen (ConnectionGateScreen off `restoreFailed`/
+ *  `bootstrapFailed`) ever appears. */
+const LAUNCH_TIMEOUT_MS = 8000;
+
+class LaunchTimeoutError extends Error {
+  constructor() {
+    super('Launch operation exceeded its time budget');
+    this.name = 'LaunchTimeoutError';
+  }
+}
+
+function withTimeout<T>(promise: Promise<T>, ms: number): Promise<T> {
+  return new Promise((resolve, reject) => {
+    const timer = setTimeout(() => reject(new LaunchTimeoutError()), ms);
+    promise.then(
+      (value) => { clearTimeout(timer); resolve(value); },
+      (err) => { clearTimeout(timer); reject(err); },
+    );
+  });
+}
+
 /** Every "session ended" checkpoint must clear the session store AND reset the
  *  subscription version baseline — the last-seen `X-Subscription-Version`
  *  belongs to the account that just logged out and must not leak into the next
  *  login on the same device. */
 function clearSession(): void {
   useAuthStore.getState().clear();
+  // Clear the active-store context centrally too, so a forced logout (refresh
+  // rejected) can't leave the previous account's store/storeId populated for a
+  // stale (store) render — teardown must not depend on the UI remembering to.
+  useActiveStoreStore.getState().clearActiveStore();
   resetSubscriptionFreshness();
   resetPermissionFreshness();
 }
@@ -67,12 +98,27 @@ async function hydrateLastOpenedStoreId(isCancelled?: () => boolean): Promise<vo
     useAuthStore.getState().cacheLastOpenedStoreId(id);
   } catch (err) {
     if (isCancelled?.()) return;
-    console.warn('[auth] last-opened-store hydrate failed', sanitizeError(err));
+    logger.warn('[auth] last-opened-store hydrate failed', sanitizeError(err));
     useAuthStore.getState().cacheLastOpenedStoreId(null);
   }
 }
 
 async function fetchBootstrap(isCancelled?: () => boolean): Promise<void> {
+  try {
+    await withTimeout(runBootstrapAttempts(isCancelled), LAUNCH_TIMEOUT_MS);
+  } catch (err) {
+    if (!(err instanceof LaunchTimeoutError)) throw err;
+    if (isCancelled?.()) return;
+    // The in-flight attempt keeps running in the background and will still
+    // settle it later (success re-flips bootstrapped/bootstrapFailed;
+    // failure is a harmless idempotent re-set) — this just stops the splash
+    // from waiting the full ~30s worst case of the retry loop below.
+    logger.warn('[auth] bootstrap fetch exceeded launch time budget');
+    useAuthStore.getState().setBootstrapFailed();
+  }
+}
+
+async function runBootstrapAttempts(isCancelled?: () => boolean): Promise<void> {
   for (let attempt = 0; attempt < 2; attempt++) {
     if (isCancelled?.()) return;
 
@@ -104,7 +150,7 @@ async function fetchBootstrap(isCancelled?: () => boolean): Promise<void> {
         continue;
       }
 
-      console.warn('[auth] bootstrap fetch failed', sanitizeError(err));
+      logger.warn('[auth] bootstrap fetch failed', sanitizeError(err));
       // Surface the failure instead of faking success — AppGate renders a
       // retry screen off `bootstrapFailed`. Marking bootstrapped here would
       // route a store owner to mode-select on stale null data; hanging the
@@ -135,15 +181,21 @@ async function attemptRestore(isCancelled: () => boolean): Promise<void> {
 
     let accessToken: string | null = null;
     try {
-      accessToken = await runRefresh();
+      accessToken = await withTimeout(runRefresh(), LAUNCH_TIMEOUT_MS);
     } catch (err) {
       if (isCancelled()) return;
-      if (classifyRefreshFailure(err) === 'fatal') {
-        console.warn('[auth] session rejected at launch — logging out', sanitizeError(err));
+      // A timeout is by definition not a rejection the server ever issued —
+      // never fatal, always the transient/retry path (never destroy tokens
+      // for a connection that merely hasn't answered yet).
+      if (err instanceof LaunchTimeoutError) {
+        logger.warn('[auth] launch refresh exceeded time budget — will retry');
+        useAuthStore.getState().setRestoreFailed(true);
+      } else if (classifyRefreshFailure(err) === 'fatal') {
+        logger.warn('[auth] session rejected at launch — logging out', sanitizeError(err));
         await clearTokens();
         clearSession();
       } else {
-        console.warn('[auth] launch restore failed transiently — will retry', sanitizeError(err));
+        logger.warn('[auth] launch restore failed transiently — will retry', sanitizeError(err));
         useAuthStore.getState().setRestoreFailed(true);
       }
       useAuthStore.getState().setReady();
@@ -173,7 +225,7 @@ async function attemptRestore(isCancelled: () => boolean): Promise<void> {
     // device-key generation). Not an auth rejection — never destroy tokens
     // for it; surface the retry screen instead.
     if (isCancelled()) return;
-    console.warn('[auth] launch restore failed', sanitizeError(err));
+    logger.warn('[auth] launch restore failed', sanitizeError(err));
     useAuthStore.getState().setRestoreFailed(true);
     useAuthStore.getState().setReady();
   }
@@ -210,6 +262,13 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
   useEffect(() => {
     let cancelled = false;
+    // Fire concurrently, not awaited — attemptRestore's first network call
+    // (runRefresh) is on a public path unaffected by clock skew, so this
+    // typically finishes calibrating the server-time offset well before
+    // attemptRestore reaches its first AUTHENTICATED call (fetchBootstrap).
+    // If it hasn't, that call still self-corrects via the interceptor's
+    // own first-401 retry — see bootstrapServerTimeOffset's doc comment.
+    void bootstrapServerTimeOffset();
     void attemptRestore(() => cancelled);
 
     return () => {
@@ -262,8 +321,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
           headers: {
             Authorization: `Bearer ${token}`,
           },
-          skipAuthRefresh: true,
-        } as any,
+        },
       );
     } catch {
       // Best effort only. Local logout has already completed.

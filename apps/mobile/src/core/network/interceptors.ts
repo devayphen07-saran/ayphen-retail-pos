@@ -43,6 +43,7 @@ import { signChallenge } from '../auth/device-key';
 import { useAuthStore } from '@store';
 import { observeSubscriptionVersion } from './subscription-freshness';
 import { observePermissionsVersion } from './permission-freshness';
+import { logger } from '../../utils/logger';
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Public endpoints
@@ -55,6 +56,7 @@ const PUBLIC_PATHS = new Set<string>([
   'auth/mobile/signup/verify',
   'auth/mobile/refresh',
   'auth/mobile/refresh/challenge',
+  'time',
 ]);
 
 function normalizePath(url?: string): string {
@@ -106,6 +108,30 @@ function updateServerTimeOffset(serverIso?: string): void {
 
 function makeTimestamp(): string {
   return String(Date.now() + serverTimeOffsetMs);
+}
+
+/**
+ * Best-effort clock-skew bootstrap — learns the server offset from the
+ * public, unauthenticated `GET /time` (time.controller.ts) BEFORE the first
+ * authenticated request goes out. Not required for correctness: the response
+ * interceptor below already calls `updateServerTimeOffset` on EVERY response
+ * (success or error — error envelopes carry a `timestamp` too), and the
+ * generic first-401 retry re-issues the original request with a fresh
+ * timestamp — so a skewed device still self-corrects after one extra round
+ * trip even if this never ran. This just avoids paying that round trip (and
+ * a REPLAY_DETECTED entry in the logs) on every cold launch. Call once, fire-
+ * and-forget, alongside launch-time session restore — `/time` doesn't wrap
+ * its response in the usual envelope (`@SkipTransform()` server-side), so it
+ * can't reuse `extractEnvelopeTimestamp`.
+ */
+export async function bootstrapServerTimeOffset(): Promise<void> {
+  try {
+    const res = await API.get<{ server_time: string }>('time');
+    updateServerTimeOffset(res.data?.server_time);
+  } catch {
+    // Offline or the server is unreachable at launch — the self-heal path
+    // above (learn-from-error-response + first-401 retry) is the fallback.
+  }
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -508,11 +534,11 @@ export function installAuthInterceptors(
         // refresh token over network weather forces a re-OTP login at the
         // counter (flow-critic Phase 1, Trace 1).
         if (classifyRefreshFailure(refreshError) === 'fatal') {
-          console.warn('[auth] refresh rejected — logging out', sanitizeError(refreshError));
+          logger.warn('[auth] refresh rejected — logging out', sanitizeError(refreshError));
           await clearTokens();
           onAuthLost();
         } else {
-          console.warn('[auth] refresh failed transiently — keeping session', sanitizeError(refreshError));
+          logger.warn('[auth] refresh failed transiently — keeping session', sanitizeError(refreshError));
         }
         return Promise.reject(error);
       }

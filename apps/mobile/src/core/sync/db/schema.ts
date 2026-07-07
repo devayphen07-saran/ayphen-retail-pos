@@ -3,6 +3,7 @@ import {
   text,
   integer,
   primaryKey,
+  uniqueIndex,
 } from 'drizzle-orm/sqlite-core';
 
 /**
@@ -220,20 +221,46 @@ export const mutationQueue = sqliteTable('mutation_queue', {
 
 /** Pull-side DLQ — a server row that couldn't apply locally (missing FK,
  *  schema mismatch). Surfaced like the push DLQ (mobile-10 §3). */
-export const failedApplies = sqliteTable('failed_applies', {
-  id: integer('id').primaryKey({ autoIncrement: true }),
-  storeId: text('store_id').notNull(),
-  entityType: text('entity_type').notNull(),
-  entityGuuid: text('entity_guuid').notNull(),
-  data: text('data').notNull(), // JSON — the row that failed to apply
-  attempts: integer('attempts').notNull().default(0),
-  lastAttemptAt: text('last_attempt_at'),
-  lastError: text('last_error'),
-});
+export const failedApplies = sqliteTable(
+  'failed_applies',
+  {
+    id: integer('id').primaryKey({ autoIncrement: true }),
+    storeId: text('store_id').notNull(),
+    entityType: text('entity_type').notNull(),
+    entityGuuid: text('entity_guuid').notNull(),
+    // Which applier method `data` should retry through — without this, retry
+    // always called upsertAll(), so a failed DELETE (data = `{ guuid }`) was
+    // replayed as an upsert forever and its tombstone never actually retried.
+    operation: text('operation', { enum: ['upsert', 'delete'] }).notNull().default('upsert'),
+    data: text('data').notNull(), // JSON — the row (upsert) or `{ guuid }` (delete) that failed to apply
+    attempts: integer('attempts').notNull().default(0),
+    lastAttemptAt: text('last_attempt_at'),
+    lastError: text('last_error'),
+  },
+  // One DLQ row per (store, entity, guuid) — a repeatedly-failing row bumps
+  // `attempts` in place instead of spawning a duplicate every retry cycle.
+  (t) => [
+    uniqueIndex('failed_applies_store_entity_unq').on(t.storeId, t.entityType, t.entityGuuid),
+  ],
+);
 
 /** Local schema version gate — migrate-before-sync (INV-5). A single row. */
 export const schemaMeta = sqliteTable('schema_meta', {
   id: integer('id').primaryKey(),
   version: integer('version').notNull(),
   migratedAt: text('migrated_at').notNull(),
+});
+
+/** Client-only per-store sync bookkeeping that is NOT part of the cursor's
+ *  opaque token. Today it holds one thing: the `permissions_version` this store
+ *  was last synced under. A permission GRANT bumps that version server-side,
+ *  but a cold start done while the user lacked `view` on an entity anchored
+ *  that entity's delta watermark at cold-start time — so pre-existing rows
+ *  (older than the watermark) would never delta-backfill once the grant lands
+ *  (S-5, the cold-start counterpart of the delta re-grant path). Detecting the
+ *  version bump on open lets us re-cold-start and pick those rows up. */
+export const syncStoreMeta = sqliteTable('sync_store_meta', {
+  storeId: text('store_id').primaryKey(),
+  permissionsVersion: integer('permissions_version'),
+  updatedAt: text('updated_at').notNull(),
 });

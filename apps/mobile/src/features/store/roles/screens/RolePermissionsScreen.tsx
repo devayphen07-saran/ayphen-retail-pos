@@ -1,6 +1,6 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { ScrollView } from 'react-native';
-import { router, useLocalSearchParams } from 'expo-router';
+import { router, useLocalSearchParams, useNavigation } from 'expo-router';
 import styled from 'styled-components/native';
 import { useMobileTheme } from '@ayphen/mobile-theme';
 import {
@@ -61,6 +61,7 @@ export function RolePermissionsScreen() {
   const { theme } = useMobileTheme();
   const { roleId } = useLocalSearchParams<Params>();
   const storeId = useActiveStoreStore((s) => s.storeId) ?? '';
+  const navigation = useNavigation();
 
   const {
     data: entityTypes,
@@ -89,12 +90,47 @@ export function RolePermissionsScreen() {
   const [matrix, setMatrix] = useState<Record<string, RoleEntityPermissions>>({});
   const [saving, setSaving] = useState(false);
 
-  // Seed local edit state once from the server response — a ref-guarded effect
-  // would over-engineer this; `role` only changes on mount and after our own
-  // save (which sets fresh matching state anyway), so a plain effect is fine.
+  // Seed local edit state exactly ONCE from the server response. A ref guard is
+  // required (not over-engineering): once focusManager/onlineManager are wired,
+  // a window-focus/reconnect refetch returns a fresh `role` object and an
+  // unguarded effect would clobber the user's in-progress matrix edits.
+  const seeded = useRef(false);
   useEffect(() => {
-    if (role) setMatrix(role.permissions);
+    if (role && !seeded.current) {
+      seeded.current = true;
+      setMatrix(role.permissions);
+    }
   }, [role]);
+
+  // An owner can spend real time building this matrix out — unlike FormScreen
+  // (which every other edit screen in the app inherits this from), this
+  // screen is hand-rolled, so it never got the same unsaved-changes guard on
+  // back/swipe/hardware-back. Comparing against the server's last-seeded
+  // values (not `seeded`/initial state) means the guard reflects only actual,
+  // unsaved edits.
+  const hasUnsavedChanges = !!role && JSON.stringify(matrix) !== JSON.stringify(role.permissions);
+  const dirtyRef = useRef(hasUnsavedChanges);
+  dirtyRef.current = hasUnsavedChanges;
+  const bypassGuardRef = useRef(false);
+
+  useEffect(() => {
+    const sub = navigation.addListener('beforeRemove', (e) => {
+      if (bypassGuardRef.current || !dirtyRef.current) return;
+      e.preventDefault();
+      Alert.show('Discard changes?', 'Your permission changes will be lost.', [
+        { text: 'Keep editing', style: 'cancel' },
+        {
+          text: 'Discard',
+          style: 'destructive',
+          onPress: () => {
+            bypassGuardRef.current = true;
+            navigation.dispatch(e.data.action);
+          },
+        },
+      ]);
+    });
+    return sub;
+  }, [navigation]);
 
   const toggle = (entityCode: string, action: CrudAction, next: boolean) => {
     if (readOnly) return;
@@ -122,6 +158,9 @@ export function RolePermissionsScreen() {
         pathParam: { storeId, roleId },
         bodyParam: { permissions },
       });
+      // Success is not user intent to abandon the screen — bypass the
+      // unsaved-changes guard above so this `router.back()` isn't intercepted.
+      bypassGuardRef.current = true;
       router.back();
     } catch {
       Alert.info('Error', "Couldn't save the permission changes.");

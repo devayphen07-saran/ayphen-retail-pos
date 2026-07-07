@@ -26,7 +26,7 @@ export class UserLocationService {
   async listMembers(storeId: string, locationId: string): Promise<LocationMember[]> {
     const loc = await this.locationRepo.findInStore(locationId, storeId);
     if (!loc) throw new NotFoundError(ErrorCodes.LOCATION_NOT_FOUND, 'Location not found');
-    return this.repo.listMembers(locationId);
+    return this.repo.listMembers(locationId, storeId);
   }
 
   /** Assign users to a location. Each must be an active member of the store. */
@@ -41,32 +41,28 @@ export class UserLocationService {
     if (!loc.enable)
       throw new ForbiddenError(ErrorCodes.LOCATION_DISABLED, 'This location is disabled');
 
-    for (const userId of userIds) {
-      if (!(await this.repo.isStoreMember(userId, storeId))) {
-        throw new ForbiddenError(
-          ErrorCodes.USER_NOT_STORE_MEMBER,
-          'User is not a member of this store',
-        );
-      }
+    const members = await this.repo.isStoreMemberBatch(userIds, storeId);
+    const nonMember = userIds.find((id) => !members.has(id));
+    if (nonMember) {
+      throw new ForbiddenError(
+        ErrorCodes.USER_NOT_STORE_MEMBER,
+        'User is not a member of this store',
+      );
     }
 
     await this.uow.execute(async (tx) => {
-      for (const userId of userIds) {
-        await this.repo.assign(userId, locationId, actorId, tx);
-        await this.rbac.bumpPermissionsVersionForUser(userId, tx);
-      }
+      await this.repo.assignManyUsers(userIds, locationId, actorId, tx);
+      await this.rbac.bumpPermissionsVersionForUsers(userIds, tx);
+      await this.audit.logInTransaction({
+        event: 'LOCATION_USERS_ASSIGNED', activityType: 'ROLE_ASSIGNMENT_CREATED',
+        prefix: 'Location', suffix: `assigned ${userIds.length} user(s)`,
+        userId: actorId, storeFk: storeId, isSuccess: true,
+        entityType: 'Location', entityId: locationId,
+        metadata: { userIds },
+      }, tx);
     });
 
-    for (const userId of userIds) {
-      await this.rbac.invalidateUserStoreCache(userId, storeId);
-    }
-    await this.audit.log({
-      event: 'LOCATION_USERS_ASSIGNED', activityType: 'ROLE_ASSIGNMENT_CREATED',
-      prefix: 'Location', suffix: `assigned ${userIds.length} user(s)`,
-      userId: actorId, storeFk: storeId, isSuccess: true,
-      entityType: 'Location', entityId: locationId,
-      metadata: { userIds },
-    });
+    await this.rbac.invalidateUserStoreCacheForUsers(userIds, storeId);
   }
 
   /** Revoke a user from a location. Owners cannot be removed (§8.1). */
@@ -87,8 +83,17 @@ export class UserLocationService {
     }
 
     const revoked = await this.uow.execute(async (tx) => {
-      const n = await this.repo.revoke(targetUserId, locationId, tx);
-      if (n > 0) await this.rbac.bumpPermissionsVersionForUser(targetUserId, tx);
+      const n = await this.repo.revoke(targetUserId, locationId, storeId, tx);
+      if (n > 0) {
+        await this.rbac.bumpPermissionsVersionForUser(targetUserId, tx);
+        await this.audit.logInTransaction({
+          event: 'LOCATION_USER_REVOKED', activityType: 'ROLE_ASSIGNMENT_REVOKED',
+          prefix: 'Location', suffix: 'user revoked',
+          userId: actorId, storeFk: storeId, isSuccess: true,
+          entityType: 'Location', entityId: locationId,
+          metadata: { targetUserId },
+        }, tx);
+      }
       return n;
     });
     if (!revoked)
@@ -98,12 +103,5 @@ export class UserLocationService {
       );
 
     await this.rbac.invalidateUserStoreCache(targetUserId, storeId);
-    await this.audit.log({
-      event: 'LOCATION_USER_REVOKED', activityType: 'ROLE_ASSIGNMENT_REVOKED',
-      prefix: 'Location', suffix: 'user revoked',
-      userId: actorId, storeFk: storeId, isSuccess: true,
-      entityType: 'Location', entityId: locationId,
-      metadata: { targetUserId },
-    });
   }
 }

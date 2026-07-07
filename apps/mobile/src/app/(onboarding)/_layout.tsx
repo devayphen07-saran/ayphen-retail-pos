@@ -22,3 +22,5 @@ export default function OnboardingLayout() {
     </AuthGate>
   );
 }
+
+export { RouteErrorBoundary as ErrorBoundary } from '@ui/RouteErrorBoundary';

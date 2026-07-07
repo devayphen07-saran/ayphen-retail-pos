@@ -1,5 +1,5 @@
 import React, { ReactNode, useCallback, useEffect, useRef } from 'react';
-import { ScrollView, View } from 'react-native';
+import { KeyboardAvoidingView, Platform, ScrollView, View } from 'react-native';
 import {
   useForm,
   FormProvider,
@@ -102,7 +102,13 @@ export interface FormScreenProps<T extends FieldValues> {
   submitLabel: string;
   /** Dispatch the mutation ONLY — do not navigate here. Throw to surface an error. */
   onSubmit: (values: T, ctx: FormSubmitContext<T>) => Promise<void>;
-  /** Navigate after a successful submit (form already reset). Default: go back. */
+  /**
+   * Navigate after a successful submit (form already reset). Default: go
+   * back, silently — no toast/Alert. Only override with a confirmation
+   * (`Alert.info`) when the result won't be visible on the screen you land
+   * on (e.g. an invitation sent to someone else, an external payment
+   * redirect). If the change will be visible on return, stay silent.
+   */
   onSuccess?: (values: T) => void;
   /**
    * Map a domain-specific server error to a field (via `setError`) before the
@@ -246,6 +252,10 @@ export function FormScreen<T extends FieldValues>({
         loading={loading}
         rightElement={headerRight}
       >
+        <KeyboardAvoidingView
+          style={{ flex: 1 }}
+          behavior={Platform.OS === 'ios' ? 'padding' : undefined}
+        >
         <ScrollView
           ref={scrollRef}
           contentContainerStyle={{
@@ -269,6 +279,7 @@ export function FormScreen<T extends FieldValues>({
             />
           </Column>
         </ScrollView>
+        </KeyboardAvoidingView>
       </AppLayout>
     </FormProvider>
   );

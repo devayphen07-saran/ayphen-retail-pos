@@ -1,4 +1,4 @@
-import { and, asc, desc, eq, inArray } from 'drizzle-orm';
+import { and, asc, desc, eq, inArray, sql } from 'drizzle-orm';
 import { mutationQueue } from '../db/schema';
 import type { SyncDb } from '../db/types';
 
@@ -115,35 +115,78 @@ export const mutationQueueRepository = {
   },
 
   /**
-   * Transient failure (network error, 5xx) — NOT a status change beyond
-   * possible dead-lettering. Reset to 'pending' so the next drain picks it up
-   * again, and bump diagnostics. Exceeding MAX_ATTEMPTS_BEFORE_DEAD quarantines
-   * it to 'dead' so one poison mutation can't block the rest of the queue
-   * forever (mirrors the server's own POISON_MUTATION_MAX_FAILURES, tracked
-   * independently client-side).
+   * TRANSPORT failure of a whole in-flight batch — offline, timeout, 5xx, or
+   * rate-limited (429) — the server never evaluated any mutation in the batch,
+   * so nothing here indicates any single mutation is bad. Reset each row to
+   * 'pending' so the next drain re-submits it, WITHOUT touching `attempts`:
+   * an extended offline period or a saturated server must never age an honest
+   * queued write toward 'dead' (that's what `recordPoisonFailureBatch` is
+   * for — a genuinely non-retryable rejection). `lastFailureAt`/`errorMessage`
+   * still update, so the failure is visible without threatening the row.
+   *
+   * WITHOUT this, a thrown `pushDelta` left the batch stranded in 'inflight'
+   * forever — `takeDrainable` only re-selects 'pending', so those writes never
+   * synced and no error surfaced (the canonical offline-write-loss bug).
    */
-  async recordTransientFailure(
+  async recordTransportFailureBatch(
     db: SyncDb,
-    mutationId: string,
+    mutationIds: string[],
     errorMessage: string,
     now: string,
   ): Promise<void> {
-    const [row] = await db
-      .select({ attempts: mutationQueue.attempts, firstFailureAt: mutationQueue.firstFailureAt })
-      .from(mutationQueue)
-      .where(eq(mutationQueue.mutationId, mutationId))
-      .limit(1);
-    const attempts = (row?.attempts ?? 0) + 1;
+    if (mutationIds.length === 0) return;
     await db
       .update(mutationQueue)
       .set({
-        status: attempts >= MAX_ATTEMPTS_BEFORE_DEAD ? 'dead' : 'pending',
-        attempts,
-        firstFailureAt: row?.firstFailureAt ?? now,
+        status: 'pending',
         lastFailureAt: now,
         errorMessage,
       })
-      .where(eq(mutationQueue.mutationId, mutationId));
+      .where(inArray(mutationQueue.mutationId, mutationIds));
+  },
+
+  /**
+   * POISON-signal batch failure — the server gave a definitive, non-retryable
+   * rejection for the WHOLE batch (a 4xx other than 429, e.g. a malformed
+   * request body `pushDelta`'s Zod schema rejects), or silently dropped a
+   * mutation's result despite an otherwise-successful response. Retrying the
+   * identical payload will fail identically, so — unlike
+   * `recordTransportFailureBatch` — this DOES bump `attempts` in ONE
+   * statement (a 100-row batch must not fan out to 100 round-trips on the
+   * error path), quarantining a row to 'dead' past MAX_ATTEMPTS_BEFORE_DEAD so
+   * one poison mutation can't block the queue forever (mirrors the server's
+   * own POISON_MUTATION_MAX_FAILURES, tracked independently client-side).
+   */
+  async recordPoisonFailureBatch(
+    db: SyncDb,
+    mutationIds: string[],
+    errorMessage: string,
+    now: string,
+  ): Promise<void> {
+    if (mutationIds.length === 0) return;
+    await db
+      .update(mutationQueue)
+      .set({
+        attempts: sql`${mutationQueue.attempts} + 1`,
+        status: sql`CASE WHEN ${mutationQueue.attempts} + 1 >= ${MAX_ATTEMPTS_BEFORE_DEAD} THEN 'dead' ELSE 'pending' END`,
+        firstFailureAt: sql`COALESCE(${mutationQueue.firstFailureAt}, ${now})`,
+        lastFailureAt: now,
+        errorMessage,
+      })
+      .where(inArray(mutationQueue.mutationId, mutationIds));
+  },
+
+  /**
+   * Crash recovery — reset any rows orphaned in 'inflight' by a hard app-kill
+   * between `markInflight` and reconcile back to 'pending'. Called once on store
+   * open, INSIDE the scheduler's exclusive guard, so no push can be genuinely
+   * in flight when it runs; in steady state it matches nothing.
+   */
+  async resetOrphanedInflight(db: SyncDb, storeId: string): Promise<void> {
+    await db
+      .update(mutationQueue)
+      .set({ status: 'pending' })
+      .where(and(eq(mutationQueue.storeId, storeId), eq(mutationQueue.status, 'inflight')));
   },
 
   async listByStore(db: SyncDb, storeId: string): Promise<MutationQueueRow[]> {

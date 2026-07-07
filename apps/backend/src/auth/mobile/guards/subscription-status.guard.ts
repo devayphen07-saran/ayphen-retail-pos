@@ -12,10 +12,12 @@ import { eq } from 'drizzle-orm';
 import type { PostgresJsDatabase } from 'drizzle-orm/postgres-js';
 import type { Request, Response } from 'express';
 import type { Redis } from 'ioredis';
+import { z, type ZodType } from 'zod';
 import { DRIZZLE } from '#db/db.module.js';
 import * as schema from '#db/schema.js';
 import { accountSubscriptions } from '#db/schema.js';
 import { REDIS } from '#common/redis/redis.provider.js';
+import { readTypedCache } from '#common/redis/typed-cache.js';
 import type { ResolvedStoreContext } from '#common/rbac/resolved-store-context.js';
 import {
   subVersionPointerKey,
@@ -52,6 +54,13 @@ interface SubscriptionSnapshot {
   subscriptionVersion:  number;
   reconciliationStatus: string;
 }
+
+const SubscriptionSnapshotSchema: ZodType<SubscriptionSnapshot> = z.object({
+  status: z.string(),
+  accessValidUntil: z.string().nullable(),
+  subscriptionVersion: z.number(),
+  reconciliationStatus: z.string(),
+});
 
 /**
  * Freshness signal stashed on the request by this guard so the response
@@ -197,8 +206,12 @@ export class SubscriptionStatusGuard implements CanActivate {
     try {
       const version = await this.redis.get(subVersionPointerKey(accountId));
       if (version) {
-        const cached = await this.redis.get(subSnapshotKey(accountId, Number(version)));
-        if (cached) return JSON.parse(cached) as SubscriptionSnapshot;
+        const cached = await readTypedCache(
+          this.redis,
+          subSnapshotKey(accountId, Number(version)),
+          SubscriptionSnapshotSchema,
+        );
+        if (cached) return cached;
       }
     } catch {
       // Corrupt/unavailable cache → fall through to DB (never block on cache).

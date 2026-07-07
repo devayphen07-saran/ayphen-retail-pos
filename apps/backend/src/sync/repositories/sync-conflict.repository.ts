@@ -39,7 +39,7 @@ export class SyncConflictRepository {
       .insert(syncConflicts)
       .values(entry)
       .onConflictDoUpdate({
-        target: [syncConflicts.mutationId, syncConflicts.userFk],
+        target: [syncConflicts.mutationId, syncConflicts.userFk, syncConflicts.storeFk],
         set: {
           serverRow: entry.serverRow ?? null,
           clientPayload: entry.clientPayload,
@@ -65,6 +65,18 @@ export class SyncConflictRepository {
       ))
       .orderBy(desc(syncConflicts.createdAt))
       .limit(200);
+  }
+
+  /** Plain read, no mutation — used to authorize before resolve() mutates. */
+  async findByMutationId(storeId: string, mutationId: string): Promise<SyncConflictRow | null> {
+    const [row] = await this.db
+      .select()
+      .from(syncConflicts)
+      .where(and(
+        eq(syncConflicts.storeFk, storeId),
+        eq(syncConflicts.mutationId, mutationId),
+      ));
+    return row ?? null;
   }
 
   async resolve(

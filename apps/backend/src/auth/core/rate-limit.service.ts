@@ -2,9 +2,9 @@ import { Inject, Injectable, Logger } from '@nestjs/common';
 import type Redis from 'ioredis';
 import { AppException } from '#common/exceptions/app.exception.js';
 import { ErrorCodes } from '#common/error-codes.js';
+import { AppConfigService } from '#config/app-config.service.js';
 import { CORE_REDIS } from './core.tokens.js';
 import { RateLimitRepository } from './rate-limit.repository.js';
-import { AuthConstantsService } from './auth-constants.service.js';
 
 /** Window sizes mirror the repository's SQL intervals — the DB count is the
  *  fallback read path when Redis is unavailable, so the two must agree. */
@@ -32,15 +32,15 @@ export class RateLimitService {
 
   constructor(
     @Inject(CORE_REDIS) private readonly redis: Redis,
-    private readonly repo:      RateLimitRepository,
-    private readonly constants: AuthConstantsService,
+    private readonly repo:   RateLimitRepository,
+    private readonly config: AppConfigService,
   ) {}
 
   async checkIpLimit(ip: string): Promise<void> {
     await this.enforce(
       `rl:ip:${ip}`,
       IP_WINDOW_SECONDS,
-      this.constants.IP_MAX_ATTEMPTS,
+      this.config.ipMaxAttempts,
       () => this.repo.countIpAttempts(ip),
       'Too many requests from this IP — please wait before retrying',
     );
@@ -50,7 +50,7 @@ export class RateLimitService {
     await this.enforce(
       `rl:otp:${phone}`,
       PHONE_WINDOW_SECONDS,
-      this.constants.OTP_MAX_ATTEMPTS,
+      this.config.otpMaxAttempts,
       () => this.repo.countPhoneOtpAttempts(phone),
       'Too many OTP requests for this phone — please wait before retrying',
     );

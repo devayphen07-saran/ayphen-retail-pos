@@ -64,14 +64,21 @@ export class UserRepository {
       .where(eq(users.id, id));
   }
 
-  /** Reset login-failure state and stamp a successful login (§18.9). */
+  /**
+   * Reset login-failure state and stamp a successful login (§18.9). Clears the
+   * failed-attempts lockout ('locked') back to 'active' — that's the intended
+   * recovery path — but never touches an admin-applied 'suspended' status;
+   * only an explicit admin action may lift that. Defense in depth: the
+   * caller (AuthLoginService.loginStageTwo) already rejects a suspended user
+   * before this runs, but this method must never silently clear it either way.
+   */
   async markSuccessfulLogin(id: string, tx?: DbExecutor): Promise<void> {
     await (tx ?? this.db)
       .update(users)
       .set({
         failedLoginAttempts: 0,
         accountLockedUntil:  null,
-        status:              'active',
+        status:              sql`CASE WHEN ${users.status} = 'suspended' THEN ${users.status} ELSE 'active' END`,
         lastLoginAt:         new Date(),
         phoneVerified:       true,
       })

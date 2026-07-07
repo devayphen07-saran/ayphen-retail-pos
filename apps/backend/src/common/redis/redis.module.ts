@@ -1,5 +1,5 @@
 import { Global, Module } from '@nestjs/common';
-import { RedisProvider } from './redis.provider.js';
+import { RedisProvider, RedisLifecycle } from './redis.provider.js';
 
 /**
  * Single shared ioredis connection (token: REDIS), exposed app-wide.
@@ -10,7 +10,7 @@ import { RedisProvider } from './redis.provider.js';
  */
 @Global()
 @Module({
-  providers: [RedisProvider],
+  providers: [RedisProvider, RedisLifecycle],
   exports: [RedisProvider],
 })
 export class RedisModule {}

@@ -4,11 +4,7 @@ import type {
   BootstrapResult,
 } from '../types/auth-result.js';
 import type { RotateResult } from '../services/refresh-token.service.js';
-import type { OtpRequestResult } from '../services/otp-request.service.js';
-import type {
-  OtpChallengeResponse,
-  OtpRequestResponse,
-} from '../dto/response/otp.response.js';
+import type { OtpChallengeResponse } from '../dto/response/otp.response.js';
 import type {
   LoginResponse,
   RefreshResponse,
@@ -26,16 +22,6 @@ export const AuthMapper = {
       otp_sent:       r.otpSent,
       otp_request_id: r.otpRequestId,
       expires_in:     r.expiresIn,
-    };
-  },
-
-  toOtpRequestResponse(r: OtpRequestResult): OtpRequestResponse {
-    return {
-      otp_request_id:      r.otpRequestId,
-      phone_masked:        r.phoneMasked,
-      expires_in:          r.expiresIn,
-      resend_available_in: r.resendAvailableIn,
-      max_attempts:        r.maxAttempts,
     };
   },
 

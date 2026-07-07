@@ -49,12 +49,14 @@ export interface ReconciliationResponse {
     max_stores:    number | null;
     max_locations: number | null;
     max_devices:   number | null;
+    max_users:     number | null;
   };
   stores: Array<{
     id:             string;
     name:           string;
     location_count: number;
     device_count:   number;
+    user_count:     number;
   }>;
   locations: Array<{
     id:         string;

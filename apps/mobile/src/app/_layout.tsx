@@ -9,6 +9,7 @@ import { BottomSheetProvider } from '@ayphen/mobile-ui-components';
 import { AuthProvider } from '@core/providers/AuthProvider';
 import { useSyncStoreBinding } from '@core/sync/use-sync-store-binding';
 import { initSyncListeners } from '@core/sync/scheduler-instance';
+import { initReactQueryLifecycle } from '@core/network/react-query-lifecycle';
 import { useAuthStore } from '@store';
 import { GestureHandlerRootView } from 'react-native-gesture-handler';
 import { SafeAreaProvider } from 'react-native-safe-area-context';
@@ -34,7 +35,12 @@ const queryClient = new QueryClient({
 /** Inner tree — hides the splash only once fonts AND the session have resolved. */
 function RootNavigator({ fontsReady }: { fontsReady: boolean }) {
   const { theme } = useMobileTheme();
-  initSyncListeners();
+  // Side-effecting global registrations belong in an effect, not the render
+  // body (§6) — both are idempotent, so StrictMode's double-invoke is safe.
+  useEffect(() => {
+    initSyncListeners();
+    initReactQueryLifecycle();
+  }, []);
   useSyncStoreBinding();
   const isAuthReady = useAuthStore((s) => s.isAuthReady);
   const isAuthenticated = useAuthStore((s) => s.isAuthenticated);
@@ -104,13 +110,18 @@ export default function RootLayout() {
             the fallback uses no theme/context of its own. */}
         <ErrorBoundary>
           <MobileThemeProvider>
-            <BottomSheetProvider>
-              <QueryClientProvider client={queryClient}>
-                <AuthProvider>
+            <QueryClientProvider client={queryClient}>
+              <AuthProvider>
+                {/* Below QueryClientProvider/AuthProvider so sheet content
+                    (rendered by BottomSheetShell as a sibling of `children`,
+                    not nested inside it) can use useQuery/useAuth-derived
+                    hooks — a sheet calling useQuery while this sat above
+                    QueryClientProvider threw "No QueryClient set". */}
+                <BottomSheetProvider>
                   <RootNavigator fontsReady={fontsReady} />
-                </AuthProvider>
-              </QueryClientProvider>
-            </BottomSheetProvider>
+                </BottomSheetProvider>
+              </AuthProvider>
+            </QueryClientProvider>
           </MobileThemeProvider>
         </ErrorBoundary>
       </SafeAreaProvider>

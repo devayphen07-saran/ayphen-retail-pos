@@ -1,6 +1,7 @@
-import { Redirect, Stack } from 'expo-router';
+import { useEffect } from 'react';
+import { Redirect, Stack, usePathname } from 'expo-router';
 import { useMobileTheme } from '@ayphen/mobile-theme';
-import { useActiveStoreStore } from '@store';
+import { useActiveStoreStore, useAuthStore } from '@store';
 import { AuthGate } from '@core/auth/AuthGate';
 import { useStoreOpenStatus } from '@core/sync/store-open-status';
 import { StoreOpenGate } from '@features/store/shared/components/StoreOpenGate';
@@ -20,6 +21,16 @@ export default function StoreLayout() {
   const { theme } = useMobileTheme();
   const storeId = useActiveStoreStore((s) => s.storeId);
   const openStatus = useStoreOpenStatus();
+  const pathname = usePathname();
+  const setPendingStoreRoute = useAuthStore((s) => s.setPendingStoreRoute);
+
+  // Deep link / cold start into a (store) route with no active store yet:
+  // remember the intended sub-route so the store-enter flow can resume there
+  // instead of dropping the user on the store home. Skip '/' (a bare (store)
+  // entry) so a normal open never stashes a no-op.
+  useEffect(() => {
+    if (!storeId && pathname && pathname !== '/') setPendingStoreRoute(pathname);
+  }, [storeId, pathname, setPendingStoreRoute]);
 
   if (!storeId) return <Redirect href="/(app)/store-picker" />;
 
@@ -44,3 +55,5 @@ export default function StoreLayout() {
     </AuthGate>
   );
 }
+
+export { RouteErrorBoundary as ErrorBoundary } from '@ui/RouteErrorBoundary';

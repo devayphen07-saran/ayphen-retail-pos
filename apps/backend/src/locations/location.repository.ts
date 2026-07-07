@@ -24,12 +24,32 @@ export class LocationRepository {
     return tx ?? this.db;
   }
 
-  /** Active locations in a store, ordered for display. */
+  /**
+   * Active locations in a store, ordered for display. Defensive cap, not real
+   * pagination — the response is a plain array the mobile client renders in
+   * full (a location picker), so switching to a cursor-paginated envelope is
+   * a breaking wire-contract change that needs a coordinated client update.
+   * `max_locations_per_store` is unlimited on some plans, so an unbounded
+   * query here is a real (if currently unlikely) "bound everything" gap.
+   */
   async listActive(storeId: string, tx?: DbExecutor): Promise<Location[]> {
     return this.client(tx)
       .select()
       .from(locations)
       .where(and(eq(locations.storeFk, storeId), eq(locations.isActive, true)))
+      .orderBy(locations.displayOrder, locations.createdAt)
+      .limit(500);
+  }
+
+  /** Batched counterpart to `listActive` — one query for every store in the
+   *  set instead of N sequential per-store calls (each row still carries its
+   *  own `storeFk` for the caller to group by). */
+  async listActiveByStores(storeIds: string[], tx?: DbExecutor): Promise<Location[]> {
+    if (storeIds.length === 0) return [];
+    return this.client(tx)
+      .select()
+      .from(locations)
+      .where(and(inArray(locations.storeFk, storeIds), eq(locations.isActive, true)))
       .orderBy(locations.displayOrder, locations.createdAt);
   }
 
@@ -60,6 +80,19 @@ export class LocationRepository {
       .for('update');
   }
 
+  /** Batched counterpart to `lockStore` — one round trip to lock every store
+   *  in the set instead of N sequential single-row locks (downgrade-detection
+   *  §perf: an account with many active stores was issuing N awaited
+   *  `lockStore` calls in a loop). */
+  async lockManyStores(storeIds: string[], tx: DbExecutor): Promise<void> {
+    if (storeIds.length === 0) return;
+    await tx
+      .select({ id: stores.id })
+      .from(stores)
+      .where(inArray(stores.id, storeIds))
+      .for('update');
+  }
+
   /** Active-location count — the max_locations_per_store denominator. */
   async countActive(storeId: string, tx?: DbExecutor): Promise<number> {
     const [row] = await this.client(tx)
@@ -67,6 +100,20 @@ export class LocationRepository {
       .from(locations)
       .where(and(eq(locations.storeFk, storeId), eq(locations.isActive, true)));
     return row?.n ?? 0;
+  }
+
+  /** Batched counterpart to `countActive` — one grouped query for every store
+   *  in the set instead of N sequential per-store counts. Stores with zero
+   *  active locations are simply absent from the map (caller treats a missing
+   *  key as 0). */
+  async countActiveByStores(storeIds: string[], tx?: DbExecutor): Promise<Map<string, number>> {
+    if (storeIds.length === 0) return new Map();
+    const rows = await this.client(tx)
+      .select({ storeFk: locations.storeFk, n: sql<number>`count(*)::int` })
+      .from(locations)
+      .where(and(inArray(locations.storeFk, storeIds), eq(locations.isActive, true)))
+      .groupBy(locations.storeFk);
+    return new Map(rows.map((r) => [r.storeFk, r.n]));
   }
 
   async nameTaken(storeId: string, name: string, excludeId?: string, tx?: DbExecutor): Promise<boolean> {
@@ -105,33 +152,36 @@ export class LocationRepository {
 
   async update(
     locationId: string,
+    storeId: string,
     patch: Partial<Pick<Location, 'name' | 'enable' | 'isDefault' | 'displayOrder'>>,
     tx?: DbExecutor,
   ): Promise<void> {
     await this.client(tx)
       .update(locations)
       .set({ ...patch, updatedAt: new Date() })
-      .where(eq(locations.id, locationId));
+      .where(and(eq(locations.id, locationId), eq(locations.storeFk, storeId)));
   }
 
   /** Clear the default flag on every OTHER active location in the store. */
-  async clearOtherDefaults(storeId: string, keepId: string, tx?: DbExecutor): Promise<void> {
+  /** Clears every default in the store except `keepId` — or every default at
+   *  all when `keepId` is omitted (the new-row-doesn't-exist-yet case). */
+  async clearOtherDefaults(storeId: string, keepId?: string, tx?: DbExecutor): Promise<void> {
     await this.client(tx)
       .update(locations)
       .set({ isDefault: false, updatedAt: new Date() })
       .where(and(
         eq(locations.storeFk, storeId),
         eq(locations.isDefault, true),
-        ne(locations.id, keepId),
+        keepId ? ne(locations.id, keepId) : undefined,
       ));
   }
 
   /** Soft-delete (archive) a location. */
-  async softDelete(locationId: string, tx?: DbExecutor): Promise<void> {
+  async softDelete(locationId: string, storeId: string, tx?: DbExecutor): Promise<void> {
     await this.client(tx)
       .update(locations)
       .set({ isActive: false, archivedAt: new Date(), updatedAt: new Date() })
-      .where(eq(locations.id, locationId));
+      .where(and(eq(locations.id, locationId), eq(locations.storeFk, storeId)));
   }
 
   /** Lock locations as downgrade-excess (reconciliation §5.2). Head Office is

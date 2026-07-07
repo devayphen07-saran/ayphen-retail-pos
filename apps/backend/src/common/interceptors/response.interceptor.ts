@@ -8,7 +8,6 @@ import { Reflector } from '@nestjs/core';
 import { Observable } from 'rxjs';
 import { map } from 'rxjs/operators';
 import { Response, Request } from 'express';
-import { RESPONSE_MESSAGE_KEY } from '../decorators/response-message.decorator';
 import { SKIP_TRANSFORM_KEY } from '../decorators/skip-transform.decorator';
 
 export interface ApiEnvelope<T> {
@@ -43,11 +42,7 @@ export class ResponseInterceptor<T>
         const request  = ctx.getRequest<Request>();
 
         const statusCode = response.statusCode;
-        const message    =
-          this.reflector.getAllAndOverride<string>(RESPONSE_MESSAGE_KEY, [
-            context.getHandler(),
-            context.getClass(),
-          ]) ?? 'Success';
+        const message    = 'Success';
 
         return {
           success:    true,

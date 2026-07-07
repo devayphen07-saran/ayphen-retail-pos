@@ -27,6 +27,12 @@ export interface RoleGrant {
   action:     CrudAction;
 }
 
+/** The single place a role name becomes its `code` — the service's reserved-
+ *  code check and this repository's insert must always derive it identically. */
+export function deriveRoleCode(name: string): string {
+  return name.toUpperCase().replace(/[^A-Z0-9]+/g, '_');
+}
+
 @Injectable()
 export class RoleRepository {
   constructor(
@@ -37,7 +43,9 @@ export class RoleRepository {
     return tx ?? this.db;
   }
 
-  /** Custom (non-deleted) roles in a store. */
+  /** Custom (non-deleted) roles in a store. Defensive cap, not real
+   *  pagination — roles per store are structurally small (owner-authored),
+   *  but an unbounded query is still a "bound everything" violation. */
   async listStoreRoles(storeId: string, tx?: DbExecutor): Promise<RoleRow[]> {
     return this.client(tx)
       .select({
@@ -49,7 +57,8 @@ export class RoleRepository {
         storeFk: roles.storeFk,
       })
       .from(roles)
-      .where(and(eq(roles.storeFk, storeId), isNull(roles.deletedAt)));
+      .where(and(eq(roles.storeFk, storeId), isNull(roles.deletedAt)))
+      .limit(500);
   }
 
   async findRoleInStore(
@@ -94,7 +103,7 @@ export class RoleRepository {
       .insert(roles)
       .values({
         storeFk: storeId,
-        code: name.toUpperCase().replace(/[^A-Z0-9]+/g, '_'),
+        code: deriveRoleCode(name),
         name,
         description,
         isEditable: true,
@@ -103,11 +112,11 @@ export class RoleRepository {
     return requireRow(row);
   }
 
-  async softDeleteRole(roleId: string, tx?: DbExecutor): Promise<void> {
+  async softDeleteRole(roleId: string, storeId: string, tx?: DbExecutor): Promise<void> {
     await this.client(tx)
       .update(roles)
       .set({ deletedAt: new Date() })
-      .where(eq(roles.id, roleId));
+      .where(and(eq(roles.id, roleId), eq(roles.storeFk, storeId)));
     // Soft-delete its grants too.
     await this.client(tx)
       .update(rolePermissions)

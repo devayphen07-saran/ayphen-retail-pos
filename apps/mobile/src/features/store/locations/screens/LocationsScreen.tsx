@@ -1,19 +1,12 @@
-import { useState } from 'react';
-import { RefreshControl, ScrollView, View } from 'react-native';
-import type { AlertButton } from 'react-native';
+import { useCallback, useState } from 'react';
 import { router } from 'expo-router';
-import styled from 'styled-components/native';
-import { useMobileTheme } from '@ayphen/mobile-theme';
 import {
   Alert,
   AppLayout,
-  Column,
   IconButton,
-  LucideIcon,
-  Row,
-  ScreenStateRenderer,
-  Tag,
+  ListScaffold,
   Typography,
+  useBottomSheet,
 } from '@ayphen/mobile-ui-components';
 import {
   useLocationsQuery,
@@ -23,16 +16,17 @@ import {
 } from '@ayphen/api-manager';
 import type { LocationResponse } from '@ayphen/api-manager';
 import { useActiveStoreStore } from '@store';
-import { LocationsLoading } from '../loading/LocationsLoading';
+import { LocationLoadingCard } from '../loading/LocationsLoading';
+import { LocationCard } from '../components/LocationCard';
+import { LocationActionsSheet, type LocationActionsSheetProps } from '../components/LocationActionsSheet';
 
 /** Store locations — reached from More > Store Settings > Locations. Real data
  *  via GET stores/:storeId/locations (rbac.md §26.1, adoption §8.2). */
 export function LocationsScreen() {
-  const { theme } = useMobileTheme();
   const storeId = useActiveStoreStore((s) => s.storeId) ?? '';
-  const { data: locations, isLoading, isError, refetch, isRefetching } = useLocationsQuery(storeId, {
-    enabled: !!storeId,
-  });
+  const sheet = useBottomSheet();
+  const { data: locations, isLoading, isError, isFetching, isRefetching, refetch } =
+    useLocationsQuery(storeId, { enabled: !!storeId });
   const setDefault = useSetDefaultLocationMutation(storeId);
   const deleteLocation = useDeleteLocationMutation(storeId);
   // Which row has a set-default/delete in flight — dims + disables just that
@@ -48,7 +42,7 @@ export function LocationsScreen() {
   const locationCount = locations?.length ?? 0;
   const atLimit = locationLimit !== null && locationCount >= locationLimit;
 
-  const handleAddPress = () => {
+  const handleAddPress = useCallback(() => {
     if (atLimit) {
       Alert.confirm(
         "You've reached your plan's location limit",
@@ -59,61 +53,81 @@ export function LocationsScreen() {
       return;
     }
     router.push('/(store)/location-create');
-  };
+  }, [atLimit, locationLimit]);
 
-  const editLocation = (location: LocationResponse) => {
-    router.push({
-      pathname: '/(store)/location-edit',
-      params: { locationId: location.id },
-    });
-  };
+  const editLocation = useCallback((location: LocationResponse) => {
+    router.push({ pathname: '/(store)/location-edit', params: { locationId: location.id } });
+  }, []);
 
-  const runSetDefault = async (locationId: string) => {
-    setBusyId(locationId);
-    try {
-      await setDefault.mutateAsync({ pathParam: { storeId, locationId } });
-    } catch {
-      Alert.info('Error', "Couldn't set this as the default location.");
-    } finally {
-      setBusyId(null);
-    }
-  };
+  const runSetDefault = useCallback(
+    async (locationId: string) => {
+      setBusyId(locationId);
+      try {
+        await setDefault.mutateAsync({ pathParam: { storeId, locationId } });
+      } catch {
+        Alert.info('Error', "Couldn't set this as the default location.");
+      } finally {
+        setBusyId(null);
+      }
+    },
+    [setDefault, storeId],
+  );
 
-  const runDelete = async (locationId: string) => {
-    setBusyId(locationId);
-    try {
-      await deleteLocation.mutateAsync({ pathParam: { storeId, locationId } });
-    } catch {
-      Alert.info('Error', "Couldn't delete this location.");
-    } finally {
-      setBusyId(null);
-    }
-  };
+  const runDelete = useCallback(
+    async (locationId: string) => {
+      setBusyId(locationId);
+      try {
+        await deleteLocation.mutateAsync({ pathParam: { storeId, locationId } });
+      } catch {
+        Alert.info('Error', "Couldn't delete this location.");
+      } finally {
+        setBusyId(null);
+      }
+    },
+    [deleteLocation, storeId],
+  );
 
-  const openLocationActions = (location: LocationResponse) => {
-    const buttons: AlertButton[] = [
-      { text: 'Edit', onPress: () => editLocation(location) },
-    ];
-    if (!location.is_default) {
-      buttons.push({ text: 'Set as default', onPress: () => runSetDefault(location.id) });
-    }
-    if (!location.is_primary) {
-      buttons.push({
-        text: 'Delete',
-        style: 'destructive',
-        onPress: () =>
-          Alert.confirm(
-            'Delete location',
-            `Delete "${location.name}"? This can't be undone.`,
-            () => runDelete(location.id),
-            'Delete',
-            'destructive',
-          ),
+  const confirmDelete = useCallback(
+    (location: LocationResponse) => {
+      Alert.confirm(
+        'Delete location',
+        `Delete "${location.name}"? This can't be undone.`,
+        () => runDelete(location.id),
+        'Delete',
+        'destructive',
+      );
+    },
+    [runDelete],
+  );
+
+  // A row action menu (Edit / Set default / Delete) belongs in the app's
+  // bottom-sheet system, not a raw native Alert — this includes the
+  // destructive Delete action, which the sheet still gates behind its own
+  // confirm dialog (modal-architecture.md §19/§25).
+  const openLocationActions = useCallback(
+    (location: LocationResponse) => {
+      sheet.open<LocationActionsSheetProps>({
+        snapPoint: 'sm',
+        title: location.name,
+        closeOnBackdrop: true,
+        Component: LocationActionsSheet,
+        props: {
+          location,
+          onEdit: editLocation,
+          onSetDefault: runSetDefault,
+          onDelete: confirmDelete,
+        },
       });
-    }
-    buttons.push({ text: 'Cancel', style: 'cancel' });
-    Alert.show(location.name, undefined, buttons);
-  };
+    },
+    [sheet, editLocation, runSetDefault, confirmDelete],
+  );
+
+  const renderLocation = useCallback(
+    ({ item }: { item: LocationResponse }) => (
+      <LocationCard location={item} busy={busyId === item.id} onPress={openLocationActions} />
+    ),
+    [busyId, openLocationActions],
+  );
 
   return (
     <AppLayout
@@ -128,101 +142,36 @@ export function LocationsScreen() {
         />
       }
     >
-      <ScrollView
-        contentContainerStyle={{ padding: theme.sizing.large, flexGrow: 1 }}
-        showsVerticalScrollIndicator={false}
-        refreshControl={
-          <RefreshControl refreshing={isRefetching && !isLoading} onRefresh={refetch} />
+      <ListScaffold<LocationResponse>
+        data={locations ?? []}
+        keyExtractor={(l) => l.id}
+        renderItem={renderLocation}
+        estimatedItemSize={76}
+        ListHeaderComponent={
+          locationLimit !== null ? (
+            <Typography.Caption type="secondary" style={{ paddingBottom: 10 }}>
+              {locationCount} of {locationLimit} location{locationLimit === 1 ? '' : 's'} used
+            </Typography.Caption>
+          ) : null
         }
-      >
-        <ScreenStateRenderer
-          isLoading={isLoading}
-          isError={isError}
-          data={locations}
-          skeleton={<LocationsLoading />}
-          error="Couldn't load your locations."
-          emptyTitle="No locations yet"
-          emptyDescription="Add a location to start operating from more than one place."
-          emptyAction={{ label: 'Add location', onPress: handleAddPress }}
-          onRetry={() => refetch()}
-        >
-          {() => (
-          <Column gap={10}>
-            {locationLimit !== null && (
-              <Typography.Caption type="secondary">
-                {locationCount} of {locationLimit} location{locationLimit === 1 ? '' : 's'} used
-              </Typography.Caption>
-            )}
-            {locations?.map((location) => (
-              <LocationCard
-                key={location.id}
-                onPress={() => openLocationActions(location)}
-                activeOpacity={0.7}
-                disabled={busyId === location.id}
-                $disabled={!location.enable || busyId === location.id}
-              >
-                <Row align="center" gap={12}>
-                  <IconSlot $disabled={!location.enable}>
-                    <LucideIcon
-                      name="MapPin"
-                      size={20}
-                      color={location.enable ? theme.colorPrimary : theme.colorTextTertiary}
-                    />
-                  </IconSlot>
-                  <Column flex={1} gap={4}>
-                    <Typography.Body
-                      weight="medium"
-                      color={location.enable ? undefined : theme.colorTextTertiary}
-                    >
-                      {location.name}
-                    </Typography.Body>
-                    <Row gap={6}>
-                      {location.is_primary && (
-                        <Tag label="Head Office" variant="info" size="sm" />
-                      )}
-                      {location.is_default && (
-                        <Tag label="Default" variant="success" size="sm" />
-                      )}
-                      {!location.enable && (
-                        <Tag label="Disabled" variant="default" size="sm" />
-                      )}
-                      {location.is_locked && (
-                        <Tag label="Locked — plan downgrade" variant="danger" size="sm" />
-                      )}
-                    </Row>
-                  </Column>
-                  <LucideIcon name="ChevronRight" size={16} color={theme.colorTextTertiary} />
-                </Row>
-              </LocationCard>
-            ))}
-          </Column>
-          )}
-        </ScreenStateRenderer>
-      </ScrollView>
+        loaderProps={{
+          isLoading,
+          isFetching,
+          isRefetching,
+          loadingCard: () => <LocationLoadingCard />,
+          loaderLength: 4,
+        }}
+        listProps={{
+          error: isError ? { message: "Couldn't load your locations." } : undefined,
+          refetch,
+          addNew: handleAddPress,
+        }}
+        emptyState={{
+          message: 'No locations yet',
+          description: 'Add a location to start operating from more than one place.',
+          icon: 'MapPin',
+        }}
+      />
     </AppLayout>
   );
 }
-
-function locationRowStyle(disabled: boolean) {
-  return disabled ? { opacity: 0.55 } : undefined;
-}
-
-const LocationCard = styled.TouchableOpacity.attrs<{ $disabled?: boolean }>((props) => ({
-  style: locationRowStyle(!!props.$disabled),
-}))<{ $disabled?: boolean }>`
-  background-color: ${({ theme }) => theme.colorBgContainer};
-  border-radius: ${({ theme }) => theme.borderRadius.xLarge}px;
-  border-width: ${({ theme }) => theme.borderWidth.thin}px;
-  border-color: ${({ theme }) => theme.colorBorder};
-  padding: ${({ theme }) => theme.sizing.medium}px;
-`;
-
-const IconSlot = styled(View)<{ $disabled?: boolean }>`
-  width: 40px;
-  height: 40px;
-  border-radius: ${({ theme }) => theme.borderRadius.large}px;
-  align-items: center;
-  justify-content: center;
-  background-color: ${({ theme, $disabled }) =>
-    $disabled ? theme.colorFillSecondary ?? theme.colorBorder : theme.color.primary.bg};
-`;

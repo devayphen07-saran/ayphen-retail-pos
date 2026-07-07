@@ -5,15 +5,14 @@ import { ErrorCodes } from '#common/error-codes.js';
 import type { EntityCode } from '#common/rbac/permission-matrix.constants.js';
 import type { DbTransaction } from '#db/db.module.js';
 import { TombstoneRepository } from '../repositories/tombstone.repository.js';
-import type { WireRow } from '../registry/entity-filter.js';
+import { camelToSnake, type WireRow } from '../registry/entity-filter.js';
+import type { SyncEntityType } from '../sync.constants.js';
 import type {
   HandlerOutcome,
   MutationAction,
   MutationContext,
   SyncMutationHandler,
 } from './mutation.types.js';
-
-const camelToSnake = (s: string) => s.replace(/[A-Z]/g, (c) => `_${c.toLowerCase()}`);
 
 /** Serialize a row for conflict `server_row` / applied `data`. NOT the pull
  *  path — the authoritative µs `modified_at` watermark only travels via
@@ -42,7 +41,7 @@ export interface FkResolver {
 }
 
 export interface MasterDataHandlerConfig {
-  entityType: string;
+  entityType: SyncEntityType;
   permissionEntity: EntityCode;
   table: PgTable;
   idColumn: AnyPgColumn;
@@ -86,7 +85,7 @@ const rejected = (
  * row_version conflict.
  */
 export abstract class MasterDataSyncHandler implements SyncMutationHandler {
-  readonly entityType: string;
+  readonly entityType: SyncEntityType;
   readonly permissionEntity: EntityCode;
 
   /** SQL column name → the TS property key it lands under in a full-row
@@ -116,7 +115,19 @@ export abstract class MasterDataSyncHandler implements SyncMutationHandler {
       case 'create':
         return this.create(payload, ctx);
       case 'update':
-        return this.update(payload, expectedRowVersion!, ctx);
+        // Preflight (delta.service.ts step 6) is expected to reject an update
+        // with no row_version before this handler ever runs — but that
+        // invariant lives in a different file with nothing enforcing it here.
+        // Reject explicitly rather than coercing undefined → number, which
+        // would silently turn the optimistic-lock WHERE clause into an
+        // always-false predicate (every update reads as a conflict).
+        if (expectedRowVersion === undefined) {
+          return rejected(
+            ErrorCodes.SYNC_MISSING_ROW_VERSION,
+            `update of ${this.entityType} requires expected_row_version`,
+          );
+        }
+        return this.update(payload, expectedRowVersion, ctx);
       case 'delete':
         return this.remove(payload, ctx);
     }
@@ -290,14 +301,15 @@ export abstract class MasterDataSyncHandler implements SyncMutationHandler {
     data: Record<string, unknown>,
     ctx: MutationContext,
   ): Promise<HandlerOutcome | { columns: Record<string, unknown> }> {
-    const columns: Record<string, unknown> = {};
-    for (const resolver of this.cfg.fkResolvers ?? []) {
+    const resolvers = this.cfg.fkResolvers ?? [];
+
+    // Independent lookups (different field, different table) — resolve them
+    // concurrently instead of one at a time; Promise.all preserves resolver
+    // order so the first-missing-field error is still deterministic.
+    const results = await Promise.all(resolvers.map(async (resolver) => {
       const value = data[resolver.field];
-      if (value === undefined) continue;
-      if (value === null) {
-        columns[resolver.column] = null;
-        continue;
-      }
+      if (value === undefined) return { resolver, outcome: 'skip' as const };
+      if (value === null) return { resolver, outcome: 'null' as const };
 
       const scope: SQL | undefined =
         resolver.scope === 'store'
@@ -312,10 +324,21 @@ export abstract class MasterDataSyncHandler implements SyncMutationHandler {
         .where(and(eq(resolver.matchOn, value as string), scope))
         .limit(1);
 
-      if (!target) {
-        return rejected(ErrorCodes.VALIDATION_FAILED, `unknown ${resolver.field}: ${String(value)}`);
+      if (!target) return { resolver, outcome: 'missing' as const, value };
+      return { resolver, outcome: 'resolved' as const, id: (target as { id: unknown }).id };
+    }));
+
+    const columns: Record<string, unknown> = {};
+    for (const result of results) {
+      if (result.outcome === 'skip') continue;
+      if (result.outcome === 'null') {
+        columns[result.resolver.column] = null;
+        continue;
       }
-      columns[resolver.column] = (target as { id: unknown }).id;
+      if (result.outcome === 'missing') {
+        return rejected(ErrorCodes.VALIDATION_FAILED, `unknown ${result.resolver.field}: ${String(result.value)}`);
+      }
+      columns[result.resolver.column] = result.id;
     }
     return { columns };
   }

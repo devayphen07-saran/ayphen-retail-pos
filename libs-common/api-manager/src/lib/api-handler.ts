@@ -32,6 +32,8 @@ export interface NormalizedError {
   message: string;
   isOffline: boolean;
   data?: unknown;
+  /** Per-field validation messages, keyed by field path (e.g. "name", "keepStoreIds"). */
+  fieldErrors?: Record<string, string>;
 }
 
 export interface RequestParams<T> {
@@ -56,6 +58,7 @@ function normalizeError(error: unknown): NormalizedError {
     };
   }
 
+  type ZodIssueLike = { path: (string | number)[]; message: string };
   const err = error as AxiosError<{
     error?: {
       errorCode?: string;
@@ -65,6 +68,8 @@ function normalizeError(error: unknown): NormalizedError {
     errorCode?: string;
     code?: string;
     message?: string;
+    issues?: ZodIssueLike[];
+    details?: { fieldErrors?: Record<string, string> };
   }>;
 
   if (!err.response) {
@@ -83,12 +88,21 @@ function normalizeError(error: unknown): NormalizedError {
   const payload =
     body?.error && typeof body.error === 'object' ? body.error : body;
 
+  // The backend sends per-field detail two ways: Zod validation failures as a
+  // flat `issues` array (path + message per field), hand-validated failures
+  // (e.g. subscription reconciliation) as `details.fieldErrors`. Project both
+  // into one shape so callers (handleFormError) only need to check one field.
+  const fieldErrors: Record<string, string> | undefined = body?.issues?.length
+    ? Object.fromEntries(body.issues.map((issue) => [issue.path.join('.'), issue.message]))
+    : body?.details?.fieldErrors;
+
   return {
     status: err.response.status,
     code: payload?.errorCode ?? payload?.code ?? `http_${err.response.status}`,
     message: payload?.message ?? err.message ?? 'Request failed.',
     isOffline: false,
     data: body,
+    ...(fieldErrors && { fieldErrors }),
   };
 }
 

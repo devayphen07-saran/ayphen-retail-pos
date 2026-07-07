@@ -1,0 +1,2 @@
+CREATE UNIQUE INDEX "uk_invitations_pending_phone" ON "invitations" USING btree ("store_fk","role_fk","phone") WHERE "invitations"."status" = 'pending' AND "invitations"."phone" IS NOT NULL;--> statement-breakpoint
+CREATE UNIQUE INDEX "uk_invitations_pending_email" ON "invitations" USING btree ("store_fk","role_fk","email") WHERE "invitations"."status" = 'pending' AND "invitations"."email" IS NOT NULL;

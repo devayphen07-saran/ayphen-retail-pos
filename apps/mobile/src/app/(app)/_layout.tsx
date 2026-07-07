@@ -17,3 +17,5 @@ export default function AppLayout() {
     </AuthGate>
   );
 }
+
+export { RouteErrorBoundary as ErrorBoundary } from '@ui/RouteErrorBoundary';

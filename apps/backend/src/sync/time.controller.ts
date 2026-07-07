@@ -1,5 +1,5 @@
 import { Controller, Get } from '@nestjs/common';
-import { Public } from '#common/rbac/decorators/rbac.decorators.js';
+import { Public, StoreContext } from '#common/rbac/decorators/rbac.decorators.js';
 import { SkipTransform } from '#common/decorators/skip-transform.decorator.js';
 
 /**
@@ -9,6 +9,7 @@ import { SkipTransform } from '#common/decorators/skip-transform.decorator.js';
  * X-Timestamp drifts more than ±30 s, so this is the bootstrap out of that hole.
  */
 @Controller('time')
+@StoreContext('none')
 export class TimeController {
   @Get()
   @Public()

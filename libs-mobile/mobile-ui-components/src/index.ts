@@ -36,7 +36,6 @@ export * from "./lib/section-header";
 export * from "./lib/title-with-icon";
 export * from "./lib/app-layout";
 export { AppScrollLayout } from "./lib/app-layout/AppScrollLayout";
-export * from "./lib/list-page-scaffold";
 export * from "./lib/bottom-sheet-modal";
 export * from "./lib/modal-header";
 export * from "./lib/title-description";

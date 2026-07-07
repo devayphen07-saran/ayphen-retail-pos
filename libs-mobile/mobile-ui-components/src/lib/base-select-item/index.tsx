@@ -29,6 +29,9 @@ export const BaseSelectItem = (props: BaseSelectItemProps) => {
     isSelected,
     rightText,
     iconName,
+    accessibilityRole,
+    accessibilityLabel,
+    accessibilityState,
     ...touchProps
   } = props;
 
@@ -40,6 +43,9 @@ export const BaseSelectItem = (props: BaseSelectItemProps) => {
       {...touchProps}
       disabled={disabled}
       activeOpacity={0.7}
+      accessibilityRole={accessibilityRole ?? "button"}
+      accessibilityLabel={accessibilityLabel ?? (subTitle ? `${title}, ${subTitle}` : title)}
+      accessibilityState={{ selected: isSelected, disabled, ...accessibilityState }}
     >
       <Row padding={"xxSmall"} justify="space-between" align="center">
         <Row gap={"small"} align="center" style={{ flex: 1 }}>

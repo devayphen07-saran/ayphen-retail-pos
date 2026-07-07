@@ -13,18 +13,15 @@ import type { PostgresJsDatabase } from 'drizzle-orm/postgres-js';
 import type { Request } from 'express';
 import { DRIZZLE } from '#db/db.module.js';
 import * as schema from '#db/schema.js';
-import {
-  locations,
-  userLocationMappings,
-  userRoleMappings,
-  roles,
-} from '#db/schema.js';
+import { locations, userLocationMappings } from '#db/schema.js';
 import {
   IS_PUBLIC_KEY,
   LOCATION_CONTEXT_KEY,
+  readScopedSource,
   type StoreContextSource,
 } from '../decorators/rbac.decorators.js';
-import type { ResolvedStoreContext } from '../resolved-store-context.js';
+import { RbacRepository } from '../rbac.repository.js';
+import '../resolved-store-context.js';
 
 /** HTTP methods that never touch the write-gate (reads are never blocked). */
 const READ_METHODS = new Set(['GET', 'HEAD', 'OPTIONS']);
@@ -55,6 +52,7 @@ export class LocationGuard implements CanActivate {
   constructor(
     private readonly reflector: Reflector,
     @Inject(DRIZZLE) private readonly db: PostgresJsDatabase<typeof schema>,
+    private readonly rbacRepo: RbacRepository,
   ) {}
 
   async canActivate(ctx: ExecutionContext): Promise<boolean> {
@@ -74,13 +72,13 @@ export class LocationGuard implements CanActivate {
     const principal = req.user;
     if (!principal) throw new UnauthorizedException('MISSING_AUTH');
 
-    const context = (req as Request & { context?: ResolvedStoreContext }).context;
+    const context = req.context;
     if (!context?.storeId) {
       // @LocationContext without a resolved store — fail safe (misconfig).
       throw new ForbiddenException('STORE_CONTEXT_MISSING');
     }
 
-    const raw = this.readSource(req, source);
+    const raw = readScopedSource(req, source);
     if (!raw) throw new ForbiddenException('LOCATION_CONTEXT_MISSING');
 
     // 1. Location must belong to this store and be active.
@@ -117,35 +115,17 @@ export class LocationGuard implements CanActivate {
     return true;
   }
 
+  /**
+   * Reuses RbacRepository.findActiveRolesForUser — the one canonical "active
+   * role" predicate (revokedAt IS NULL AND (expiresAt IS NULL OR expiresAt >
+   * now()) AND roles.deletedAt IS NULL) — instead of a bespoke query, so this
+   * can't drift from the definition every other active-role check in the
+   * codebase enforces.
+   */
   private async isStoreOwner(userId: string, storeId: string): Promise<boolean> {
-    const [row] = await this.db
-      .select({ id: userRoleMappings.id })
-      .from(userRoleMappings)
-      .innerJoin(roles, eq(userRoleMappings.roleFk, roles.id))
-      .where(and(
-        eq(userRoleMappings.userFk, userId),
-        eq(userRoleMappings.storeFk, storeId),
-        eq(roles.code, 'STORE_OWNER'),
-        isNull(userRoleMappings.revokedAt),
-      ));
-    return !!row;
-  }
-
-  /** Extract the raw location id from the request per 'scope.key'. */
-  private readSource(req: Request, source: StoreContextSource): string | undefined {
-    const dot = source.indexOf('.');
-    if (dot < 0) return undefined;
-    const scope = source.slice(0, dot);
-    const key = source.slice(dot + 1);
-
-    let value: unknown;
-    switch (scope) {
-      case 'param':  value = req.params?.[key]; break;
-      case 'query':  value = req.query?.[key]; break;
-      case 'body':   value = (req.body as Record<string, unknown> | undefined)?.[key]; break;
-      case 'header': value = req.headers?.[key.toLowerCase()]; break;
-      default:       return undefined;
-    }
-    return typeof value === 'string' && value.length > 0 ? value : undefined;
+    const activeRoles = await this.rbacRepo.findActiveRolesForUser(userId, storeId);
+    return activeRoles.some(
+      (role) => role.code === 'STORE_OWNER' && role.roleStoreFk === storeId,
+    );
   }
 }

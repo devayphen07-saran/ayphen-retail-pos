@@ -4,7 +4,9 @@ import { withTransaction } from '../db/transaction';
 import { appliersRegistry } from '../appliers/appliers.registry';
 import { mutationQueueRepository, type MutationQueueRow } from '../repositories/mutation-queue.repository';
 import { requestImmediateSync } from '../scheduler-instance';
+import { resolveConflict as reportConflictResolution } from '../transport/sync-transport';
 import type { WireRow } from '../repositories/synced-table.repository';
+import { logger } from '../../../utils/logger';
 
 /**
  * Conflicts only ever arise from `update` (master-data.handler.ts's optimistic
@@ -12,6 +14,23 @@ import type { WireRow } from '../repositories/synced-table.repository';
  * the handler returns `rejected` instead for a missing/deleted entity, never
  * `conflict`. So neither branch here needs a "server deleted it" fallback.
  */
+
+/**
+ * Tell the backend its `sync_conflicts` row is dealt with — pure bookkeeping so
+ * the server-side conflict log doesn't go stale (the client stays the source of
+ * truth; the server never merges). Best-effort and fire-and-forget AFTER the
+ * local resolution has already committed: a failed/again-rate-limited call must
+ * never block or undo the user's choice, so we only log it.
+ */
+function reportResolvedToServer(
+  storeId: string,
+  mutationId: string,
+  status: 'resolved' | 'discarded',
+): void {
+  void reportConflictResolution(storeId, mutationId, { status }).catch((err) => {
+    logger.warn('[sync] could not report conflict resolution to server', err);
+  });
+}
 
 /**
  * Discard the local edit, adopt the server's version. One transaction: the
@@ -31,6 +50,10 @@ export async function takeServerVersion(storeId: string, row: MutationQueueRow):
     }
     await mutationQueueRepository.remove(tx, row.mutationId);
   });
+
+  // Local edit thrown away in favour of the server's row → the client's
+  // mutation was discarded.
+  reportResolvedToServer(storeId, row.mutationId, 'discarded');
 }
 
 /**
@@ -62,6 +85,10 @@ export async function resubmitMine(storeId: string, row: MutationQueueRow): Prom
       now,
     });
   });
+
+  // The original conflict is being resolved by rebasing + resubmitting the
+  // local edit under the server's fresh row_version.
+  reportResolvedToServer(storeId, row.mutationId, 'resolved');
 
   requestImmediateSync();
 }

@@ -43,7 +43,7 @@ export class RoleController {
 
   @Get()
   @RequirePermissions({ entity: 'Role', action: 'view' })
-  async list(@Param('storeId') storeId: string): Promise<RoleResponse[]> {
+  async list(@Param('storeId', ParseUUIDPipe) storeId: string): Promise<RoleResponse[]> {
     const roles = await this.roles.listRoles(storeId);
     return RoleResponseMapper.toListResponse(roles);
   }

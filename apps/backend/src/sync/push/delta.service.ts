@@ -1,6 +1,7 @@
 import { Inject, Injectable, Logger } from '@nestjs/common';
 import { eq } from 'drizzle-orm';
-import { DRIZZLE, UnitOfWork, type Database } from '#db/db.module.js';
+import { DRIZZLE, UnitOfWork, type Database, type DbTransaction } from '#db/db.module.js';
+import { unwrapPgError } from '#db/rethrow-unique-violation.js';
 import { accountSubscriptions } from '#db/schema.js';
 import { ErrorCodes, type ErrorCode } from '#common/error-codes.js';
 import { ServiceUnavailableError } from '#common/exceptions/app.exception.js';
@@ -20,7 +21,7 @@ import { SyncConflictRepository, type ConflictType } from '../repositories/sync-
 import { DeviceSyncHealthRepository } from '../repositories/device-sync-health.repository.js';
 import { MutationHandlerRegistry } from './mutation-handler.registry.js';
 import type { HandlerOutcome, SyncMutationHandler } from './mutation.types.js';
-import { SyncDeltaSchema, type SyncMutation } from '../dto/sync-delta.schema.js';
+import { SyncDeltaSchema, type SyncDeltaRequest, type SyncMutation } from '../dto/sync-delta.schema.js';
 import {
   FUTURE_SKEW_TOLERANCE_MS,
   IDEMPOTENCY_RACE_POLL_INTERVAL_MS,
@@ -28,7 +29,27 @@ import {
   MAX_MUTATION_PAYLOAD_BYTES,
   POISON_MUTATION_MAX_FAILURES,
   REVOCATION_GRACE_WINDOW_MS,
+  WAVE_CONCURRENCY,
 } from '../sync.constants.js';
+
+/**
+ * Runs `fn` over `items` with at most `limit` in flight at once — unlike
+ * `Promise.all(items.map(fn))`, which fans out unboundedly and (for
+ * per-mutation transactions) can claim the entire shared DB pool from one
+ * wave. Order of `results` matches `items`.
+ */
+async function runBounded<T, R>(items: T[], limit: number, fn: (item: T) => Promise<R>): Promise<R[]> {
+  const results: R[] = new Array(items.length);
+  let next = 0;
+  const workers = Array.from({ length: Math.min(limit, items.length) }, async () => {
+    while (next < items.length) {
+      const i = next++;
+      results[i] = await fn(items[i]!);
+    }
+  });
+  await Promise.all(workers);
+  return results;
+}
 
 // ─── Wire shapes (§9 response) ────────────────────────────────────────────────
 
@@ -125,15 +146,29 @@ export class SyncDeltaService {
   ): Promise<SyncDeltaResult> {
     const body = parse(rawBody, SyncDeltaSchema);
     const now = new Date();
-    const { storeId, accountId } = store;
-    const userId = principal.userId;
 
     // Validate the pull cursor BEFORE applying anything: an invalid/horizon
     // cursor must 400/410 up front, not after half the batch committed (the
     // client would retry the whole call and every result must replay cleanly).
     if (body.sync_cursor) {
-      this.cursors.decode(body.sync_cursor, userId, storeId, now);
+      this.cursors.decode(body.sync_cursor, principal.userId, store.storeId, now);
     }
+
+    const env = await this.loadMutationEnv(principal, store, now);
+    const results = await this.runMutationWaves(body.mutations, env);
+
+    return this.buildResult(principal, body, env, results);
+  }
+
+  /** Assemble the per-request preflight context every mutation is checked
+   *  against: session floor, subscription snapshot, and current permissions. */
+  private async loadMutationEnv(
+    principal: MobilePrincipal,
+    store: { storeId: string; accountId: string },
+    now: Date,
+  ): Promise<MutationEnv> {
+    const { storeId, accountId } = store;
+    const userId = principal.userId;
 
     const session = await this.sessions.findById(principal.deviceSessionId);
     const sessionCreatedAt: Date = session?.createdAt ?? now;
@@ -150,7 +185,7 @@ export class SyncDeltaService {
 
     const permissions = await this.rbac.getCachedPermissions(userId, storeId, true);
 
-    const env: MutationEnv = {
+    return {
       now,
       storeId,
       userId,
@@ -160,49 +195,85 @@ export class SyncDeltaService {
       subscription: sub ?? null,
       failedGuuids: new Set<string>(),
     };
+  }
 
-    // Dependency-sort so a parent in the same batch always applies before its
-    // children regardless of client ordering (S-3a).
-    const sorted = topoSort(body.mutations);
+  /**
+   * Dependency-sort so a parent in the same batch always applies before its
+   * children regardless of client ordering (S-3a), dedupe repeated
+   * mutation_ids, then run independent mutations concurrently within a
+   * "wave": a mutation always lands in a strictly later wave than its parent
+   * AND than any earlier mutation touching the same entity guuid —
+   * preserving both S-3a/S-3b cascade ordering and same-entity mutation
+   * ordering while letting a large batch of unrelated mutations avoid paying
+   * N sequential round trips. Mutates env.failedGuuids as cascade-relevant
+   * failures land, for later mutations in the same batch to check.
+   */
+  private async runMutationWaves(
+    mutations: SyncMutation[],
+    env: MutationEnv,
+  ): Promise<Map<string, MutationResultWire>> {
+    const sorted = topoSort(mutations);
     const results = new Map<string, MutationResultWire>();
 
-    for (const mutation of sorted) {
-      if (results.has(mutation.mutation_id)) continue; // duplicate id in one batch — first wins
-      const result = await this.processOne(mutation, env);
-      results.set(mutation.mutation_id, result);
+    // Duplicate mutation_id in one batch — first occurrence wins; later ones
+    // are pure resubmits and resolve to the same Map entry with no extra work.
+    const seenIds = new Set<string>();
+    const unique = sorted.filter((m) => {
+      if (seenIds.has(m.mutation_id)) return false;
+      seenIds.add(m.mutation_id);
+      return true;
+    });
 
-      const guuid = typeof mutation.payload.guuid === 'string' ? mutation.payload.guuid : undefined;
-      const failed =
-        result.status === 'rejected' ||
-        result.status === 'conflict' ||
-        // A parent rejected on a PRIOR batch replays as duplicate{cached:rejected}
-        // — it must still cascade (S-3b).
-        (result.status === 'duplicate' &&
-          (result.cached as { status?: string } | null)?.status === 'rejected');
-      if (failed && guuid) env.failedGuuids.add(guuid);
+    for (const wave of computeWaves(unique)) {
+      const waveResults = await runBounded(wave, WAVE_CONCURRENCY, (m) => this.processOne(m, env));
+      wave.forEach((mutation, i) => {
+        const result = waveResults[i]!;
+        results.set(mutation.mutation_id, result);
+
+        const guuid = typeof mutation.payload.guuid === 'string' ? mutation.payload.guuid : undefined;
+        const failed =
+          result.status === 'rejected' ||
+          result.status === 'conflict' ||
+          // A parent rejected on a PRIOR batch replays as duplicate{cached:rejected}
+          // — it must still cascade (S-3b).
+          (result.status === 'duplicate' &&
+            (result.cached as { status?: string } | null)?.status === 'rejected');
+        if (failed && guuid) env.failedGuuids.add(guuid);
+      });
     }
 
+    return results;
+  }
+
+  /** Stamps device sync health, folds in the pull-side changes for this
+   *  cursor (if any), and assembles the wire response. */
+  private async buildResult(
+    principal: MobilePrincipal,
+    body: SyncDeltaRequest,
+    env: MutationEnv,
+    results: Map<string, MutationResultWire>,
+  ): Promise<SyncDeltaResult> {
     // Stamp device sync health — S-34's `min(last_sync_at)` oversell gate reads
     // this. Shared with the pull/initial paths so a pull-only device still
     // advances the watermark (F1).
-    await this.health.touch(principal.deviceId, now);
+    await this.health.touch(principal.deviceId, env.now);
 
     let pulled: ChangesResult | null = null;
     if (body.sync_cursor) {
       const supported = body.supported_entity_types;
-      pulled = await this.changes.pull(userId, storeId, body.sync_cursor, supported);
+      pulled = await this.changes.pull(principal.userId, env.storeId, body.sync_cursor, supported);
     }
 
     // Permission-freshness piggyback — same contract as the auth endpoints:
     // null means the client's snapshot version is current.
-    const snapshot = await this.snapshots.getOrBuild(userId, body.permissions_version);
+    const snapshot = await this.snapshots.getOrBuild(principal.userId, body.permissions_version);
 
     return {
       mutation_results: body.mutations.map((m) => results.get(m.mutation_id)!),
       changes: pulled?.changes ?? {},
       sync_cursor: pulled?.sync_cursor ?? null,
       has_more: pulled?.has_more ?? false,
-      server_time: now.toISOString(),
+      server_time: env.now.toISOString(),
       permissions_version: principal.permissionsVersion,
       ...(snapshot ? { snapshot: snapshot.snapshot, snapshot_signature: snapshot.signature } : {}),
     };
@@ -216,7 +287,7 @@ export class SyncDeltaService {
     //    cached result as `duplicate` rather than re-deriving a fresh outcome
     //    (F4). Expired rows are dropped so the in-tx claim can legitimately
     //    re-insert (§10 read-time TTL).
-    const existing = await this.idempotency.find(m.mutation_id, env.userId);
+    const existing = await this.idempotency.find(m.mutation_id, env.userId, env.storeId);
     if (existing) {
       if (this.idempotency.isLive(existing, env.now)) {
         const cached = existing.result as Record<string, unknown>;
@@ -224,7 +295,7 @@ export class SyncDeltaService {
           existing.status === 'conflict' ? { ...cached, server_row: undefined } : cached;
         return { mutation_id: m.mutation_id, status: 'duplicate', cached: sanitized };
       }
-      await this.idempotency.remove(m.mutation_id, env.userId);
+      await this.idempotency.remove(m.mutation_id, env.userId, env.storeId);
     }
 
     // 1b. Per-mutation payload cap (S-36) — deterministic → cached; on retry the
@@ -235,7 +306,7 @@ export class SyncDeltaService {
     }
 
     // 2. Poison cap (S-7) — never re-run a permanently failing handler forever.
-    const failureCount = await this.failures.count(m.mutation_id, env.userId);
+    const failureCount = await this.failures.count(m.mutation_id, env.userId, env.storeId);
     if (failureCount >= POISON_MUTATION_MAX_FAILURES) {
       return this.terminalReject(m, env, ErrorCodes.SERVER_ERROR,
         `mutation permanently failed after ${failureCount} attempts`, 'BUSINESS_RULE');
@@ -369,25 +440,7 @@ export class SyncDeltaService {
   ): Promise<MutationResultWire> {
     try {
       return await this.uow.execute(async (tx) => {
-        let outcome: HandlerOutcome;
-        try {
-          // Nested tx = SAVEPOINT: a constraint violation (guuid replay, SKU
-          // race) aborts only the handler's scope; the outer tx stays healthy
-          // for the idempotency write.
-          outcome = await tx.transaction((inner) =>
-            handler.apply(m.action, m.payload, m.expected_row_version, {
-              tx: inner,
-              storeId: env.storeId,
-              userId: env.userId,
-              deviceId: env.deviceId,
-              effectiveAsOf,
-            }),
-          );
-        } catch (error) {
-          const mapped = mapConstraintViolation(error);
-          if (!mapped) throw error;
-          outcome = mapped;
-        }
+        const outcome = await this.runHandlerInSavepoint(tx, m, handler, effectiveAsOf, env);
 
         if (outcome.kind === 'rejected') throw new HandlerRejectedSignal(outcome);
 
@@ -426,46 +479,84 @@ export class SyncDeltaService {
         return wire;
       });
     } catch (error) {
-      if (error instanceof HandlerRejectedSignal) {
-        const wire: MutationResultWire = {
-          mutation_id: m.mutation_id,
-          status: 'rejected',
-          code: error.outcome.code,
-          message: error.outcome.message,
-          conflict_type: error.outcome.conflictType,
-        };
-        await this.idempotency.record({
-          mutationId: m.mutation_id,
-          userFk: env.userId,
-          storeFk: env.storeId,
-          entityType: m.entity_type,
-          action: m.action,
-          status: 'rejected',
-          result: wire,
-        });
-        return wire;
-      }
+      return this.mapExecuteFailure(error, m, env);
+    }
+  }
 
-      if (error instanceof RaceLostSignal) {
-        return this.pollRaceWinner(m, env);
-      }
+  /** Nested tx = SAVEPOINT: a constraint violation (guuid replay, SKU race)
+   *  aborts only the handler's scope; the outer tx stays healthy for the
+   *  idempotency write. */
+  private async runHandlerInSavepoint(
+    tx: DbTransaction,
+    m: SyncMutation,
+    handler: SyncMutationHandler,
+    effectiveAsOf: Date,
+    env: MutationEnv,
+  ): Promise<HandlerOutcome> {
+    try {
+      return await tx.transaction((inner) =>
+        handler.apply(m.action, m.payload, m.expected_row_version, {
+          tx: inner,
+          storeId: env.storeId,
+          userId: env.userId,
+          deviceId: env.deviceId,
+          effectiveAsOf,
+        }),
+      );
+    } catch (error) {
+      const mapped = mapConstraintViolation(error);
+      if (!mapped) throw error;
+      return mapped;
+    }
+  }
 
-      // Unknown handler crash — bump the poison counter (outside the rolled-back
-      // tx) and return an UNCACHED rejection so an honest retry can succeed.
-      const message = error instanceof Error ? error.message : String(error);
-      this.logger.error(`mutation ${m.mutation_id} (${m.entity_type}/${m.action}) failed: ${message}`);
-      const count = await this.failures.bump(m.mutation_id, env.userId, message);
-      if (count >= POISON_MUTATION_MAX_FAILURES) {
-        return this.terminalReject(m, env, ErrorCodes.SERVER_ERROR,
-          `mutation permanently failed after ${count} attempts`, 'BUSINESS_RULE');
-      }
-      return {
+  /** Maps a failure signal out of the (already rolled-back-or-committed)
+   *  business tx to its wire result — HandlerRejectedSignal, a lost
+   *  idempotency race, or an unexpected handler crash. */
+  private async mapExecuteFailure(
+    error: unknown,
+    m: SyncMutation,
+    env: MutationEnv,
+  ): Promise<MutationResultWire> {
+    if (error instanceof HandlerRejectedSignal) {
+      const wire: MutationResultWire = {
         mutation_id: m.mutation_id,
         status: 'rejected',
-        code: ErrorCodes.SERVER_ERROR,
-        message: 'internal error applying mutation — safe to retry',
+        code: error.outcome.code,
+        message: error.outcome.message,
+        conflict_type: error.outcome.conflictType,
       };
+      await this.idempotency.record({
+        mutationId: m.mutation_id,
+        userFk: env.userId,
+        storeFk: env.storeId,
+        entityType: m.entity_type,
+        action: m.action,
+        status: 'rejected',
+        result: wire,
+      });
+      return wire;
     }
+
+    if (error instanceof RaceLostSignal) {
+      return this.pollRaceWinner(m, env);
+    }
+
+    // Unknown handler crash — bump the poison counter (outside the rolled-back
+    // tx) and return an UNCACHED rejection so an honest retry can succeed.
+    const message = error instanceof Error ? error.message : String(error);
+    this.logger.error(`mutation ${m.mutation_id} (${m.entity_type}/${m.action}) failed: ${message}`);
+    const count = await this.failures.bump(m.mutation_id, env.userId, env.storeId, message);
+    if (count >= POISON_MUTATION_MAX_FAILURES) {
+      return this.terminalReject(m, env, ErrorCodes.SERVER_ERROR,
+        `mutation permanently failed after ${count} attempts`, 'BUSINESS_RULE');
+    }
+    return {
+      mutation_id: m.mutation_id,
+      status: 'rejected',
+      code: ErrorCodes.SERVER_ERROR,
+      message: 'internal error applying mutation — safe to retry',
+    };
   }
 
   /** §10 race: the loser polls for the winner's committed row; exhaustion → 503
@@ -474,7 +565,7 @@ export class SyncDeltaService {
     const deadline = Date.now() + IDEMPOTENCY_RACE_POLL_TIMEOUT_MS;
     while (Date.now() < deadline) {
       await sleep(IDEMPOTENCY_RACE_POLL_INTERVAL_MS);
-      const row = await this.idempotency.find(m.mutation_id, env.userId);
+      const row = await this.idempotency.find(m.mutation_id, env.userId, env.storeId);
       if (row) {
         const cached = row.result as Record<string, unknown>;
         const sanitized = row.status === 'conflict' ? { ...cached, server_row: undefined } : cached;
@@ -584,14 +675,57 @@ export function topoSort(mutations: SyncMutation[]): SyncMutation[] {
   return out;
 }
 
+/**
+ * Group an already-topo-sorted, deduped mutation list into concurrency
+ * "waves": a mutation's wave is one greater than its parent's wave (if any)
+ * AND one greater than the wave of the last mutation seen touching the same
+ * entity guuid (if any) — otherwise wave 0. Mutations in the same wave share
+ * no dependency and no target entity, so they can safely run via
+ * `Promise.all` without disturbing S-3a/S-3b cascade ordering or the
+ * within-batch ordering of repeated edits to one entity.
+ */
+export function computeWaves(mutations: SyncMutation[]): SyncMutation[][] {
+  const byGuuid = new Map<string, SyncMutation>();
+  for (const m of mutations) {
+    const guuid = typeof m.payload.guuid === 'string' ? m.payload.guuid : undefined;
+    if (guuid && !byGuuid.has(guuid)) byGuuid.set(guuid, m);
+  }
+
+  const waveOf = new Map<string, number>();
+  const lastWaveForGuuid = new Map<string, number>();
+
+  for (const m of mutations) {
+    let wave = 0;
+    if (m.parent_guuid) {
+      const parent = byGuuid.get(m.parent_guuid);
+      if (parent && parent.mutation_id !== m.mutation_id) {
+        wave = Math.max(wave, (waveOf.get(parent.mutation_id) ?? 0) + 1);
+      }
+    }
+    const guuid = typeof m.payload.guuid === 'string' ? m.payload.guuid : undefined;
+    if (guuid && lastWaveForGuuid.has(guuid)) {
+      wave = Math.max(wave, lastWaveForGuuid.get(guuid)! + 1);
+    }
+    waveOf.set(m.mutation_id, wave);
+    if (guuid) lastWaveForGuuid.set(guuid, wave);
+  }
+
+  const waves: SyncMutation[][] = [];
+  for (const m of mutations) {
+    const wave = waveOf.get(m.mutation_id)!;
+    (waves[wave] ??= []).push(m);
+  }
+  return waves;
+}
+
 /** Postgres constraint violations from the handler savepoint → per-mutation rejections. */
 function mapConstraintViolation(error: unknown): HandlerOutcome | null {
-  const code = (error as { code?: string } | null)?.code;
+  const code = unwrapPgError(error)?.code;
   if (code === '23505') {
     return {
       kind: 'rejected',
       code: ErrorCodes.DUPLICATE_ENTRY,
-      message: 'a row with the same unique value already exists (guuid or unique field replay)',
+      message: 'This was already saved from another device.',
       conflictType: 'VALIDATION',
     };
   }
@@ -599,7 +733,7 @@ function mapConstraintViolation(error: unknown): HandlerOutcome | null {
     return {
       kind: 'rejected',
       code: ErrorCodes.FOREIGN_KEY_VIOLATION,
-      message: 'the mutation references a row that does not exist',
+      message: 'This record no longer exists — it may have been deleted elsewhere.',
       conflictType: 'VALIDATION',
     };
   }

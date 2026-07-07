@@ -13,6 +13,7 @@ import { RbacRepository } from '../rbac.repository.js';
 import {
   IS_PUBLIC_KEY,
   STORE_CONTEXT_KEY,
+  readScopedSource,
   type StoreContextSource,
 } from '../decorators/rbac.decorators.js';
 import type { ResolvedStoreContext } from '../resolved-store-context.js';
@@ -52,7 +53,7 @@ export class TenantGuard implements CanActivate {
     const principal = req.user;
     if (!principal) throw new UnauthorizedException('MISSING_AUTH');
 
-    const raw = this.readSource(req, source);
+    const raw = readScopedSource(req, source);
     if (!raw) throw new ForbiddenException('STORE_CONTEXT_MISSING');
 
     const accessibleIds = await this.rbac.userStoreIds(principal.userId);
@@ -66,26 +67,8 @@ export class TenantGuard implements CanActivate {
       accountId: store.accountFk,
       isLocked:  store.locked,
     };
-    (req as Request & { context?: ResolvedStoreContext }).context = context;
+    req.context = context;
 
     return true;
-  }
-
-  /** Extract the raw store id from the request per 'scope.key'. */
-  private readSource(req: Request, source: StoreContextSource): string | undefined {
-    const dot = source.indexOf('.');
-    if (dot < 0) return undefined;
-    const scope = source.slice(0, dot);
-    const key = source.slice(dot + 1);
-
-    let value: unknown;
-    switch (scope) {
-      case 'param':  value = req.params?.[key]; break;
-      case 'query':  value = req.query?.[key]; break;
-      case 'body':   value = (req.body as Record<string, unknown> | undefined)?.[key]; break;
-      case 'header': value = req.headers?.[key.toLowerCase()]; break;
-      default:       return undefined;
-    }
-    return typeof value === 'string' && value.length > 0 ? value : undefined;
   }
 }

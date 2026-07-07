@@ -4,7 +4,7 @@ import { router } from 'expo-router';
 import styled from 'styled-components/native';
 import { useMobileTheme, type MobileTheme } from '@ayphen/mobile-theme';
 import { AppLayout, Column, LucideIcon, Row, Typography } from '@ayphen/mobile-ui-components';
-import { useActiveStoreStore } from '@store';
+import { useActiveStoreStore, useActiveStoreContext } from '@store';
 
 /**
  * Store dashboard — the Home tab. Visually modeled on the reference app's
@@ -24,7 +24,7 @@ import { useActiveStoreStore } from '@store';
  */
 export function StoreHomeScreen() {
   const { theme } = useMobileTheme();
-  const store = useActiveStoreStore((s) => s.store);
+  const store = useActiveStoreContext();
   const clearActiveStore = useActiveStoreStore((s) => s.clearActiveStore);
 
   const storeName = store?.name || 'Unknown store';

@@ -1,7 +1,7 @@
 import { useMemo } from 'react';
 import { ActivityIndicator, View } from 'react-native';
 import styled from 'styled-components/native';
-import { useLocalSearchParams } from 'expo-router';
+import { router, useLocalSearchParams } from 'expo-router';
 import { useMobileTheme } from '@ayphen/mobile-theme';
 import { AppLayout, Button, Column, Input, Switch, Typography } from '@ayphen/mobile-ui-components';
 import { useLocationsQuery, useUpdateLocationMutation } from '@ayphen/api-manager';
@@ -41,7 +41,7 @@ export function EditLocationScreen() {
 
   if (isLoading) {
     return (
-      <AppLayout title="Edit Location">
+      <AppLayout title="Edit Location" onBack={() => router.back()}>
         <Column gap={3} align="center" justify="center" flex={1}>
           <ActivityIndicator color={theme.colorPrimary} size="large" />
         </Column>
@@ -51,7 +51,7 @@ export function EditLocationScreen() {
 
   if (isError || !location) {
     return (
-      <AppLayout title="Edit Location">
+      <AppLayout title="Edit Location" onBack={() => router.back()}>
         <Column gap={3} align="center" justify="center" flex={1} padding="large">
           <Typography.Body weight="semiBold">
             {isError ? "Couldn't load this location" : 'Location not found'}

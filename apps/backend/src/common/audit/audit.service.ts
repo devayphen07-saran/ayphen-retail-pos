@@ -1,6 +1,6 @@
 import { Inject, Injectable } from '@nestjs/common';
 import type { PostgresJsDatabase } from 'drizzle-orm/postgres-js';
-import { DRIZZLE } from '#db/db.module.js';
+import { DRIZZLE, type DbTransaction } from '#db/db.module.js';
 import * as schema from '#db/schema.js';
 import { auditLogs } from '#db/schema.js';
 
@@ -23,7 +23,9 @@ export type ActivityType =
   | 'ROLE_ASSIGNMENT_CREATED'
   | 'ROLE_ASSIGNMENT_REVOKED'
   // ─ Billing / subscription events (subscription §29.14) ─
-  | 'SUBSCRIPTION_CHANGED';
+  | 'SUBSCRIPTION_CHANGED'
+  // ─ Lookup engine events (lookup-entity-prd.md §6/§9) ─
+  | 'LOOKUP_CHANGED';
 
 export interface AuditLogEntry {
   event:        string;
@@ -41,8 +43,6 @@ export interface AuditLogEntry {
   userAgent?:   string;
 }
 
-type DbTx = Parameters<Parameters<PostgresJsDatabase<typeof schema>['transaction']>[0]>[0];
-
 @Injectable()
 export class AuditService {
   constructor(
@@ -53,7 +53,7 @@ export class AuditService {
     await this.db.insert(auditLogs).values(this.toRow(entry));
   }
 
-  async logInTransaction(entry: AuditLogEntry, tx: DbTx): Promise<void> {
+  async logInTransaction(entry: AuditLogEntry, tx: DbTransaction): Promise<void> {
     await tx.insert(auditLogs).values(this.toRow(entry));
   }
 

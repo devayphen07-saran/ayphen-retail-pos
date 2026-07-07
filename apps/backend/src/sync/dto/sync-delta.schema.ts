@@ -6,6 +6,18 @@ const ULID_RE = /^[0-9A-HJKMNP-TV-Z]{26}$/i;
 
 export const MutationSchema = z.object({
   mutation_id: z.string().regex(ULID_RE, 'mutation_id must be a ULID'),
+  /**
+   * Deliberately a bare string, NOT `z.enum(SYNC_ENTITY_TYPES)` — this schema
+   * gates the WHOLE request (`parse(rawBody, SyncDeltaSchema)` in
+   * delta.service.ts runs before any mutation is touched), so an enum here
+   * would 400 the entire batch over a single mutation whose entity_type this
+   * server version doesn't know (an older/newer client, or a genuinely bad
+   * value). `mutation-handler.registry.ts` already handles that per-mutation
+   * — an unrecognized `entity_type` becomes `rejected: UNKNOWN_MUTATION` for
+   * THAT mutation while the rest of the batch still applies (isSyncEntityType/
+   * SYNC_ENTITY_TYPES in sync.constants.ts is that enforcement point). Keep
+   * both in sync only in intent, not in a shared Zod type.
+   */
   entity_type: z.string().min(1).max(40),
   action: z.enum(['create', 'update', 'delete']),
   payload: z.record(z.string(), z.unknown()),

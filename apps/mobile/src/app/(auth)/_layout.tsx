@@ -20,3 +20,5 @@ export default function AuthLayout() {
     />
   );
 }
+
+export { RouteErrorBoundary as ErrorBoundary } from '@ui/RouteErrorBoundary';

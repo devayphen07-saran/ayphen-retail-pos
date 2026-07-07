@@ -18,6 +18,8 @@ interface MenuItem {
   rightIcon?: LucideIconNameType;
   rightIconColor?: string;
   onRightIconPress?: () => void;
+  /** Renders dimmed, inert (no press, no chevron) — e.g. a not-yet-built feature. */
+  disabled?: boolean;
 }
 
 interface MenuGroup {
@@ -55,8 +57,13 @@ export const GroupedMenu: React.FC<GroupedMenuProps> = ({
           <GroupLabel weight={"bold"}>{group.label}</GroupLabel>
           <Group>
             {group.items.map((item, j) => (
-              <TouchableOpacity key={`item-${idx}-${j}`} onPress={item.onPress} activeOpacity={0.8}>
-                <RowFlex>
+              <TouchableOpacity
+                key={`item-${idx}-${j}`}
+                onPress={item.disabled ? undefined : item.onPress}
+                disabled={item.disabled}
+                activeOpacity={0.8}
+              >
+                <RowFlex style={item.disabled ? { opacity: 0.5 } : undefined}>
                   <IconSlot>
                     <LucideIcon
                       name={item.icon as LucideIconNameType}
@@ -76,7 +83,7 @@ export const GroupedMenu: React.FC<GroupedMenuProps> = ({
                       )
                     ) : null}
                   </ContentFlex>
-                  {item.rightIcon ? (
+                  {item.disabled ? null : item.rightIcon ? (
                     <TouchableOpacity
                       onPress={item.onRightIconPress}
                       disabled={!item.onRightIconPress}

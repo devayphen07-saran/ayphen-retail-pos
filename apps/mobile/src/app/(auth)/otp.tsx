@@ -1,12 +1,14 @@
+import { useEffect, useState } from 'react';
 import { ActivityIndicator, KeyboardAvoidingView, Platform, ScrollView, TouchableOpacity, useWindowDimensions } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { LinearGradient } from 'expo-linear-gradient';
 import styled from 'styled-components/native';
 import { useForm, FormProvider } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
-import { router, useLocalSearchParams } from 'expo-router';
+import { router, useLocalSearchParams, type Href } from 'expo-router';
 import { useMobileTheme } from '@ayphen/mobile-theme';
 import {
+  Alert,
   Column,
   Flex,
   LucideIcon,
@@ -15,8 +17,11 @@ import {
   Typography,
 } from '@ayphen/mobile-ui-components';
 import {
+  useRequestLoginOtpMutation,
+  useRequestSignupOtpMutation,
   useVerifyLoginMutation,
   useVerifySignupMutation,
+  type NormalizedError,
 } from '@ayphen/api-manager';
 import {
   loginOtpSchema,
@@ -27,6 +32,7 @@ import {
 } from '@features/auth';
 import { buildDeviceRequest } from '@core/auth/device-request';
 import { useAuth } from '@core/providers/AuthProvider';
+import { useAuthStore } from '@store';
 import { handleFormError } from '../../utils/handleFormError';
 import { onValidationError } from '../../utils/onValidationError';
 
@@ -49,6 +55,8 @@ export default function OtpScreen() {
 
   const verifyLogin = useVerifyLoginMutation();
   const verifySignup = useVerifySignupMutation();
+  const requestLoginOtp = useRequestLoginOtpMutation();
+  const requestSignupOtp = useRequestSignupOtpMutation();
 
   const formData = useForm<OtpVerifyForm>({
     resolver: zodResolver(isSignup ? signupOtpSchema : loginOtpSchema),
@@ -66,6 +74,35 @@ export default function OtpScreen() {
     formState: { isSubmitting, dirtyFields },
   } = formData;
   const hasUnsavedChanges = Object.keys(dirtyFields).length > 0;
+  const [attemptsRemaining, setAttemptsRemaining] = useState<number | null>(null);
+  // The request id issued when the code was (re)sent — mutable because
+  // resending gets a fresh one from the server; verify must use the latest.
+  const [currentOtpRequestId, setCurrentOtpRequestId] = useState(otpRequestId);
+  const [resendSecondsLeft, setResendSecondsLeft] = useState(30);
+  const [isResending, setIsResending] = useState(false);
+
+  useEffect(() => {
+    if (resendSecondsLeft <= 0) return;
+    const t = setTimeout(() => setResendSecondsLeft((s) => s - 1), 1000);
+    return () => clearTimeout(t);
+  }, [resendSecondsLeft]);
+
+  const handleResend = async () => {
+    setIsResending(true);
+    try {
+      const mut = isSignup ? requestSignupOtp : requestLoginOtp;
+      const res = await mut.mutateAsync({ bodyParam: { phone } });
+      setCurrentOtpRequestId(res.otp_request_id);
+      setAttemptsRemaining(null);
+      reset(DEFAULT_OTP_VERIFY_VALUES);
+      setResendSecondsLeft(30);
+      Alert.info('Code sent', `A new code was sent to ${phone}.`);
+    } catch {
+      Alert.info('Error', "Couldn't resend the code. Check your connection and try again.");
+    } finally {
+      setIsResending(false);
+    }
+  };
 
   const onSubmit = async (values: OtpVerifyForm) => {
     try {
@@ -75,7 +112,7 @@ export default function OtpScreen() {
             bodyParam: {
               phone,
               otp_code: values.otp,
-              otp_request_id: otpRequestId,
+              otp_request_id: currentOtpRequestId,
               name: normalizeName(name ?? ''),
               consent_given: true,
               device,
@@ -85,7 +122,7 @@ export default function OtpScreen() {
             bodyParam: {
               phone,
               otp_code: values.otp,
-              otp_request_id: otpRequestId,
+              otp_request_id: currentOtpRequestId,
               device,
             },
           });
@@ -94,8 +131,34 @@ export default function OtpScreen() {
       // reset() before navigating away (forms-agent.md §6) — the OTP screen
       // stays mounted underneath the replace target briefly during transition.
       reset();
-      router.replace('/(app)');
+      // Resume the deep-link / expired-session target AuthGate stashed; the
+      // target's own layout guards still run, so an unauthorized resume
+      // redirects safely. Fall back to the default entry gate.
+      const returnTo = useAuthStore.getState().consumePendingReturnTo();
+      router.replace(returnTo ? (returnTo as Href) : '/(app)');
     } catch (err) {
+      // The code the user typed is wrong/expired/reused — that's about the
+      // OTP field itself, so it belongs inline under the input (same call the
+      // phone screen makes for phone-scoped errors), not a popup. Everything
+      // else (rate limit, offline, unknown) has no single field to blame —
+      // the shared handler's alert is the right surface for those.
+      const e = err as Partial<NormalizedError>;
+      const OTP_VALUE_CODES = new Set(['OTP_INVALID', 'OTP_EXPIRED', 'OTP_ALREADY_CONSUMED']);
+      if (e?.status === 422 && (e.code ?? '').toUpperCase() === 'OTP_MAX_ATTEMPTS') {
+        // No attempts left on this code — the input is now dead. Send the
+        // user back to request a fresh one instead of leaving them staring
+        // at a 6-digit field that can never succeed.
+        Alert.info('Too many attempts', 'Too many incorrect attempts. Request a new code.');
+        router.back();
+        return;
+      }
+      if (e?.status === 422 && OTP_VALUE_CODES.has((e.code ?? '').toUpperCase())) {
+        const remaining = (e.data as { details?: { attemptsRemaining?: number } } | undefined)?.details
+          ?.attemptsRemaining;
+        if (typeof remaining === 'number') setAttemptsRemaining(remaining);
+        setError('otp', { type: 'server', message: e.message ?? "That code isn't right." });
+        return;
+      }
       handleFormError(err, setError, 'Could not verify the code.');
     }
   };
@@ -225,9 +288,34 @@ export default function OtpScreen() {
               <OtpNote>
                 <LucideIcon name="Clock" size={12} color={theme.colorPrimaryHover} />
                 <Typography.Caption color={theme.colorTrustNote}>
-                  Code expires in 5 minutes · 3 attempts allowed
+                  {attemptsRemaining != null
+                    ? `${attemptsRemaining} attempt${attemptsRemaining === 1 ? '' : 's'} left`
+                    : 'Code expires in 5 minutes · 3 attempts allowed'}
                 </Typography.Caption>
               </OtpNote>
+
+              <ResendRow
+                onPress={handleResend}
+                disabled={resendSecondsLeft > 0 || isResending || isSubmitting}
+                activeOpacity={0.7}
+                accessibilityRole="button"
+                accessibilityLabel="Resend code"
+                accessibilityState={{ disabled: resendSecondsLeft > 0 || isResending || isSubmitting }}
+              >
+                <Typography.Caption color={theme.colorTextSecondary}>
+                  Didn't get a code?{' '}
+                </Typography.Caption>
+                <Typography.Caption
+                  weight="semiBold"
+                  color={resendSecondsLeft > 0 ? theme.colorTextTertiary : theme.colorPrimary}
+                >
+                  {isResending
+                    ? 'Sending…'
+                    : resendSecondsLeft > 0
+                      ? `Resend in 0:${String(resendSecondsLeft).padStart(2, '0')}`
+                      : 'Resend code'}
+                </Typography.Caption>
+              </ResendRow>
             </Card>
           </ScrollView>
         </KeyboardAvoidingView>
@@ -292,4 +380,13 @@ const OtpNote = styled.View`
   padding: ${({ theme }) => theme.sizing.xSmall}px;
   background-color: ${({ theme }) => theme.color.primary.bg};
   border-radius: ${({ theme }) => theme.borderRadius.large}px;
+`;
+
+const ResendRow = styled.TouchableOpacity`
+  flex-direction: row;
+  align-items: center;
+  justify-content: center;
+  flex-wrap: wrap;
+  margin-top: ${({ theme }) => theme.sizing.medium}px;
+  padding-vertical: ${({ theme }) => theme.sizing.xxSmall}px;
 `;

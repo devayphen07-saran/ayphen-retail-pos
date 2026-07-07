@@ -1,5 +1,5 @@
 import { Inject, Injectable } from '@nestjs/common';
-import { and, eq, isNull } from 'drizzle-orm';
+import { and, eq, inArray, isNull } from 'drizzle-orm';
 import type { PostgresJsDatabase } from 'drizzle-orm/postgres-js';
 import { DRIZZLE, type DbExecutor } from '#db/db.module.js';
 import { requireRow } from '#db/require-row.js';
@@ -78,6 +78,19 @@ export class RefreshTokenRepository {
       .set({ revokedAt: new Date(), revokedReason: reason })
       .where(and(
         eq(refreshTokens.deviceSessionFk, deviceSessionFk),
+        isNull(refreshTokens.revokedAt),
+      ));
+  }
+
+  /** Batched counterpart to `revokeBySession` — one update for every session
+   *  instead of N sequential single-session updates (logout-all). */
+  async revokeByManySessions(deviceSessionFks: string[], reason: string, tx?: DbExecutor): Promise<void> {
+    if (deviceSessionFks.length === 0) return;
+    await (tx ?? this.db)
+      .update(refreshTokens)
+      .set({ revokedAt: new Date(), revokedReason: reason })
+      .where(and(
+        inArray(refreshTokens.deviceSessionFk, deviceSessionFks),
         isNull(refreshTokens.revokedAt),
       ));
   }

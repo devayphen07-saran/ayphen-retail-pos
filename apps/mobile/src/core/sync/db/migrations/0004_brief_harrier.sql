@@ -1,0 +1,1 @@
+ALTER TABLE `failed_applies` ADD `operation` text DEFAULT 'upsert' NOT NULL;

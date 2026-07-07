@@ -11,7 +11,6 @@ import {
   Row,
   ScreenStateRenderer,
   SegmentedTabs,
-  SheetConfirmActions,
   Tag,
   Typography,
   useBottomSheet,
@@ -19,6 +18,8 @@ import {
 import { useSubscriptionPlansQuery, useSubscriptionQuery } from '@ayphen/api-manager';
 import type { PlanCatalogEntry, PlanPricingOption } from '@ayphen/api-manager';
 import { SubscriptionPlansLoading } from '../loading/SubscriptionPlansLoading';
+import { ConfirmCheckoutSheet } from '../components/ConfirmCheckoutSheet';
+import { TrustItem } from '../components/TrustItem';
 
 /**
  * GET /me/subscription/plans (subscription.md §3, §22B — cache ~24h, react-query
@@ -38,32 +39,6 @@ function formatMajor(amount: number, currency: string): string {
 function formatPrice(option: PlanPricingOption): string {
   const cadence = option.billing_cycle === 'annual' ? '/year' : '/month';
   return `${formatMajor(option.amount, option.currency)}${cadence}`;
-}
-
-interface ConfirmCheckoutSheetProps {
-  displayName: string;
-  priceLabel: string;
-  onConfirm: () => void;
-  onCancel: () => void;
-}
-
-function ConfirmCheckoutSheet({ displayName, priceLabel, onConfirm, onCancel }: ConfirmCheckoutSheetProps) {
-  const { theme } = useMobileTheme();
-  return (
-    // The sheet shell gives this a fixed height (snapPoint 'sm'), not a
-    // fit-to-content one — space-between anchors the actions to the bottom
-    // instead of leaving the rest of that fixed height blank under them.
-    <Column style={{ flex: 1, justifyContent: 'space-between', paddingHorizontal: theme.sizing.medium, paddingTop: theme.sizing.medium }}>
-      <Column gap={4}>
-        <Typography.Body type="secondary">{displayName}</Typography.Body>
-        <Typography.H3 weight="bold">{priceLabel}</Typography.H3>
-        <Typography.Caption type="secondary">
-          You'll be redirected to Razorpay to complete payment.
-        </Typography.Caption>
-      </Column>
-      <SheetConfirmActions confirmLabel="Continue" onConfirm={onConfirm} onCancel={onCancel} />
-    </Column>
-  );
 }
 
 type Cta =
@@ -98,7 +73,7 @@ export function SubscriptionPlansScreen() {
   const currentDisplayOrder =
     plans?.find((p) => p.plan_name === sub?.plan.code)?.display_order ?? -1;
 
-  const startCheckout = (plan: PlanCatalogEntry, option: PlanPricingOption) => {
+  const startCheckout = (plan: PlanCatalogEntry, option: PlanPricingOption, kind: 'upgrade' | 'downgrade') => {
     sheet.open({
       Component: ConfirmCheckoutSheet,
       snapPoint: 'sm',
@@ -106,6 +81,7 @@ export function SubscriptionPlansScreen() {
       props: {
         displayName: `${plan.display_name} · ${option.billing_cycle === 'annual' ? 'Annual' : 'Monthly'}`,
         priceLabel: formatPrice(option),
+        isDowngrade: kind === 'downgrade',
         onConfirm: () => {
           sheet.close();
           router.push({
@@ -200,7 +176,7 @@ export function SubscriptionPlansScreen() {
                         <Button
                           label={cta.kind === 'upgrade' ? 'Upgrade' : 'Downgrade'}
                           variant={cta.kind === 'upgrade' ? 'primary' : 'default'}
-                          onPress={() => startCheckout(plan, cta.option)}
+                          onPress={() => startCheckout(plan, cta.option, cta.kind)}
                         />
                       ) : null}
                     </View>
@@ -225,16 +201,6 @@ export function SubscriptionPlansScreen() {
         </ScreenStateRenderer>
       </ScrollView>
     </AppLayout>
-  );
-}
-
-function TrustItem({ iconName, label }: { iconName: 'RefreshCw' | 'ShieldCheck' | 'Receipt'; label: string }) {
-  const { theme } = useMobileTheme();
-  return (
-    <Row align="center" gap={4}>
-      <LucideIcon name={iconName} size={13} color={theme.colorTextSecondary} />
-      <Typography.Caption type="secondary">{label}</Typography.Caption>
-    </Row>
   );
 }
 

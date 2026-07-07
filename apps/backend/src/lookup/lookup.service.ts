@@ -1,11 +1,13 @@
 import { Injectable } from '@nestjs/common';
 import { rethrowUniqueViolationAs } from '#db/rethrow-unique-violation.js';
+import { UnitOfWork } from '#db/db.module.js';
 import {
   ConflictError,
   ForbiddenError,
   NotFoundError,
 } from '#common/exceptions/app.exception.js';
 import { ErrorCodes } from '#common/error-codes.js';
+import { AuditService } from '#common/audit/audit.service.js';
 import { LookupRepository, type LookupValueRow } from './lookup.repository.js';
 import { LookupTypeRepository, type LookupTypeRow } from './lookup-type.repository.js';
 
@@ -28,6 +30,7 @@ export interface UpdateLookupValueCommand {
   description?: string;
   sortOrder?:   number;
   isHidden?:    boolean;
+  expectedRowVersion: number;
 }
 
 /**
@@ -41,6 +44,8 @@ export class LookupService {
   constructor(
     private readonly lookups: LookupRepository,
     private readonly types: LookupTypeRepository,
+    private readonly audit: AuditService,
+    private readonly uow: UnitOfWork,
   ) {}
 
   // ── Types ─────────────────────────────────────────────────────────────────
@@ -49,7 +54,7 @@ export class LookupService {
     return this.types.listAll();
   }
 
-  async createType(command: CreateLookupTypeCommand): Promise<LookupTypeRow> {
+  async createType(actorUserId: string, command: CreateLookupTypeCommand): Promise<LookupTypeRow> {
     // The findByCode check above is TOCTOU-able by itself — two concurrent
     // creates for the same code can both pass it before either commits. The
     // DB's unique constraint on lookup_type.code (schema.ts) is the real
@@ -58,10 +63,26 @@ export class LookupService {
     if (existing)
       throw new ConflictError(ErrorCodes.LOOKUP_CODE_EXISTS, 'A lookup with this code already exists');
     return rethrowUniqueViolationAs(
-      this.types.create({
-        code:        command.code,
-        title:       command.title,
-        description: command.description,
+      this.uow.execute(async (tx) => {
+        const row = await this.types.create(
+          {
+            code:        command.code,
+            title:       command.title,
+            description: command.description,
+          },
+          tx,
+        );
+        await this.audit.logInTransaction({
+          event: 'LOOKUP_TYPE_CREATED',
+          activityType: 'LOOKUP_CHANGED',
+          prefix: 'Lookup type',
+          suffix: `"${row.code}" created`,
+          userId: actorUserId,
+          isSuccess: true,
+          entityType: 'Lookup',
+          entityId: row.id,
+        }, tx);
+        return row;
       }),
       () => new ConflictError(ErrorCodes.LOOKUP_CODE_EXISTS, 'A lookup with this code already exists'),
     );
@@ -106,16 +127,33 @@ export class LookupService {
       throw new ConflictError(ErrorCodes.LOOKUP_CODE_EXISTS, 'A lookup value with this code already exists');
     }
     return rethrowUniqueViolationAs(
-      this.lookups.insertValue({
-        lookupTypeFk: type.id,
-        storeFk:      storeId,
-        code:         command.code,
-        label:        command.label,
-        description:  command.description,
-        sortOrder:    command.sortOrder ?? 0,
-        isSystem:     false,
-        createdBy:    actorUserId,
-        updatedBy:    actorUserId,
+      this.uow.execute(async (tx) => {
+        const row = await this.lookups.insertValue(
+          {
+            lookupTypeFk: type.id,
+            storeFk:      storeId,
+            code:         command.code,
+            label:        command.label,
+            description:  command.description,
+            sortOrder:    command.sortOrder ?? 0,
+            isSystem:     false,
+            createdBy:    actorUserId,
+            updatedBy:    actorUserId,
+          },
+          tx,
+        );
+        await this.audit.logInTransaction({
+          event: 'LOOKUP_VALUE_CREATED',
+          activityType: 'LOOKUP_CHANGED',
+          prefix: 'Lookup value',
+          suffix: `"${row.code}" added to ${typeCode}`,
+          userId: actorUserId,
+          storeFk: storeId,
+          isSuccess: true,
+          entityType: 'Lookup',
+          entityId: row.guuid,
+        }, tx);
+        return row;
       }),
       () => new ConflictError(ErrorCodes.LOOKUP_CODE_EXISTS, 'A lookup value with this code already exists'),
     );
@@ -144,23 +182,66 @@ export class LookupService {
     command: UpdateLookupValueCommand,
   ): Promise<LookupValueRow> {
     await this.loadEditableValue(guuid, storeId);
-    const row = await this.lookups.updateValue(guuid, storeId, {
-      label:       command.label,
-      description: command.description,
-      sortOrder:   command.sortOrder,
-      isHidden:    command.isHidden,
-      updatedBy:   actorUserId,
+    return this.uow.execute(async (tx) => {
+      const row = await this.lookups.updateValue(
+        guuid,
+        storeId,
+        command.expectedRowVersion,
+        {
+          label:       command.label,
+          description: command.description,
+          sortOrder:   command.sortOrder,
+          isHidden:    command.isHidden,
+          updatedBy:   actorUserId,
+        },
+        tx,
+      );
+      if (!row) {
+        // loadEditableValue confirmed existence a moment ago, but the atomic
+        // UPDATE (guuid + store + row_version) matched nothing — either a
+        // concurrent soft-delete removed it, or someone else's edit already
+        // moved the row_version past what this caller last read. Re-fetch to
+        // tell the two apart instead of collapsing both into "not found".
+        const current = await this.lookups.findByGuuid(guuid, tx);
+        if (!current || current.storeFk !== storeId) {
+          throw new NotFoundError(ErrorCodes.LOOKUP_VALUE_NOT_FOUND, 'Lookup value not found');
+        }
+        throw new ConflictError(
+          ErrorCodes.LOOKUP_VALUE_VERSION_CONFLICT,
+          'This lookup value was changed by someone else — refresh and try again',
+          { currentRowVersion: current.rowVersion },
+        );
+      }
+      await this.audit.logInTransaction({
+        event: 'LOOKUP_VALUE_UPDATED',
+        activityType: 'LOOKUP_CHANGED',
+        prefix: 'Lookup value',
+        suffix: `"${row.code}" updated`,
+        userId: actorUserId,
+        storeFk: storeId,
+        isSuccess: true,
+        entityType: 'Lookup',
+        entityId: row.guuid,
+      }, tx);
+      return row;
     });
-    // loadEditableValue confirmed existence, but a concurrent soft-delete can
-    // still make the UPDATE match nothing — surface a clean 404, not a crash.
-    if (!row) {
-      throw new NotFoundError(ErrorCodes.LOOKUP_VALUE_NOT_FOUND, 'Lookup value not found');
-    }
-    return row;
   }
 
-  async softDeleteValue(guuid: string, storeId: string): Promise<void> {
-    await this.loadEditableValue(guuid, storeId);
-    await this.lookups.softDeleteValue(guuid, storeId);
+  async softDeleteValue(guuid: string, storeId: string, actorUserId: string): Promise<void> {
+    const value = await this.loadEditableValue(guuid, storeId);
+    await this.uow.execute(async (tx) => {
+      await this.lookups.softDeleteValue(guuid, storeId, tx);
+      await this.audit.logInTransaction({
+        event: 'LOOKUP_VALUE_DELETED',
+        activityType: 'LOOKUP_CHANGED',
+        prefix: 'Lookup value',
+        suffix: `"${value.code}" removed`,
+        userId: actorUserId,
+        storeFk: storeId,
+        isSuccess: true,
+        entityType: 'Lookup',
+        entityId: value.guuid,
+      }, tx);
+    });
   }
 }

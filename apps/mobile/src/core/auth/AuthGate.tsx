@@ -1,5 +1,5 @@
-import type { ReactNode } from 'react';
-import { Redirect } from 'expo-router';
+import { useEffect, type ReactNode } from 'react';
+import { Redirect, usePathname } from 'expo-router';
 import { useAuthStore } from '@store';
 
 /**
@@ -12,6 +12,16 @@ import { useAuthStore } from '@store';
 export function AuthGate({ children }: { children: ReactNode }) {
   const isAuthReady = useAuthStore((s) => s.isAuthReady);
   const isAuthenticated = useAuthStore((s) => s.isAuthenticated);
+  const setPendingReturnTo = useAuthStore((s) => s.setPendingReturnTo);
+  const pathname = usePathname();
+
+  const shouldRedirect = isAuthReady && !isAuthenticated;
+  // Stash where the user was headed (deep link / expired-session bounce) so
+  // login resumes there instead of always dropping them on Home. Done in an
+  // effect, not in render, to avoid a set-state-during-render on the redirect.
+  useEffect(() => {
+    if (shouldRedirect && pathname) setPendingReturnTo(pathname);
+  }, [shouldRedirect, pathname, setPendingReturnTo]);
 
   if (!isAuthReady) return null; // splash still showing
   if (!isAuthenticated) return <Redirect href="/(auth)/phone" />;

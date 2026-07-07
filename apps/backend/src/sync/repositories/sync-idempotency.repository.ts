@@ -33,13 +33,14 @@ export class SyncIdempotencyRepository {
     return tx ?? this.db;
   }
 
-  async find(mutationId: string, userId: string, tx?: DbExecutor): Promise<IdempotencyRow | null> {
+  async find(mutationId: string, userId: string, storeId: string, tx?: DbExecutor): Promise<IdempotencyRow | null> {
     const [row] = await this.client(tx)
       .select()
       .from(syncMutationIdempotency)
       .where(and(
         eq(syncMutationIdempotency.mutationId, mutationId),
         eq(syncMutationIdempotency.userFk, userId),
+        eq(syncMutationIdempotency.storeFk, storeId),
       ));
     return row ?? null;
   }
@@ -81,12 +82,13 @@ export class SyncIdempotencyRepository {
   }
 
   /** Drop an expired row so a legitimate re-execution can claim the key again. */
-  async remove(mutationId: string, userId: string, tx?: DbExecutor): Promise<void> {
+  async remove(mutationId: string, userId: string, storeId: string, tx?: DbExecutor): Promise<void> {
     await this.client(tx)
       .delete(syncMutationIdempotency)
       .where(and(
         eq(syncMutationIdempotency.mutationId, mutationId),
         eq(syncMutationIdempotency.userFk, userId),
+        eq(syncMutationIdempotency.storeFk, storeId),
       ));
   }
 }

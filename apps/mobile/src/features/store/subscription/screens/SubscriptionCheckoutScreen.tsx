@@ -1,10 +1,8 @@
 import { useEffect, useRef, useState } from 'react';
-import { ActivityIndicator, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { router, useLocalSearchParams } from 'expo-router';
-import styled from 'styled-components/native';
 import { useMobileTheme } from '@ayphen/mobile-theme';
-import { Alert, AppLayout, Column, LucideIcon, OverlayLoader, Typography } from '@ayphen/mobile-ui-components';
+import { Alert, AppLayout, OverlayLoader } from '@ayphen/mobile-ui-components';
 import {
   useCheckoutSubscriptionMutation,
   useVerifySubscriptionPaymentMutation,
@@ -14,6 +12,7 @@ import {
   RazorpayCheckoutWebView,
   type RazorpaySuccessPayload,
 } from '@features/subscription';
+import { CheckoutLoadingState } from '../components/CheckoutLoadingState';
 
 type Params = { planCode: string };
 
@@ -135,44 +134,12 @@ export function SubscriptionCheckoutScreen() {
       {/* Razorpay's modal closes the instant it hands us the payment result,
           leaving the WebView blank while we finalize. verify() is the critical,
           irreversible step — block interaction behind an overlay so the user
-          can't background/back out mid-confirmation (loading-agent.md §3). */}
-      <OverlayLoader visible={verify.isPending} message="Confirming payment…" />
+          can't background/back out mid-confirmation (loading-agent.md §3).
+          No `onCancel`: backing out mid-verify could desync payment state, so
+          this deliberately stays blocking even past the timeout — the
+          timeout only swaps in an honest "taking longer than expected"
+          message instead of leaving a spinner running with no explanation. */}
+      <OverlayLoader visible={verify.isPending} message="Confirming payment…" timeoutMs={20_000} />
     </SafeAreaView>
   );
 }
-
-/** Waiting on POST /checkout to return a Razorpay order — a single blocking
- *  step, not a list, so the generic row-skeleton (`SkeletonLoader`) never fit
- *  here; this reflects what's actually happening (one order being created). */
-function CheckoutLoadingState() {
-  const { theme } = useMobileTheme();
-  return (
-    <Wrapper>
-      <IconSlot>
-        <LucideIcon name="ShieldCheck" size={22} color={theme.color.primary.main} />
-      </IconSlot>
-      <ActivityIndicator size="small" color={theme.color.primary.main} />
-      <Column gap={4} style={{ alignItems: 'center' }}>
-        <Typography.Body weight="semiBold">Preparing secure checkout</Typography.Body>
-        <Typography.Caption type="secondary">This only takes a moment</Typography.Caption>
-      </Column>
-    </Wrapper>
-  );
-}
-
-const Wrapper = styled(View)`
-  flex: 1;
-  align-items: center;
-  justify-content: center;
-  gap: ${({ theme }) => theme.sizing.medium}px;
-  padding: ${({ theme }) => theme.sizing.large}px;
-`;
-
-const IconSlot = styled(View)`
-  width: 52px;
-  height: 52px;
-  border-radius: ${({ theme }) => theme.borderRadius.xLarge}px;
-  align-items: center;
-  justify-content: center;
-  background-color: ${({ theme }) => theme.color.primary.bg};
-`;

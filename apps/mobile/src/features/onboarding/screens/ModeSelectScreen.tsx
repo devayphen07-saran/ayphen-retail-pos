@@ -1,6 +1,5 @@
 import { useState } from 'react';
 import {
-  ActivityIndicator,
   KeyboardAvoidingView,
   Platform,
   ScrollView,
@@ -12,9 +11,20 @@ import { LinearGradient } from 'expo-linear-gradient';
 import styled from 'styled-components/native';
 import { router } from 'expo-router';
 import { useMobileTheme } from '@ayphen/mobile-theme';
-import { LucideIcon, Row, Column, Typography } from '@ayphen/mobile-ui-components';
-import { useUpdateAccountModeMutation, type AccountMode } from '@ayphen/api-manager';
+import {
+  Alert,
+  LucideIcon,
+  Row,
+  Column,
+  Typography,
+} from '@ayphen/mobile-ui-components';
+import {
+  useUpdateAccountModeMutation,
+  type AccountMode,
+} from '@ayphen/api-manager';
 import { useAuthStore } from '@store';
+import { useAuth } from '@core/providers/AuthProvider';
+import { ModeCard } from '../components/ModeCard';
 
 const W50 = 'rgba(255,255,255,0.50)';
 const W55 = 'rgba(255,255,255,0.55)';
@@ -25,10 +35,33 @@ const W55 = 'rgba(255,255,255,0.55)';
 export function ModeSelectScreen() {
   const { theme } = useMobileTheme();
   const { width: SW, height: SH } = useWindowDimensions();
+  const { logout } = useAuth();
   const updateMode = useUpdateAccountModeMutation();
   const [pending, setPending] = useState<AccountMode | null>(null);
   const [error, setError] = useState<string | null>(null);
   const isPending = pending !== null;
+
+  const pendingCount = useAuthStore((s) => s.pendingInvitationCount);
+  const hasInvites = pendingCount > 0;
+
+  const handleOpenInvitations = () => {
+    router.push('/(onboarding)/invitations');
+  };
+
+  // A user who signed in with the wrong account had no way out of this
+  // screen — no back (it's the first post-login stop) and, unlike the next
+  // screen in this same funnel (OnboardingHubScreen), no logout either.
+  const handleLogout = () => {
+    Alert.confirm(
+      'Log out',
+      'You will need to sign in again to access your stores.',
+      () => {
+        void logout();
+      },
+      'Log out',
+      'destructive',
+    );
+  };
 
   const handleSelect = async (mode: AccountMode) => {
     if (isPending) return;
@@ -39,7 +72,10 @@ export function ModeSelectScreen() {
       useAuthStore.getState().setAccountMode(mode);
       router.replace('/(app)');
     } catch (err) {
-      setError((err as { message?: string })?.message ?? 'Could not set your account type.');
+      setError(
+        (err as { message?: string })?.message ??
+          'Could not set your account type.',
+      );
       setPending(null);
     }
   };
@@ -53,8 +89,24 @@ export function ModeSelectScreen() {
         end={{ x: 0.9, y: 1 }}
         pointerEvents="none"
       />
-      <Orb1 pointerEvents="none" style={{ width: SW * 0.72, height: SW * 0.72, top: -SW * 0.22, right: -SW * 0.18 }} />
-      <Orb2 pointerEvents="none" style={{ width: SW * 0.48, height: SW * 0.48, top: SH * 0.14, left: -SW * 0.18 }} />
+      <Orb1
+        pointerEvents="none"
+        style={{
+          width: SW * 0.72,
+          height: SW * 0.72,
+          top: -SW * 0.22,
+          right: -SW * 0.18,
+        }}
+      />
+      <Orb2
+        pointerEvents="none"
+        style={{
+          width: SW * 0.48,
+          height: SW * 0.48,
+          top: SH * 0.14,
+          left: -SW * 0.18,
+        }}
+      />
 
       <KeyboardAvoidingView
         style={{ flex: 1 }}
@@ -67,24 +119,70 @@ export function ModeSelectScreen() {
         >
           <Row
             align="center"
-            gap={theme.sizing.small}
+            justify="space-between"
             style={{
               paddingHorizontal: theme.sizing.large,
               paddingTop: theme.sizing.regular,
               paddingBottom: theme.sizing.xSmall,
             }}
           >
-            <LogoBox>
-              <LucideIcon name="Store" size={20} color={theme.colorWhite} />
-            </LogoBox>
-            <Column gap={1}>
-              <Typography.Body weight="semiBold" color={theme.colorWhite}>
-                Ayphen Retail
-              </Typography.Body>
-              <Typography.Caption color={W50}>
-                Enterprise POS Platform
-              </Typography.Caption>
-            </Column>
+            <Row align="center" gap={theme.sizing.small}>
+              <LogoBox>
+                <LucideIcon name="Store" size={20} color={theme.colorWhite} />
+              </LogoBox>
+              <Column gap={1}>
+                <Typography.Body weight="semiBold" color={theme.colorWhite}>
+                  Ayphen Retail
+                </Typography.Body>
+                <Typography.Caption color={W50}>
+                  Enterprise POS Platform
+                </Typography.Caption>
+              </Column>
+            </Row>
+
+            <Row align="center" gap={theme.sizing.small}>
+              <TouchableOpacity
+                onPress={handleLogout}
+                accessibilityRole="button"
+                accessibilityLabel="Log out"
+                activeOpacity={0.75}
+                hitSlop={8}
+              >
+                <IconCircle>
+                  <LucideIcon name="LogOut" size={20} color={theme.colorWhite} />
+                </IconCircle>
+              </TouchableOpacity>
+
+              <TouchableOpacity
+                onPress={handleOpenInvitations}
+                accessibilityRole="button"
+                accessibilityLabel={
+                  hasInvites
+                    ? `${pendingCount} pending invitation${pendingCount === 1 ? '' : 's'}`
+                    : 'Invitations'
+                }
+                activeOpacity={0.75}
+                hitSlop={8}
+              >
+                <BadgeIconWrap>
+                  <IconCircle>
+                    <LucideIcon name="Mail" size={20} color={theme.colorWhite} />
+                  </IconCircle>
+
+                  {hasInvites ? (
+                    <BadgeDot>
+                      <Typography.Caption
+                        weight={700}
+                        color={theme.colorWhite}
+                        style={{ fontSize: 10, lineHeight: 12 }}
+                      >
+                        {pendingCount > 9 ? '9+' : pendingCount}
+                      </Typography.Caption>
+                    </BadgeDot>
+                  ) : null}
+                </BadgeIconWrap>
+              </TouchableOpacity>
+            </Row>
           </Row>
 
           <Column
@@ -140,7 +238,11 @@ export function ModeSelectScreen() {
                 gap={theme.sizing.xSmall}
                 style={{ marginTop: theme.sizing.medium }}
               >
-                <LucideIcon name="TriangleAlert" size={14} color={theme.colorError} />
+                <LucideIcon
+                  name="TriangleAlert"
+                  size={14}
+                  color={theme.colorError}
+                />
                 <Typography.Caption color={theme.colorError}>
                   {error}
                 </Typography.Caption>
@@ -164,66 +266,6 @@ export function ModeSelectScreen() {
         </ScrollView>
       </KeyboardAvoidingView>
     </Root>
-  );
-}
-
-// ── ModeCard sub-component ────────────────────────────────────────────────────
-
-interface ModeCardProps {
-  icon: 'Store' | 'User';
-  accentBg: string;
-  accentIcon: string;
-  title: string;
-  description: string;
-  selected: boolean;
-  loading: boolean;
-  disabled: boolean;
-  onPress: () => void;
-}
-
-function ModeCard({
-  icon,
-  accentBg,
-  accentIcon,
-  title,
-  description,
-  selected,
-  loading,
-  disabled,
-  onPress,
-}: ModeCardProps) {
-  const { theme } = useMobileTheme();
-  return (
-    <CardBtn
-      onPress={onPress}
-      activeOpacity={0.82}
-      disabled={disabled}
-      $selected={selected}
-      accessibilityRole="button"
-      accessibilityLabel={`${title}: ${description}`}
-      accessibilityState={{ disabled, busy: loading }}
-    >
-      <Row align="center" gap={14}>
-        <IconTile style={{ backgroundColor: accentBg }}>
-          <LucideIcon name={icon} size={24} color={accentIcon} />
-        </IconTile>
-
-        <Column flex={1} gap={3}>
-          <Typography.Body weight="semiBold" color={theme.colorText}>
-            {title}
-          </Typography.Body>
-          <Typography.Caption color={theme.color.grey.active}>{description}</Typography.Caption>
-        </Column>
-
-        {loading ? (
-          <ActivityIndicator color={theme.colorPrimary} size="small" />
-        ) : selected ? (
-          <LucideIcon name="CheckCircle" size={20} color={theme.colorPrimary} />
-        ) : (
-          <LucideIcon name="ChevronRight" size={20} color={theme.colorTextQuaternary} />
-        )}
-      </Row>
-    </CardBtn>
   );
 }
 
@@ -271,6 +313,36 @@ const Gap = styled.View<{ $h: number }>`
   height: ${({ $h }) => $h}px;
 `;
 
+const IconCircle = styled.View`
+  width: 40px;
+  height: 40px;
+  border-radius: ${({ theme }) => theme.borderRadius.full}px;
+  align-items: center;
+  justify-content: center;
+  background-color: ${({ theme }) => theme.overlay.onDark12};
+  border-width: ${({ theme }) => theme.borderWidth.thin}px;
+  border-color: ${({ theme }) => theme.overlay.onDark20};
+`;
+
+const BadgeIconWrap = styled.View`
+  position: relative;
+`;
+
+const BadgeDot = styled.View`
+  position: absolute;
+  top: -2px;
+  right: -2px;
+  min-width: 16px;
+  height: 16px;
+  border-radius: ${({ theme }) => theme.borderRadius.regular}px;
+  padding-horizontal: 3px;
+  align-items: center;
+  justify-content: center;
+  background-color: ${({ theme }) => theme.colorError};
+  border-width: 1.5px;
+  border-color: ${({ theme }) => theme.colorBgContainer};
+`;
+
 const Card = styled.View`
   flex: 1;
   background-color: ${({ theme }) => theme.colorBgContainer};
@@ -285,23 +357,3 @@ const Card = styled.View`
   shadow-radius: 24px;
   elevation: 24;
 `;
-
-const CardBtn = styled(TouchableOpacity)<{ $selected: boolean }>`
-  flex-direction: row;
-  align-items: center;
-  padding: ${({ theme }) => theme.sizing.medium}px;
-  border-radius: 16px;
-  border-width: ${({ theme }) => theme.borderWidth.light}px;
-  border-color: ${({ $selected, theme }) => ($selected ? theme.colorPrimary : theme.colorBorder)};
-  background-color: ${({ $selected, theme }) => ($selected ? theme.color.primary.bg : theme.color.grey.bg)};
-`;
-
-const IconTile = styled.View`
-  width: 52px;
-  height: 52px;
-  border-radius: ${({ theme }) => theme.borderRadius.xxLarge}px;
-  align-items: center;
-  justify-content: center;
-  flex-shrink: 0;
-`;
-

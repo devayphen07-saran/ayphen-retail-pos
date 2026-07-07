@@ -6,7 +6,7 @@ import type { PostgresJsDatabase } from 'drizzle-orm/postgres-js';
 import { DRIZZLE } from '#db/db.module.js';
 import * as schema from '#db/schema.js';
 import { revokedTokens } from '#db/schema.js';
-import { env } from '#config/env.js';
+import { AppConfigService } from '#config/app-config.service.js';
 import { errorMessage } from '#common/error-message.js';
 
 export interface TokenCleanupStats {
@@ -30,15 +30,16 @@ export class TokenCleanupService implements OnModuleInit {
   constructor(
     @Inject(DRIZZLE) private readonly db: PostgresJsDatabase<typeof schema>,
     private readonly schedulerRegistry:   SchedulerRegistry,
+    private readonly config:              AppConfigService,
   ) {}
 
   onModuleInit(): void {
-    const job = new CronJob(env.CRON_TOKEN_CLEANUP, async () => {
+    const job = new CronJob(this.config.cronTokenCleanup, async () => {
       await this.cleanExpiredTokens();
     });
     this.schedulerRegistry.addCronJob('token-cleanup', job);
     job.start();
-    this.logger.log(`Token cleanup cron registered: ${env.CRON_TOKEN_CLEANUP}`);
+    this.logger.log(`Token cleanup cron registered: ${this.config.cronTokenCleanup}`);
   }
 
   async cleanExpiredTokens(): Promise<void> {

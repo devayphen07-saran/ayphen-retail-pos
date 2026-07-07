@@ -13,6 +13,14 @@ import {
   locations,
 } from '#db/schema.js';
 
+/** A store's active/locked state — the reconciliation "swap active store"
+ *  flow's view of every store on an account, per `listAllStores`. */
+export interface StoreSummary {
+  id: string;
+  name: string;
+  locked: boolean;
+}
+
 @Injectable()
 export class StoreRepository {
   constructor(
@@ -93,7 +101,7 @@ export class StoreRepository {
   async listAllStores(
     accountId: string,
     tx?: DbExecutor,
-  ): Promise<{ id: string; name: string; locked: boolean }[]> {
+  ): Promise<StoreSummary[]> {
     return this.client(tx)
       .select({ id: stores.id, name: stores.name, locked: stores.locked })
       .from(stores)
@@ -101,21 +109,24 @@ export class StoreRepository {
   }
 
   /** Lock stores as downgrade-excess (reconciliation §5.1) — reversible, never deletes. */
-  async lockMany(storeIds: string[], tx: DbExecutor): Promise<void> {
+  /** Scoped to `accountId` — a client-influenced store id list must never be
+   *  able to lock a store belonging to a different account. */
+  async lockMany(storeIds: string[], accountId: string, tx: DbExecutor): Promise<void> {
     if (storeIds.length === 0) return;
     await tx
       .update(stores)
       .set({ locked: true, lockedReason: 'downgrade' })
-      .where(inArray(stores.id, storeIds));
+      .where(and(inArray(stores.id, storeIds), eq(stores.accountFk, accountId)));
   }
 
   /** Unlock one specific store — the reconciliation "swap active store"
-   *  endpoint's targeted counterpart to `unlockDowngraded`'s account-wide bulk restore. */
-  async unlockOne(storeId: string, tx: DbExecutor): Promise<void> {
+   *  endpoint's targeted counterpart to `unlockDowngraded`'s account-wide bulk
+   *  restore. Scoped to `accountId` for the same reason as `lockMany`. */
+  async unlockOne(storeId: string, accountId: string, tx: DbExecutor): Promise<void> {
     await tx
       .update(stores)
       .set({ locked: false, lockedReason: null })
-      .where(eq(stores.id, storeId));
+      .where(and(eq(stores.id, storeId), eq(stores.accountFk, accountId)));
   }
 
   /** Re-upgrade mirror (reconciliation §9) — unlock every store this account

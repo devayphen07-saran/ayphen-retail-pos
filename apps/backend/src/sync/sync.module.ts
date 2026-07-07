@@ -1,6 +1,8 @@
 import { Module } from '@nestjs/common';
 import { MobileAuthModule } from '#auth/mobile/mobile-auth.module.js';
 import { SubscriptionStatusGuard } from '#auth/mobile/guards/subscription-status.guard.js';
+import { SyncRateLimitGuard } from './guards/sync-rate-limit.guard.js';
+import { DeviceSlotGuard } from './guards/device-slot.guard.js';
 import { SyncController } from './sync.controller.js';
 import { TimeController } from './time.controller.js';
 import { SyncCursorService } from './cursor/sync-cursor.service.js';
@@ -28,12 +30,16 @@ import { PaymentAccountMutationHandler } from './push/handlers/payment-account.h
  * + /sync/changes over the SyncFilterRegistry. Push: /sync/delta through the
  * MutationHandlerRegistry — adding the WS-5 POS handlers (composite order,
  * shift, cash) is registration here, not surgery on the pipeline.
+ * DeviceAccessRepository (used by DeviceSlotGuard) comes from the global
+ * SharedRepositoriesModule (#common/shared-repositories.module.js).
  */
 @Module({
   imports: [MobileAuthModule],
   controllers: [SyncController, TimeController],
   providers: [
     SubscriptionStatusGuard,
+    SyncRateLimitGuard,
+    DeviceSlotGuard,
     SyncCursorService,
     SyncFilterRegistry,
     TombstoneRepository,

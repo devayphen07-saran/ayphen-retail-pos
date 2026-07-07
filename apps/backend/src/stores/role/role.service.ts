@@ -8,15 +8,15 @@ import {
 import { ErrorCodes } from '#common/error-codes.js';
 import { UnitOfWork } from '#db/db.module.js';
 import { rethrowUniqueViolationAs } from '#db/rethrow-unique-violation.js';
-import { RoleRepository, type RoleRow, type RoleGrant } from './role.repository.js';
+import { RoleRepository, deriveRoleCode, type RoleRow, type RoleGrant } from './role.repository.js';
 import { RbacService } from '#common/rbac/rbac.service.js';
 import { AuditService } from '#common/audit/audit.service.js';
 import {
   isEntityCode,
+  SYSTEM_ROLE_CODES,
   type CrudAction,
 } from '#common/rbac/permission-matrix.constants.js';
-
-const SYSTEM_ROLE_CODES = new Set(['USER', 'STORE_OWNER', 'SUPER_ADMIN']);
+import { checkCrud } from '#common/rbac/effective-permissions.js';
 
 export interface PermissionGrantInput {
   entity: string;
@@ -38,8 +38,12 @@ export class RoleService {
     private readonly audit: AuditService,
   ) {}
 
+  /** Custom, assignable roles only — system roles (STORE_OWNER etc.) are never
+   *  a valid target for assign/revoke/permission-edit, so they're hidden from
+   *  this listing rather than merely blocked at the mutation endpoints. */
   async listRoles(storeId: string): Promise<RoleRow[]> {
-    return this.repo.listStoreRoles(storeId);
+    const roles = await this.repo.listStoreRoles(storeId);
+    return roles.filter((r) => !SYSTEM_ROLE_CODES.has(r.code));
   }
 
   /** A role plus its current permission matrix (view target for the edit screen). */
@@ -57,6 +61,14 @@ export class RoleService {
     name: string,
     description: string | null,
   ): Promise<{ id: string; name: string }> {
+    // A name that derives to a reserved system code (STORE_OWNER/SUPER_ADMIN/
+    // USER) must never become an editable custom role — LocationGuard's owner
+    // bypass and other consumers trust roles.code === 'STORE_OWNER'
+    // unconditionally, with no isEditable check of their own.
+    if (SYSTEM_ROLE_CODES.has(deriveRoleCode(name))) {
+      throw new ConflictError(ErrorCodes.ROLE_RESERVED_CODE, 'This role name is reserved and cannot be used');
+    }
+
     // Pre-check is TOCTOU-able by itself — two concurrent creates for the
     // same name can both pass it before either commits. roles_store_name_uq
     // (schema.ts) is the real guard; normalize its violation to the same
@@ -68,22 +80,22 @@ export class RoleService {
       this.uow.execute(async (tx) => {
         const r = await this.repo.createCustomRole(storeId, name, description, tx);
         await this.rbac.seedDefaultPermissions(r.id, actorId, tx);
+        await this.audit.logInTransaction({
+          event: 'ROLE_PERMISSION_CHANGED',
+          activityType: 'ROLE_PERMISSION_CHANGED',
+          prefix: 'Role',
+          suffix: `"${name}" created`,
+          userId: actorId,
+          storeFk: storeId,
+          isSuccess: true,
+          entityType: 'Role',
+          entityId: r.id,
+        }, tx);
         return r;
       }),
       () => new ConflictError(ErrorCodes.ROLE_ALREADY_EXISTS, 'A role with this name already exists'),
       'roles_store_name_uq',
     );
-    await this.audit.log({
-      event: 'ROLE_PERMISSION_CHANGED',
-      activityType: 'ROLE_PERMISSION_CHANGED',
-      prefix: 'Role',
-      suffix: `"${name}" created`,
-      userId: actorId,
-      storeFk: storeId,
-      isSuccess: true,
-      entityType: 'Role',
-      entityId: role.id,
-    });
     return { id: role.id, name };
   }
 
@@ -111,7 +123,23 @@ export class RoleService {
       );
     }
 
-    const members = await this.uow.execute(async (tx) => {
+    // A caller can never grant a role more than they themselves hold in this
+    // store — otherwise Role.edit + UserRoleMapping.create is enough to mint
+    // full CRUD for every entity and self-assign it. Critical read: this must
+    // reflect the actor's live grants, not a standard-request-stale cache.
+    const actorPermissions = await this.rbac.getCachedPermissions(actorId, storeId, true);
+    const beyondActor = grants.filter(
+      (g) => isEntityCode(g.entity) && !checkCrud(actorPermissions, g.entity, g.action),
+    );
+    if (beyondActor.length > 0) {
+      throw new ForbiddenError(
+        ErrorCodes.GRANT_EXCEEDS_ACTOR_PERMISSIONS,
+        'You cannot grant permissions you do not hold yourself',
+        { grants: beyondActor },
+      );
+    }
+
+    await this.uow.execute(async (tx) => {
       await this.repo.revokeAllCrud(roleId, tx);
       await this.repo.insertCrud(
         grants.map((g) => ({
@@ -123,21 +151,22 @@ export class RoleService {
         tx,
       );
       // Bump every member's version so their cache/JWT re-resolve (H-6, §16).
-      return this.rbac.bumpPermissionsVersionForRole(roleId, storeId, tx);
+      const bumped = await this.rbac.bumpPermissionsVersionForRole(roleId, storeId, tx);
+      await this.audit.logInTransaction({
+        event: 'ROLE_PERMISSION_CHANGED',
+        activityType: 'ROLE_PERMISSION_CHANGED',
+        prefix: 'Role',
+        suffix: `permissions updated (${bumped.length} members)`,
+        userId: actorId,
+        storeFk: storeId,
+        isSuccess: true,
+        entityType: 'Role',
+        entityId: roleId,
+      }, tx);
+      return bumped;
     });
 
     await this.rbac.invalidateRoleMembersCache(roleId, storeId);
-    await this.audit.log({
-      event: 'ROLE_PERMISSION_CHANGED',
-      activityType: 'ROLE_PERMISSION_CHANGED',
-      prefix: 'Role',
-      suffix: `permissions updated (${members.length} members)`,
-      userId: actorId,
-      storeFk: storeId,
-      isSuccess: true,
-      entityType: 'Role',
-      entityId: roleId,
-    });
   }
 
   /** Delete a custom role (§21). Blocked for system roles or roles with members. */
@@ -148,17 +177,19 @@ export class RoleService {
     if ((await this.repo.countActiveMembers(roleId)) > 0) {
       throw new ConflictError(ErrorCodes.ROLE_HAS_ACTIVE_ASSIGNMENTS, 'This role still has active assignments');
     }
-    await this.uow.execute((tx) => this.repo.softDeleteRole(roleId, tx));
-    await this.audit.log({
-      event: 'ROLE_PERMISSION_CHANGED',
-      activityType: 'ROLE_PERMISSION_CHANGED',
-      prefix: 'Role',
-      suffix: `"${role.name}" deleted`,
-      userId: actorId,
-      storeFk: storeId,
-      isSuccess: true,
-      entityType: 'Role',
-      entityId: roleId,
+    await this.uow.execute(async (tx) => {
+      await this.repo.softDeleteRole(roleId, storeId, tx);
+      await this.audit.logInTransaction({
+        event: 'ROLE_PERMISSION_CHANGED',
+        activityType: 'ROLE_PERMISSION_CHANGED',
+        prefix: 'Role',
+        suffix: `"${role.name}" deleted`,
+        userId: actorId,
+        storeFk: storeId,
+        isSuccess: true,
+        entityType: 'Role',
+        entityId: roleId,
+      }, tx);
     });
   }
 
@@ -190,23 +221,23 @@ export class RoleService {
           tx,
         );
         await this.rbac.bumpPermissionsVersionForRole(roleId, storeId, tx);
+        await this.audit.logInTransaction({
+          event: 'ROLE_ASSIGNMENT_CREATED',
+          activityType: 'ROLE_ASSIGNMENT_CREATED',
+          prefix: 'Role',
+          suffix: `assigned "${role.name}"`,
+          userId: actorId,
+          actorId,
+          storeFk: storeId,
+          isSuccess: true,
+          entityType: 'UserRoleMapping',
+          metadata: { targetUserId, roleId },
+        }, tx);
       }),
       () => new ConflictError(ErrorCodes.ASSIGNMENT_ALREADY_EXISTS, 'This user is already assigned to this role'),
       'user_role_mappings_uq',
     );
     await this.rbac.invalidateUserStoreCache(targetUserId, storeId);
-    await this.audit.log({
-      event: 'ROLE_ASSIGNMENT_CREATED',
-      activityType: 'ROLE_ASSIGNMENT_CREATED',
-      prefix: 'Role',
-      suffix: `assigned "${role.name}"`,
-      userId: actorId,
-      actorId,
-      storeFk: storeId,
-      isSuccess: true,
-      entityType: 'UserRoleMapping',
-      metadata: { targetUserId, roleId },
-    });
   }
 
   /** Revoke a user's role assignment in this store (§21). */
@@ -216,25 +247,33 @@ export class RoleService {
     roleId: string,
     targetUserId: string,
   ): Promise<void> {
+    const role = await this.repo.findRoleInStore(roleId, storeId);
+    if (!role) throw new NotFoundError(ErrorCodes.ROLE_NOT_FOUND, 'Role not found');
+    if (SYSTEM_ROLE_CODES.has(role.code)) {
+      throw new ForbiddenError(ErrorCodes.ROLE_NOT_REVOCABLE, 'This role assignment cannot be revoked');
+    }
+
     const revoked = await this.uow.execute(async (tx) => {
       const ok = await this.repo.revokeAssignment(targetUserId, roleId, storeId, tx);
-      if (ok) await this.rbac.bumpPermissionsVersionForRole(roleId, storeId, tx);
+      if (ok) {
+        await this.rbac.bumpPermissionsVersionForRole(roleId, storeId, tx);
+        await this.audit.logInTransaction({
+          event: 'ROLE_ASSIGNMENT_REVOKED',
+          activityType: 'ROLE_ASSIGNMENT_REVOKED',
+          prefix: 'Role',
+          suffix: `revoked`,
+          userId: actorId,
+          actorId,
+          storeFk: storeId,
+          isSuccess: true,
+          entityType: 'UserRoleMapping',
+          metadata: { targetUserId, roleId },
+        }, tx);
+      }
       return ok;
     });
     if (!revoked) throw new NotFoundError(ErrorCodes.ASSIGNMENT_NOT_FOUND, 'Role assignment not found');
 
     await this.rbac.invalidateUserStoreCache(targetUserId, storeId);
-    await this.audit.log({
-      event: 'ROLE_ASSIGNMENT_REVOKED',
-      activityType: 'ROLE_ASSIGNMENT_REVOKED',
-      prefix: 'Role',
-      suffix: `revoked`,
-      userId: actorId,
-      actorId,
-      storeFk: storeId,
-      isSuccess: true,
-      entityType: 'UserRoleMapping',
-      metadata: { targetUserId, roleId },
-    });
   }
 }

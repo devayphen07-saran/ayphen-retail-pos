@@ -1,20 +1,20 @@
-import { useMemo, useState } from 'react';
+import { useCallback, useMemo, useState } from 'react';
 import { eq } from 'drizzle-orm';
 import { useLiveQuery } from 'drizzle-orm/expo-sqlite/query';
 import { router } from 'expo-router';
 import { useMobileTheme } from '@ayphen/mobile-theme';
 import {
   AppLayout,
-  Column,
   IconButton,
   ListScaffold,
   SearchBar,
-  Typography,
 } from '@ayphen/mobile-ui-components';
 import { getSyncDbForQueries } from '@core/sync/db/client';
 import { products } from '@core/sync/db/schema';
 import type { LocalProduct } from '@core/sync/repositories/product.repository';
 import { useActiveStoreStore } from '@store';
+import { useDebouncedValue } from '../../../utils/useDebouncedValue';
+import { ProductCard } from '../components/ProductCard';
 
 /**
  * Products tab — real local data via the sync engine's `products` table
@@ -37,10 +37,18 @@ export function ProductsScreen() {
     [storeId],
   );
   const { data, error } = useLiveQuery(query, [storeId]);
-  const allProducts = useMemo(() => data ?? [], [data]);
+  // A delta/cold-start page upserting many rows fires expo-sqlite's
+  // per-ROW change hook that many times (not once per transaction), so
+  // useLiveQuery can re-run its SELECT and hand back a new `data` reference
+  // in a rapid burst. Debouncing the value (not the query itself — the local
+  // SELECT is cheap) coalesces that burst into one render instead of one per
+  // row.
+  const debouncedData = useDebouncedValue(data, 200);
+  const allProducts = useMemo(() => debouncedData ?? [], [debouncedData]);
 
+  const debouncedSearch = useDebouncedValue(search, 200);
   const filtered = useMemo(() => {
-    const term = search.trim().toLowerCase();
+    const term = debouncedSearch.trim().toLowerCase();
     if (!term) return allProducts;
     return allProducts.filter(
       (p) =>
@@ -48,7 +56,7 @@ export function ProductsScreen() {
         (p.sku?.toLowerCase().includes(term) ?? false) ||
         (p.barcode?.toLowerCase().includes(term) ?? false),
     );
-  }, [allProducts, search]);
+  }, [allProducts, debouncedSearch]);
 
   const addButton = useMemo(
     () => (
@@ -67,6 +75,13 @@ export function ProductsScreen() {
     [theme.colorPrimary],
   );
 
+  // Stable identity so FlashList row recycling isn't defeated by a fresh
+  // closure each render (§5).
+  const renderItem = useCallback(
+    ({ item }: { item: LocalProduct }) => <ProductCard product={item} />,
+    [],
+  );
+
   return (
     <AppLayout title="Products" rightElement={addButton}>
       <SearchBar value={search} onChangeText={setSearch} placeholder="Search by name, SKU, barcode…" />
@@ -74,7 +89,7 @@ export function ProductsScreen() {
       <ListScaffold<LocalProduct>
         data={filtered}
         keyExtractor={(item) => item.id}
-        renderItem={({ item }) => <ProductRow product={item} />}
+        renderItem={renderItem}
         isThemed
         listProps={{ refetch: () => undefined }}
         loaderProps={{
@@ -102,22 +117,5 @@ export function ProductsScreen() {
         }
       />
     </AppLayout>
-  );
-}
-
-function ProductRow({ product }: { product: LocalProduct }) {
-  const { theme } = useMobileTheme();
-  return (
-    <Column
-      gap={2}
-      style={{ paddingVertical: theme.sizing.small, paddingHorizontal: theme.sizing.medium }}
-    >
-      <Typography.Body weight="medium">{product.name}</Typography.Body>
-      <Typography.Caption type="secondary">
-        {product.sku ? `SKU ${product.sku} · ` : ''}
-        {'₹'}
-        {product.sellingPrice}
-      </Typography.Caption>
-    </Column>
   );
 }

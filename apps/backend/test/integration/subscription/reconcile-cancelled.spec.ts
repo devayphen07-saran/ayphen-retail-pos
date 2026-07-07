@@ -58,7 +58,7 @@ describe('SubscriptionRepository — cancelled-at-period-end reconciliation', ()
     });
 
     const now = new Date();
-    const cancelled = await repo.expireCancelledAtPeriodEnd(now);
+    const cancelled = await repo.expireCancelledAtPeriodEnd(now, 500);
     expect(cancelled).toContain(accountId);
 
     const [sub] = await db
@@ -82,7 +82,7 @@ describe('SubscriptionRepository — cancelled-at-period-end reconciliation', ()
     });
 
     const now = new Date();
-    const pastDued = await repo.expireActiveToPastDue(now, 7);
+    const pastDued = await repo.expireActiveToPastDue(now, 7, 500);
     expect(pastDued).not.toContain(accountId);
 
     const [sub] = await db
@@ -105,7 +105,7 @@ describe('SubscriptionRepository — cancelled-at-period-end reconciliation', ()
     });
 
     const now = new Date();
-    const pastDued = await repo.expireActiveToPastDue(now, 7);
+    const pastDued = await repo.expireActiveToPastDue(now, 7, 500);
     expect(pastDued).toContain(accountId);
 
     const [sub] = await db

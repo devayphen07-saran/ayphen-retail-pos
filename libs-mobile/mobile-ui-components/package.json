@@ -30,6 +30,7 @@
     "expo-av": "*"
   },
   "devDependencies": {
+    "@expo/vector-icons": "*",
     "@react-native-async-storage/async-storage": "*",
     "@react-native-community/datetimepicker": "*",
     "@shopify/flash-list": "*",
@@ -39,7 +40,11 @@
     "react": "19.1.0",
     "react-hook-form": "^7.0.0",
     "react-native": "0.81.5",
+    "react-native-gesture-handler": "*",
+    "react-native-reanimated": "*",
+    "react-native-safe-area-context": "*",
     "react-native-svg": "*",
+    "react-native-worklets": "*",
     "typescript": "~5.9.2"
   }
 }

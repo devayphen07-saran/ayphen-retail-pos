@@ -1,7 +1,6 @@
 import { Module } from '@nestjs/common';
 import { StoreController } from './store/store.controller.js';
 import { StoreService } from './store/store.service.js';
-import { StoreRepository } from './store/store.repository.js';
 import { RoleController } from './role/role.controller.js';
 import { RoleService } from './role/role.service.js';
 import { RoleRepository } from './role/role.repository.js';
@@ -11,7 +10,6 @@ import {
   MeInvitationsController,
 } from './invitation/invitation.controller.js';
 import { InvitationService } from './invitation/invitation.service.js';
-import { InvitationRepository } from './invitation/invitation.repository.js';
 import { EntitlementService } from '../subscription/entitlement.service.js';
 import { SubscriptionStatusGuard } from '#auth/mobile/guards/subscription-status.guard.js';
 import { MobileAuthModule } from '#auth/mobile/mobile-auth.module.js';
@@ -23,6 +21,8 @@ import { LocationsModule } from '../locations/locations.module.js';
  * module-scoped deps) from MobileAuthModule. LocationsModule supplies
  * UserLocationRepository — invitation accept assigns the invitee's granted
  * locations through the same repository the locations module owns.
+ * StoreRepository/InvitationRepository come from the global
+ * SharedRepositoriesModule (#common/shared-repositories.module.js).
  */
 @Module({
   imports: [MobileAuthModule, LocationsModule],
@@ -35,11 +35,9 @@ import { LocationsModule } from '../locations/locations.module.js';
   ],
   providers: [
     StoreService,
-    StoreRepository,
     RoleService,
     RoleRepository,
     InvitationService,
-    InvitationRepository,
     EntitlementService,
     SubscriptionStatusGuard,
   ],

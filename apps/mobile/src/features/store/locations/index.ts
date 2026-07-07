@@ -4,3 +4,5 @@ export * from './screens/EditLocationScreen';
 export * from './loading/LocationsLoading';
 export * from './types/schema';
 export * from './utils/transform';
+export * from './components/LocationCard';
+export * from './components/LocationActionsSheet';

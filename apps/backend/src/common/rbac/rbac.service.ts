@@ -3,12 +3,12 @@ import type Redis from 'ioredis';
 
 import { REDIS } from '#common/redis/redis.provider.js';
 import type { DbExecutor } from '#db/db.module.js';
-import { RbacRepository, type ActiveRole } from './rbac.repository.js';
+import { RbacRepository } from './rbac.repository.js';
 import type { EffectivePermissions } from './effective-permissions.js';
 import {
   emptyPermissions,
   serializePermissions,
-  deserializePermissions,
+  deserializeCachedEntry,
   checkCrud as crudCheck,
   checkSpecial as specialCheck,
 } from './effective-permissions.js';
@@ -52,9 +52,16 @@ export class RbacService {
    * The permission set is store-scoped and identical regardless of the calling
    * action, so we keep a single cache key rather than one-per-criticality (that
    * would double DB load). Instead, a critical request rejects any entry whose
-   * remaining TTL exceeds the critical window — i.e. one written by a standard
-   * (5m) request — and refetches, re-pinning the key to the 30s TTL. A standard
+   * age exceeds the critical window — i.e. one written by a standard (5m)
+   * request — and refetches, re-pinning the key to the 30s TTL. A standard
    * request accepts any live entry.
+   *
+   * Freshness is judged from a `resolvedAt` timestamp embedded in the cached
+   * payload itself (read atomically as part of the single GET), not from the
+   * Redis key's remaining TTL — a separate TTL round trip would race a
+   * concurrent write that re-populates the key between the two calls,
+   * letting a stale value be accepted because the *new* entry's TTL looked
+   * fresh.
    *
    * Corrupt cache entries are deleted and treated as misses (BR-RBAC-018).
    */
@@ -65,19 +72,22 @@ export class RbacService {
   ): Promise<EffectivePermissions> {
     const key = permKey(userId, storeId);
 
-    const cached = await this.redis.get(key);
-    if (cached) {
-      // For a critical read, a long remaining TTL means the entry was cached by
-      // a standard request and may be up to 5m stale — too old for a critical op.
-      let acceptCached = true;
-      if (isCritical) {
-        const remainingTtl = await this.redis.ttl(key);
-        acceptCached = remainingTtl >= 0 && remainingTtl <= TTL_CRITICAL_SECONDS;
-      }
-
-      if (acceptCached) {
+    // Degrade to DB on a Redis ERROR: permissions are durably resolvable from
+    // Postgres (resolveFromDb), so a Redis outage must fall through, not 500 the
+    // request. A cache miss also falls through — both converge below.
+    try {
+      const cached = await this.redis.get(key);
+      if (cached) {
         try {
-          return deserializePermissions(cached);
+          const entry = deserializeCachedEntry(cached);
+          // For a critical read, an entry older than the critical window may
+          // have been cached by a standard request — too stale for a
+          // critical op, even though the key itself hasn't expired.
+          const ageMs = Date.now() - entry.resolvedAt;
+          const acceptCached = !isCritical || ageMs <= TTL_CRITICAL_SECONDS * 1000;
+          if (acceptCached) {
+            return entry.permissions;
+          }
         } catch (error) {
           const message =
             error instanceof Error ? error.message : 'unknown cache error';
@@ -87,12 +97,22 @@ export class RbacService {
           await this.redis.del(key);
         }
       }
+    } catch (err) {
+      this.logger.warn(
+        `Permissions cache read failed for ${key}; resolving from DB: ${
+          err instanceof Error ? err.message : 'unknown Redis error'
+        }`,
+      );
     }
 
     const permissions = await this.resolveFromDb(userId, storeId);
     const ttl = isCritical ? TTL_CRITICAL_SECONDS : TTL_STANDARD_SECONDS;
 
-    await this.redis.setex(key, ttl, serializePermissions(permissions));
+    try {
+      await this.redis.setex(key, ttl, serializePermissions(permissions, Date.now()));
+    } catch {
+      /* best-effort cache fill — a Redis write failure must not fail the request */
+    }
     return permissions;
   }
 
@@ -182,25 +202,40 @@ export class RbacService {
   async userStoreIds(userId: string): Promise<string[]> {
     const key = userStoresKey(userId);
 
-    const cached = await this.redis.get(key);
-    if (cached) {
-      try {
-        const parsed = JSON.parse(cached) as unknown;
-        if (Array.isArray(parsed) && parsed.every((v) => typeof v === 'string')) {
-          return parsed;
+    // Degrade to DB on a Redis ERROR — the accessible-store set is durably
+    // resolvable from Postgres; a Redis outage must fall through, not 500 the
+    // tenant guard (which runs on every store-scoped request).
+    try {
+      const cached = await this.redis.get(key);
+      if (cached) {
+        try {
+          const parsed = JSON.parse(cached) as unknown;
+          if (Array.isArray(parsed) && parsed.every((v) => typeof v === 'string')) {
+            return parsed;
+          }
+          await this.redis.del(key);
+        } catch {
+          await this.redis.del(key);
         }
-        await this.redis.del(key);
-      } catch {
-        await this.redis.del(key);
       }
+    } catch (err) {
+      this.logger.warn(
+        `Accessible-store cache read failed for ${key}; resolving from DB: ${
+          err instanceof Error ? err.message : 'unknown Redis error'
+        }`,
+      );
     }
 
     const ids = await this.repo.findAccessibleStoreIds(userId);
-    await this.redis.setex(
-      key,
-      TTL_USER_STORES_SECONDS,
-      JSON.stringify(ids),
-    );
+    try {
+      await this.redis.setex(
+        key,
+        TTL_USER_STORES_SECONDS,
+        JSON.stringify(ids),
+      );
+    } catch {
+      /* best-effort cache fill — a Redis write failure must not fail the request */
+    }
     return ids;
   }
 
@@ -226,6 +261,18 @@ export class RbacService {
       this.redis.del(permKey(userId, storeId)),
       this.redis.del(userStoresKey(userId)),
     ]);
+  }
+
+  /** Batched counterpart to `invalidateUserStoreCache` — one pipelined DEL
+   *  for every user instead of N sequential round trips (bulk location
+   *  assignment can touch up to 50 users in one call). */
+  async invalidateUserStoreCacheForUsers(
+    userIds: string[],
+    storeId: string,
+  ): Promise<void> {
+    if (userIds.length === 0) return;
+    const keys = userIds.flatMap((userId) => [permKey(userId, storeId), userStoresKey(userId)]);
+    await this.redis.del(...keys);
   }
 
   async invalidateRoleMembersCache(
@@ -346,12 +393,9 @@ export class RbacService {
     await this.repo.bumpPermissionsVersion([userId], tx);
   }
 
-  // ─── Convenience passthroughs ──────────────────────────────────────────────
-
-  async findActiveRolesForUser(
-    userId: string,
-    storeId: string,
-  ): Promise<ActiveRole[]> {
-    return this.repo.findActiveRolesForUser(userId, storeId);
+  /** Batched counterpart to `bumpPermissionsVersionForUser` — one `WHERE id =
+   *  ANY(...)` update for every user instead of N sequential single-row updates. */
+  async bumpPermissionsVersionForUsers(userIds: string[], tx?: DbExecutor): Promise<void> {
+    await this.repo.bumpPermissionsVersion(userIds, tx);
   }
 }

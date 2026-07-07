@@ -1,5 +1,5 @@
 import { Inject, Injectable } from '@nestjs/common';
-import { and, eq, isNull, or } from 'drizzle-orm';
+import { and, eq, isNull, or, sql } from 'drizzle-orm';
 import type { PostgresJsDatabase } from 'drizzle-orm/postgres-js';
 import { DRIZZLE, type DbExecutor } from '#db/db.module.js';
 import { requireRow } from '#db/require-row.js';
@@ -18,6 +18,7 @@ export interface LookupValueRow {
   isHidden:     boolean;
   isSystem:     boolean;
   isActive:     boolean;
+  rowVersion:   number;
 }
 
 @Injectable()
@@ -30,7 +31,13 @@ export class LookupRepository {
     return tx ?? this.db;
   }
 
-  /** Dropdown values for a type: global + this store's, active, non-hidden (BR-3). */
+  /**
+   * Dropdown values for a type: global + this store's, active, non-hidden
+   * (BR-3). Defensive cap, not real pagination — this feeds a plain-array
+   * dropdown the mobile client renders in full; there's currently no cap on
+   * how many custom values a store can create per type, so an unbounded
+   * query here is a real "bound everything" gap.
+   */
   async listByType(
     typeId: string,
     storeId: string | null,
@@ -49,7 +56,8 @@ export class LookupRepository {
             : isNull(lookup.storeFk),
         ),
       )
-      .orderBy(lookup.sortOrder);
+      .orderBy(lookup.sortOrder)
+      .limit(500);
   }
 
   async findByGuuid(guuid: string, tx?: DbExecutor): Promise<LookupValueRow | null> {
@@ -81,16 +89,23 @@ export class LookupRepository {
   async updateValue(
     guuid: string,
     storeId: string,
+    expectedRowVersion: number,
     patch: Partial<typeof lookup.$inferInsert>,
     tx?: DbExecutor,
   ): Promise<LookupValueRow | null> {
-    // storeFk is filtered in SQL (not just in the service pre-check) so the write
-    // itself is tenant-scoped — a caller that reaches this method with a foreign
-    // guuid mutates nothing (defense-in-depth for tenant isolation).
+    // storeFk, is_system, AND row_version are all filtered in SQL (not just
+    // the service's loadEditableValue pre-check) — tenant-scoped,
+    // system-value-protected, and optimistic-locked in one atomic statement,
+    // matching the sync-push mutation handler's guard for this same table.
     const [row] = await this.client(tx)
       .update(lookup)
-      .set({ ...patch, updatedAt: new Date() })
-      .where(and(eq(lookup.guuid, guuid), eq(lookup.storeFk, storeId)))
+      .set({ ...patch, rowVersion: sql`${lookup.rowVersion} + 1`, updatedAt: new Date() })
+      .where(and(
+        eq(lookup.guuid, guuid),
+        eq(lookup.storeFk, storeId),
+        eq(lookup.isSystem, false),
+        eq(lookup.rowVersion, expectedRowVersion),
+      ))
       .returning();
     return row ?? null;
   }
@@ -100,6 +115,10 @@ export class LookupRepository {
     await this.client(tx)
       .update(lookup)
       .set({ isActive: false, updatedAt: new Date() })
-      .where(and(eq(lookup.guuid, guuid), eq(lookup.storeFk, storeId)));
+      .where(and(
+        eq(lookup.guuid, guuid),
+        eq(lookup.storeFk, storeId),
+        eq(lookup.isSystem, false),
+      ));
   }
 }

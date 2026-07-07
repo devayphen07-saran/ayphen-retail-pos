@@ -6,7 +6,7 @@ import { parse } from '#common/validation/parse.js';
 import { AccountModeDtoSchema, type AccountModeDto } from './dto/request/account-mode.request.js';
 import type { BootstrapResponse } from './dto/response/auth.response.js';
 import type { MobilePrincipal } from '#common/types/principal.js';
-import { CurrentUser } from '#common/rbac/decorators/rbac.decorators.js';
+import { CurrentUser, StoreContext } from '#common/rbac/decorators/rbac.decorators.js';
 
 /**
  * Account-level session bootstrap. Cold app launch restores a session via
@@ -17,6 +17,7 @@ import { CurrentUser } from '#common/rbac/decorators/rbac.decorators.js';
  */
 @Controller('me')
 @UseGuards(MobileJwtGuard)
+@StoreContext('none')
 export class MeController {
   constructor(private readonly loginService: AuthLoginService) {}
 
