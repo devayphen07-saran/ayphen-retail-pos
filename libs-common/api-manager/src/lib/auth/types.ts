@@ -84,7 +84,6 @@ export interface PermissionSnapshot {
   userId: string;
   permissionsVersion: number;
   generatedAt: string;
-  globalPermissions: string[];
   storeLocations: {
     store_id: string;
     name: string;
@@ -96,6 +95,10 @@ export interface PermissionSnapshot {
       is_default: boolean;
       is_locked: boolean;
     }[];
+    /** This user's own `entityCode:action` CRUD grants IN THIS STORE — never
+     *  cross-store-flattened (that was the bug: a permission held in one
+     *  store leaking into gating for another). */
+    permissions: string[];
   }[];
 }
 

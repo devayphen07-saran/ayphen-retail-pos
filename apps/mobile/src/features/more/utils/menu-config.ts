@@ -360,6 +360,13 @@ export const MORE_SECTIONS: readonly MoreSectionConfig[] = [
         iconColor: 'neutral',
       },
       {
+        key: 'sessions',
+        label: 'Sessions',
+        description: 'See where you’re logged in and sign out remotely',
+        iconName: 'Laptop',
+        iconColor: 'neutral',
+      },
+      {
         key: 'settings',
         label: 'Settings',
         description: 'Theme, language, and preferences',

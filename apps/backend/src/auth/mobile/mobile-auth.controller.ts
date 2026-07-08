@@ -14,7 +14,11 @@ import {
 } from '@nestjs/common';
 import type { Request } from 'express';
 import { Throttle } from '@nestjs/throttler';
-import { CurrentUser, Public, StoreContext } from '#common/rbac/decorators/rbac.decorators.js';
+import {
+  CurrentUser,
+  Public,
+  StoreContext,
+} from '#common/rbac/decorators/rbac.decorators.js';
 import { parse } from '#common/validation/parse.js';
 import type { PaginatedResponse } from '#common/pagination/paginated-response.js';
 import { MobileJwtGuard } from './guards/mobile-jwt.guard.js';
@@ -243,7 +247,9 @@ export class MobileAuthController {
 
   @Post('step-up/challenge')
   @UseGuards(MobileJwtGuard)
-  async issueChallenge(@CurrentUser() user: MobilePrincipal): Promise<ChallengeResponse> {
+  async issueChallenge(
+    @CurrentUser() user: MobilePrincipal,
+  ): Promise<ChallengeResponse> {
     const challengeId = await this.challenge.issueChallenge(user.deviceId);
     return SessionMapper.toChallengeResponse(challengeId);
   }

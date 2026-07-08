@@ -39,13 +39,13 @@ const StoreLocationsEntrySchema: ZodType<StoreLocationsEntry> = z.object({
   name: z.string(),
   default_location_id: z.string().nullable(),
   locations: z.array(LocationSnapshotEntrySchema),
+  permissions: z.array(z.string()),
 });
 
 const PermissionSnapshotSchema: ZodType<PermissionSnapshot> = z.object({
   userId: z.string(),
   permissionsVersion: z.number(),
   generatedAt: z.string(),
-  globalPermissions: z.array(z.string()),
   storeLocations: z.array(StoreLocationsEntrySchema),
 });
 
@@ -120,25 +120,6 @@ export class SnapshotService {
       .from(users)
       .where(eq(users.id, userId));
 
-    // Fetch active CRUD grants via the user's roles.
-    // NOTE (Phase 5): this still emits the legacy flat `entity:action` string form.
-    // The full per-store StorePermissionEntry rebuild (rbac.md §14) replaces this.
-    const userRoleRows = await this.db
-      .select({
-        entityCode: rolePermissions.entityCode,
-        action: rolePermissions.action,
-      })
-      .from(rolePermissions)
-      .innerJoin(roles, eq(rolePermissions.roleFk, roles.id))
-      .innerJoin(userRoleMappings, eq(userRoleMappings.roleFk, roles.id))
-      .where(
-        and(
-          eq(userRoleMappings.userFk, userId),
-          isNull(userRoleMappings.revokedAt),
-          isNull(rolePermissions.revokedAt),
-        ),
-      );
-
     const snapshot: PermissionSnapshot = {
       // Wire-facing id must be the public guuid, matching every other
       // user-facing response field (AuthMapper always emits user.guuid as
@@ -146,8 +127,7 @@ export class SnapshotService {
       userId: user?.guuid ?? userId,
       permissionsVersion: user?.permissionsVersion ?? 1,
       generatedAt: new Date().toISOString(),
-      globalPermissions: userRoleRows.map((r) => `${r.entityCode}:${r.action}`),
-      storeLocations: await this.buildLocationsBlock(userId),
+      storeLocations: await this.buildStoreAccessBlock(userId),
     };
 
     const canonical = this.crypto.canonicalJson(snapshot);
@@ -168,12 +148,13 @@ export class SnapshotService {
   }
 
   /**
-   * Per-store accessible locations for the offline client (adoption §8.2,
-   * rbac.md §26.8). Owners see all locations in their stores; other users see
-   * only assigned ones. Each store's default is surfaced so the device knows
-   * which location to open on cold start without a network call.
+   * Per-store accessible locations AND this user's own CRUD grants, both
+   * scoped to the same stores (adoption §8.2, rbac.md §26.8/§14). Owners see
+   * all locations in their stores; other users see only assigned ones. Each
+   * store's default is surfaced so the device knows which location to open
+   * on cold start without a network call.
    */
-  private async buildLocationsBlock(
+  private async buildStoreAccessBlock(
     userId: string,
   ): Promise<StoreLocationsEntry[]> {
     // Stores the user has any active role in, and which of those they own.
@@ -202,6 +183,35 @@ export class SnapshotService {
       .from(stores)
       .where(inArray(stores.id, [...storeIds]));
     const storeNames = new Map(storeRows.map((s) => [s.id, s.name]));
+
+    // This user's active CRUD grants, PER STORE — grouped by roles.storeFk
+    // (same scoping join rbac.service.ts's authoritative resolution uses),
+    // not flattened across stores. A user with different roles in different
+    // stores must never see Store A's grants while Store B is active.
+    const permissionRows = await this.db
+      .select({
+        storeFk: roles.storeFk,
+        entityCode: rolePermissions.entityCode,
+        action: rolePermissions.action,
+      })
+      .from(rolePermissions)
+      .innerJoin(roles, eq(rolePermissions.roleFk, roles.id))
+      .innerJoin(userRoleMappings, eq(userRoleMappings.roleFk, roles.id))
+      .where(
+        and(
+          eq(userRoleMappings.userFk, userId),
+          isNull(userRoleMappings.revokedAt),
+          isNull(rolePermissions.revokedAt),
+        ),
+      );
+
+    const permissionsByStore = new Map<string, Set<string>>();
+    for (const p of permissionRows) {
+      if (!p.storeFk) continue; // system-wide role grant — no store to attach it to
+      const set = permissionsByStore.get(p.storeFk) ?? new Set<string>();
+      set.add(`${p.entityCode}:${p.action}`);
+      permissionsByStore.set(p.storeFk, set);
+    }
 
     // Active locations, scoped to this user's stores. The `inArray(storeFk)`
     // filter is load-bearing: without it this scans the entire `locations`
@@ -244,6 +254,7 @@ export class SnapshotService {
         name: storeNames.get(storeId) ?? '',
         default_location_id: null,
         locations: [],
+        permissions: [...(permissionsByStore.get(storeId) ?? [])],
       });
     }
 

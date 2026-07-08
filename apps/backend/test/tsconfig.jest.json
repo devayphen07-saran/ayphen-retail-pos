@@ -2,6 +2,9 @@
   "extends": "../tsconfig.app.json",
   "compilerOptions": {
     "allowJs": true,
-    "isolatedModules": true
-  }
+    "isolatedModules": true,
+    "types": ["jest", "node"],
+    "rootDir": ".."
+  },
+  "include": ["**/*.ts", "../src/**/*.ts"]
 }

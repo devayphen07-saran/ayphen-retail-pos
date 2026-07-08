@@ -21,19 +21,27 @@ export interface LocationSnapshotEntry {
   is_locked:  boolean;
 }
 
-/** Per-store location access, so an offline device can pick a startup location. */
+/**
+ * Per-store access: location list plus this user's own CRUD grants IN THAT
+ * STORE (`entityCode:action` strings — same wire form the old flat
+ * `globalPermissions` used, just scoped now). A user can hold different
+ * roles in different stores (e.g. Owner in one, cashier in another); a
+ * flattened cross-store list let a permission held in Store A leak into the
+ * mobile UI's gating while Store B was active. Client-UX mirror only — never
+ * an authorization input, on either side.
+ */
 export interface StoreLocationsEntry {
   store_id:            string;
   name:                string;
   default_location_id: string | null;
   locations:           LocationSnapshotEntry[];
+  permissions:         string[];
 }
 
 export interface PermissionSnapshot {
   userId:             string;
   permissionsVersion: number;
   generatedAt:        string;
-  globalPermissions:  string[];
   storeLocations:     StoreLocationsEntry[];
 }
 

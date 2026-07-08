@@ -12,6 +12,7 @@ import { AppException } from '../../../src/common/exceptions/app.exception';
 import { env } from '../../../src/config/env';
 import {
   accounts,
+  accountUsers,
   users,
   stores,
   roles,
@@ -20,16 +21,20 @@ import {
 } from '../../../src/db/schema';
 
 /**
- * Regression coverage for two role-subsystem privilege-escalation gaps
+ * Regression coverage for three role-subsystem privilege-escalation gaps
  * (backend-standard review, §4/§7): `revokeRole` had no system-role guard
- * (a staffer could strip the store owner's own STORE_OWNER assignment), and
+ * (a staffer could strip the store owner's own STORE_OWNER assignment),
  * `updatePermissions` had no ceiling check (a staffer could grant a role more
- * CRUD than they themselves hold, then self-assign it).
+ * CRUD than they themselves hold, then self-assign it), and `assignRole` had
+ * the same missing ceiling check on the assignment path itself (a staffer
+ * could self-assign a pre-existing role broader than their own grants
+ * without ever touching updatePermissions).
  */
 describe('RoleService — privilege-escalation guards', () => {
   let db: Database;
   let redis: Redis;
   let service: RoleService;
+  let rbac: RbacService;
 
   let storeId: string;
   let ownerUserId: string;
@@ -54,6 +59,7 @@ describe('RoleService — privilege-escalation guards', () => {
     db = moduleRef.get(DRIZZLE);
     redis = moduleRef.get(REDIS);
     service = moduleRef.get(RoleService);
+    rbac = moduleRef.get(RbacService);
   });
 
   afterAll(async () => {
@@ -65,6 +71,7 @@ describe('RoleService — privilege-escalation guards', () => {
     await db.delete(rolePermissions);
     await db.delete(roles);
     await db.delete(stores);
+    await db.delete(accountUsers);
     await db.delete(users);
     await db.delete(accounts);
     await redis.flushdb();
@@ -90,6 +97,11 @@ describe('RoleService — privilege-escalation guards', () => {
       .returning();
     staffUserId = staff!.id;
 
+    await db.insert(accountUsers).values([
+      { accountFk: account!.id, userFk: ownerUserId },
+      { accountFk: account!.id, userFk: staffUserId },
+    ]);
+
     const [store] = await db
       .insert(stores)
       .values({ accountFk: account!.id, name: 'Main Store' })
@@ -101,6 +113,11 @@ describe('RoleService — privilege-escalation guards', () => {
       .values({ storeFk: storeId, code: 'STORE_OWNER', name: 'Owner', isEditable: false })
       .returning();
     ownerRoleId = ownerRole!.id;
+    // Mirrors the real store-create flow — STORE_OWNER holds no grants by
+    // magic, they're seeded as literal rolePermissions rows (rbac.service.ts
+    // resolveFromDb has no owner-code bypass; the "owner sees everything"
+    // guarantee depends entirely on this seed actually having run).
+    await rbac.seedStoreOwnerPermissions(ownerRoleId, ownerUserId, db);
     await db.insert(userRoleMappings).values({ userFk: ownerUserId, roleFk: ownerRoleId, storeFk: storeId });
 
     // A limited custom role for the staffer — only Role.edit + UserRoleMapping.create,
@@ -171,6 +188,43 @@ describe('RoleService — privilege-escalation guards', () => {
         { entity: 'Product', action: 'delete' },
         { entity: 'Payment', action: 'view' },
       ]),
+    ).resolves.toBeUndefined();
+  });
+
+  it('blocks assigning a role that grants permissions the actor does not hold', async () => {
+    await db.insert(rolePermissions).values([
+      { roleFk: targetRoleId, entityCode: 'Product', action: 'delete' },
+    ]);
+
+    await expect(
+      service.assignRole(storeId, staffUserId, targetRoleId, staffUserId),
+    ).rejects.toMatchObject({ errorCode: 'GRANT_EXCEEDS_ACTOR_PERMISSIONS' } satisfies Partial<AppException>);
+
+    const [row] = await db
+      .select()
+      .from(userRoleMappings)
+      .where(eq(userRoleMappings.roleFk, targetRoleId));
+    expect(row).toBeUndefined();
+  });
+
+  it('allows assigning a role whose grants the actor already holds', async () => {
+    await db.insert(rolePermissions).values([
+      { roleFk: targetRoleId, entityCode: 'UserRoleMapping', action: 'create' },
+    ]);
+
+    await expect(
+      service.assignRole(storeId, staffUserId, targetRoleId, staffUserId),
+    ).resolves.toBeUndefined();
+  });
+
+  it('allows the store owner (full CRUD) to assign any role', async () => {
+    await db.insert(rolePermissions).values([
+      { roleFk: targetRoleId, entityCode: 'Product', action: 'delete' },
+      { roleFk: targetRoleId, entityCode: 'Payment', action: 'view' },
+    ]);
+
+    await expect(
+      service.assignRole(storeId, ownerUserId, targetRoleId, staffUserId),
     ).resolves.toBeUndefined();
   });
 });

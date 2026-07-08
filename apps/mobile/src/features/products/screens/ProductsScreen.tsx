@@ -9,6 +9,7 @@ import {
   ListScaffold,
   SearchBar,
 } from '@ayphen/mobile-ui-components';
+import { usePermission } from '@core/auth/usePermission';
 import { getSyncDbForQueries } from '@core/sync/db/client';
 import { products } from '@core/sync/db/schema';
 import type { LocalProduct } from '@core/sync/repositories/product.repository';
@@ -31,6 +32,9 @@ export function ProductsScreen() {
   const { theme } = useMobileTheme();
   const storeId = useActiveStoreStore((s) => s.storeId) ?? '';
   const [search, setSearch] = useState('');
+  // Local UX gating only — the create endpoint is still enforced server-side
+  // regardless of this check (see usePermission.ts / permission-check.ts).
+  const canCreateProduct = usePermission('Product', 'create');
 
   const query = useMemo(
     () => getSyncDbForQueries().select().from(products).where(eq(products.storeId, storeId)),
@@ -59,20 +63,21 @@ export function ProductsScreen() {
   }, [allProducts, debouncedSearch]);
 
   const addButton = useMemo(
-    () => (
-      <IconButton
-        variant="ghost"
-        size={36}
-        iconName="Plus"
-        color={theme.colorPrimary}
-        activeOpacity={0.7}
-        accessibilityRole="button"
-        accessibilityLabel="Add product"
-        hitSlop={8}
-        onPress={() => router.push('/(store)/product-create')}
-      />
-    ),
-    [theme.colorPrimary],
+    () =>
+      canCreateProduct ? (
+        <IconButton
+          variant="ghost"
+          size={36}
+          iconName="Plus"
+          color={theme.colorPrimary}
+          activeOpacity={0.7}
+          accessibilityRole="button"
+          accessibilityLabel="Add product"
+          hitSlop={8}
+          onPress={() => router.push('/(store)/product-create')}
+        />
+      ) : undefined,
+    [theme.colorPrimary, canCreateProduct],
   );
 
   // Stable identity so FlashList row recycling isn't defeated by a fresh

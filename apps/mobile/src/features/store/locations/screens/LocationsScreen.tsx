@@ -16,6 +16,7 @@ import {
 } from '@ayphen/api-manager';
 import type { LocationResponse } from '@ayphen/api-manager';
 import { useActiveStoreStore } from '@store';
+import { usePermission } from '@core/auth/usePermission';
 import { LocationLoadingCard } from '../loading/LocationsLoading';
 import { LocationCard } from '../components/LocationCard';
 import { LocationActionsSheet, type LocationActionsSheetProps } from '../components/LocationActionsSheet';
@@ -32,6 +33,11 @@ export function LocationsScreen() {
   // Which row has a set-default/delete in flight — dims + disables just that
   // card instead of spinning the whole screen (loading-agent.md §7).
   const [busyId, setBusyId] = useState<string | null>(null);
+  // Local UX gating only — every mutation below is still enforced server-side
+  // regardless of these checks (see usePermission.ts / permission-check.ts).
+  const canCreateLocation = usePermission('Location', 'create');
+  const canEditLocations = usePermission('Location', 'edit');
+  const canDeleteLocations = usePermission('Location', 'delete');
 
   // Reuses the account-level subscription read model's entitlements (already
   // fetched/cached elsewhere in the app) rather than a new endpoint — same
@@ -116,10 +122,12 @@ export function LocationsScreen() {
           onEdit: editLocation,
           onSetDefault: runSetDefault,
           onDelete: confirmDelete,
+          canEdit: canEditLocations,
+          canDelete: canDeleteLocations,
         },
       });
     },
-    [sheet, editLocation, runSetDefault, confirmDelete],
+    [sheet, editLocation, runSetDefault, confirmDelete, canEditLocations, canDeleteLocations],
   );
 
   const renderLocation = useCallback(
@@ -134,12 +142,14 @@ export function LocationsScreen() {
       title="Locations"
       onBack={() => router.back()}
       rightElement={
-        <IconButton
-          iconName="Plus"
-          variant="default"
-          accessibilityLabel="Add location"
-          onPress={handleAddPress}
-        />
+        canCreateLocation ? (
+          <IconButton
+            iconName="Plus"
+            variant="default"
+            accessibilityLabel="Add location"
+            onPress={handleAddPress}
+          />
+        ) : undefined
       }
     >
       <ListScaffold<LocationResponse>
@@ -164,7 +174,7 @@ export function LocationsScreen() {
         listProps={{
           error: isError ? { message: "Couldn't load your locations." } : undefined,
           refetch,
-          addNew: handleAddPress,
+          addNew: canCreateLocation ? handleAddPress : undefined,
         }}
         emptyState={{
           message: 'No locations yet',

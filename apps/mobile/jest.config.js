@@ -33,7 +33,16 @@ module.exports = {
       // without this override that file fails to parse ("Unexpected token
       // 'export'") the moment anything importing logger.ts is required —
       // even though this project needs no other native-module transforms.
-      transformIgnorePatterns: ['node_modules/(?!(expo)/)'],
+      // Two negative lookaheads, not one: under pnpm's isolated node-linker
+      // (this workspace's node-linker=isolated, see root .npmrc), `expo`
+      // actually resolves through node_modules/.pnpm/expo@.../node_modules/
+      // expo/... — two "node_modules/" segments, not one. A single
+      // `(?!expo/)` lookahead matches (and so wrongly IGNORES/skips
+      // transform) at the OUTER node_modules/.pnpm segment, since ".pnpm"
+      // isn't "expo/" either — it never gets to the inner segment that
+      // actually is expo. Skipping straight past any `.pnpm` segment lets
+      // the second lookahead reach the real expo/ segment underneath it.
+      transformIgnorePatterns: ['node_modules/(?!\\.pnpm)(?!expo/)'],
       moduleNameMapper: ALIAS_MODULE_NAME_MAPPER,
     },
     {

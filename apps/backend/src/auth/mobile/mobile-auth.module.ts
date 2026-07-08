@@ -74,6 +74,7 @@ import { MeController } from './me.controller.js';
     // MobileJwtGuard's module-scoped deps, so other modules that apply the guard
     // (e.g. StoresModule) can instantiate it in their own injector.
     BlacklistCacheService,
+    PrincipalCacheService,
     ReplayProtectionService,
     SnapshotRefreshInterceptor,
     AuthSessionRepository,

@@ -16,12 +16,13 @@ import type { PermissionSnapshot } from '@ayphen/api-manager';
 type StoreLocationsEntry = PermissionSnapshot['storeLocations'][number];
 type LocationEntry = StoreLocationsEntry['locations'][number];
 
-export function hasGlobalPermission(
+export function hasPermission(
   snapshot: PermissionSnapshot | null | undefined,
+  storeId: string,
   entity: string,
   action: string,
 ): boolean {
-  return !!snapshot?.globalPermissions.includes(`${entity}:${action}`);
+  return !!getStoreEntry(snapshot, storeId)?.permissions.includes(`${entity}:${action}`);
 }
 
 export function getStoreEntry(

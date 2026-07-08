@@ -117,6 +117,19 @@ function daysLeftLabel(sub: SubscriptionResponse): string | null {
   return `Renews in ${days} day${days === 1 ? '' : 's'}`;
 }
 
+/** "Next payment on 14 Jul 2026" — absolute companion to the relative
+ *  `daysLeftLabel` above, shown once billing (not trial) is the live state. */
+function nextPaymentLabel(sub: SubscriptionResponse): string | null {
+  if (sub.status === 'trialing' || !sub.current_period_end) return null;
+  const date = new Date(sub.current_period_end);
+  const formatted = date.toLocaleDateString('en-GB', {
+    day: 'numeric',
+    month: 'short',
+    year: 'numeric',
+  });
+  return `Next payment on ${formatted}`;
+}
+
 /** Fraction of the trial/billing window already elapsed, clamped to [0.04, 1]
  *  so the bar always shows a sliver of progress rather than looking empty. */
 function elapsedFraction(sub: SubscriptionResponse): number | null {
@@ -295,6 +308,16 @@ export function SubscriptionScreen() {
                       </Column>
                     )}
 
+                    {nextPaymentLabel(sub) && (
+                      <Typography.Caption
+                        color={theme.overlay.onDark55}
+                        weight="medium"
+                        style={{ marginTop: theme.sizing.xSmall }}
+                      >
+                        {nextPaymentLabel(sub)}
+                      </Typography.Caption>
+                    )}
+
                     <ViewPlansButton
                       onPress={() => router.push('/(store)/subscription-plans')}
                       activeOpacity={0.85}
@@ -303,7 +326,7 @@ export function SubscriptionScreen() {
                         weight="bold"
                         color={theme.color.primary.main}
                       >
-                        View plans
+                        {sub.status === 'trialing' ? 'View plans' : 'Upgrade'}
                       </Typography.Body>
                       <LucideIcon
                         name="ArrowRight"

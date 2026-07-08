@@ -11,6 +11,7 @@ export const ITEM_ROUTES: Partial<Record<string, string>> = {
   'invite-staff': '/(store)/invite-staff',
   invitations: '/(onboarding)/invitations',
   'my-devices': '/(store)/my-devices',
+  'sessions': '/(store)/sessions',
   'sync-issues': '/(store)/sync-issues',
   'local-tables': '/(store)/local-tables',
 };

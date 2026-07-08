@@ -113,7 +113,7 @@ export function SubscriptionCheckoutScreen() {
   // on screen to navigate away from (i.e. before the order exists yet).
   if (!order || !prefill) {
     return (
-      <AppLayout title="Checkout" onBack={() => router.back()}>
+      <AppLayout title="Checkout" onBack={() => router.back()} loading>
         <CheckoutLoadingState />
       </AppLayout>
     );
