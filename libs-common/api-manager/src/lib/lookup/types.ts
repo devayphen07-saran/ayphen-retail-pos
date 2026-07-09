@@ -12,6 +12,9 @@ export interface LookupValueResponse {
   description: string | null;
   sort_order: number;
   is_system: boolean;
+  /** Optimistic-lock version — required as `expected_row_version` on
+   *  `PATCH stores/:storeId/lookup/values/:guuid`. */
+  row_version: number;
 }
 
 export interface CurrencyResponse {

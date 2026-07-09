@@ -1,8 +1,8 @@
-import { Column, Row, SkeletonBox } from '@ayphen/mobile-ui-components';
+import { Column, SkeletonBox } from '@ayphen/mobile-ui-components';
 import { useMobileTheme } from '@ayphen/mobile-theme';
 
 /** Layout-matched loading state for InviteStaffScreen — method toggle + contact
- *  field + role/location selectors, shown while roles & locations load (§2). */
+ *  field + role selector, shown while roles load (§2). */
 export function InviteStaffLoading() {
   const { theme } = useMobileTheme();
 
@@ -20,12 +20,6 @@ export function InviteStaffLoading() {
       {field(70)}
       {field(50)}
       {field(120)}
-      {/* Selected-location chips */}
-      <Row gap={8}>
-        {[0, 1, 2].map((i) => (
-          <SkeletonBox key={i} width={84} height={28} borderRadius={999} />
-        ))}
-      </Row>
     </Column>
   );
 }

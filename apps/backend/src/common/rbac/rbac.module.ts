@@ -6,7 +6,6 @@ import { TenantGuard } from './guards/tenant.guard.js';
 import { PermissionsGuard } from './guards/permissions.guard.js';
 import { SuperAdminGuard } from './guards/super-admin.guard.js';
 import { StepUpAuthGuard } from './guards/step-up-auth.guard.js';
-import { LocationGuard } from './guards/location.guard.js';
 
 /**
  * RBAC foundation module (rbac.md §5, §10–13, §15–17, §21). Validates the
@@ -26,7 +25,6 @@ import { LocationGuard } from './guards/location.guard.js';
     PermissionsGuard,
     SuperAdminGuard,
     StepUpAuthGuard,
-    LocationGuard,
   ],
   exports: [
     RbacService,
@@ -35,7 +33,6 @@ import { LocationGuard } from './guards/location.guard.js';
     PermissionsGuard,
     SuperAdminGuard,
     StepUpAuthGuard,
-    LocationGuard,
   ],
 })
 export class RbacModule {}

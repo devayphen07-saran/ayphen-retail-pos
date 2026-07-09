@@ -100,7 +100,7 @@ export const MORE_SECTIONS: readonly MoreSectionConfig[] = [
   {
     key: 'customers',
     title: 'Customers',
-    description: 'Directory, credit, and advances',
+    description: 'Directory and advances',
     iconName: 'UsersRound',
     iconColor: 'violet',
     items: [
@@ -110,13 +110,6 @@ export const MORE_SECTIONS: readonly MoreSectionConfig[] = [
         description: 'Profiles, purchase history, and contacts',
         iconName: 'UsersRound',
         iconColor: 'violet',
-      },
-      {
-        key: 'credit-ledger',
-        label: 'Credit Ledger',
-        description: 'Outstanding balances and payment history',
-        iconName: 'BookOpen',
-        iconColor: 'warning',
       },
       {
         key: 'customer-advances',
@@ -129,40 +122,9 @@ export const MORE_SECTIONS: readonly MoreSectionConfig[] = [
   },
 
   {
-    key: 'inventory',
-    title: 'Inventory',
-    description: 'Stock levels and adjustments',
-    iconName: 'Boxes',
-    iconColor: 'teal',
-    items: [
-      {
-        key: 'stock-levels',
-        label: 'Stock Levels',
-        description: 'Current stock and low-stock alerts',
-        iconName: 'Boxes',
-        iconColor: 'violet',
-      },
-      {
-        key: 'stock-takes',
-        label: 'Stock Takes',
-        description: 'Physical count and inventory reconciliation',
-        iconName: 'ClipboardCheck',
-        iconColor: 'teal',
-      },
-      {
-        key: 'stock-adjustments',
-        label: 'Stock Adjustments',
-        description: 'Corrections for damage, theft, or audit',
-        iconName: 'ClipboardList',
-        iconColor: 'neutral',
-      },
-    ],
-  },
-
-  {
     key: 'purchases',
     title: 'Purchases',
-    description: 'Suppliers, stock-in, and payables',
+    description: 'Vendor directory',
     iconName: 'PackageCheck',
     iconColor: 'success',
     items: [
@@ -172,37 +134,6 @@ export const MORE_SECTIONS: readonly MoreSectionConfig[] = [
         description: 'Vendor directory with GSTIN and terms',
         iconName: 'Truck',
         iconColor: 'success',
-      },
-      {
-        key: 'purchase-orders',
-        label: 'Purchase Orders',
-        description: 'Record stock-in from suppliers',
-        iconName: 'PackagePlus',
-        iconColor: 'info',
-      },
-    ],
-  },
-
-  {
-    key: 'finance',
-    title: 'Finance',
-    description: 'Cash book and expense tracking',
-    iconName: 'Wallet',
-    iconColor: 'warning',
-    items: [
-      {
-        key: 'cash-book',
-        label: 'Cash Book',
-        description: 'Every cash inflow and outflow',
-        iconName: 'Banknote',
-        iconColor: 'success',
-      },
-      {
-        key: 'expenses',
-        label: 'Expenses',
-        description: 'Rent, electricity, wages, and more',
-        iconName: 'Receipt',
-        iconColor: 'error',
       },
     ],
   },
@@ -262,7 +193,7 @@ export const MORE_SECTIONS: readonly MoreSectionConfig[] = [
       {
         key: 'invite-staff',
         label: 'Invite Staff',
-        description: 'Invite a team member to a role and locations',
+        description: 'Invite a team member to a role',
         iconName: 'UserPlus',
         iconColor: 'success',
       },
@@ -324,13 +255,6 @@ export const MORE_SECTIONS: readonly MoreSectionConfig[] = [
         description: 'Manage devices accessing this store',
         iconName: 'Smartphone',
         iconColor: 'teal',
-      },
-      {
-        key: 'locations',
-        label: 'Locations',
-        description: 'Head Office and additional store locations',
-        iconName: 'MapPin',
-        iconColor: 'info',
       },
     ],
   },

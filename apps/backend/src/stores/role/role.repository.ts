@@ -20,6 +20,7 @@ export interface RoleRow {
   description: string | null;
   isEditable:  boolean;
   storeFk:     string | null;
+  rowVersion:  number;
 }
 
 export interface RoleGrant {
@@ -55,6 +56,7 @@ export class RoleRepository {
         description: roles.description,
         isEditable: roles.isEditable,
         storeFk: roles.storeFk,
+        rowVersion: roles.rowVersion,
       })
       .from(roles)
       .where(and(eq(roles.storeFk, storeId), isNull(roles.deletedAt)))
@@ -74,6 +76,7 @@ export class RoleRepository {
         description: roles.description,
         isEditable: roles.isEditable,
         storeFk: roles.storeFk,
+        rowVersion: roles.rowVersion,
       })
       .from(roles)
       .where(
@@ -144,6 +147,26 @@ export class RoleRepository {
   }
 
   // ── CRUD grant editing ────────────────────────────────────────────────────
+
+  /**
+   * Optimistic-lock claim on a role's permission matrix — bump `row_version`
+   * atomically in the same UPDATE that checks it, so two concurrent full-
+   * matrix edits can't silently clobber each other. Returns null on a version
+   * mismatch (or a concurrent delete); the caller re-fetches to tell the two
+   * apart, mirroring LookupService.updateValue's pattern.
+   */
+  async casUpdateRowVersion(
+    roleId: string,
+    expectedRowVersion: number,
+    tx?: DbExecutor,
+  ): Promise<{ rowVersion: number } | null> {
+    const [row] = await this.client(tx)
+      .update(roles)
+      .set({ rowVersion: sql`${roles.rowVersion} + 1` })
+      .where(and(eq(roles.id, roleId), eq(roles.rowVersion, expectedRowVersion)))
+      .returning({ rowVersion: roles.rowVersion });
+    return row ?? null;
+  }
 
   /** Revoke all active CRUD grants for a role (before re-applying a new set). */
   async revokeAllCrud(roleId: string, tx?: DbExecutor): Promise<void> {

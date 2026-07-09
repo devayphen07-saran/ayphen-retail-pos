@@ -1,3 +1,4 @@
+export * from './screens/CompleteProfileScreen';
 export * from './screens/CreateStoreScreen';
 export * from './screens/InvitationsScreen';
 export * from './screens/ModeSelectScreen';

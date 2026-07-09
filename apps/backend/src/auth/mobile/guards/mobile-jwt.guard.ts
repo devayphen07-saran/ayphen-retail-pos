@@ -6,57 +6,24 @@ import {
   UnauthorizedException,
 } from '@nestjs/common';
 import { Observable } from 'rxjs';
-import Redis from 'ioredis';
 import { eq } from 'drizzle-orm';
 import type { PostgresJsDatabase } from 'drizzle-orm/postgres-js';
 import { Inject } from '@nestjs/common';
 import type { Request } from 'express';
-import { z, type ZodType } from 'zod';
 import { DRIZZLE } from '#db/db.module.js';
 import * as schema from '#db/schema.js';
 import { deviceSessions } from '#db/schema.js';
 import { CryptoService } from '../../core/crypto.service.js';
-import { AppConfigService } from '#config/app-config.service.js';
 import { BlacklistCacheService } from '../services/blacklist-cache.service.js';
 import { ReplayProtectionService } from '../services/replay-protection.service.js';
+import { SessionCacheInvalidatorService } from '../services/session-cache-invalidator.service.js';
 import {
   PrincipalCacheService,
   type CachedDevice,
   type CachedUser,
 } from '../services/principal-cache.service.js';
-import { REDIS } from '#common/redis/redis.provider.js';
-import { readTypedCache } from '#common/redis/typed-cache.js';
 import type { MobilePrincipal } from '#common/types/principal.js';
 import { ErrorCodes } from '#common/error-codes.js';
-
-const sessionKey = (id: string) => `session:${id}`;
-
-/** Mirrors the `deviceSessions` table (db/schema.ts) column-for-column, so a
- *  cached row is validated against the same shape it was written from —
- *  z.coerce.date() rehydrates the ISO strings JSON.stringify produced. */
-const DeviceSessionSchema: ZodType<typeof deviceSessions.$inferSelect> = z.object({
-  id: z.string(),
-  userFk: z.string(),
-  deviceFk: z.string(),
-  expiresAt: z.coerce.date(),
-  lastUsedAt: z.coerce.date(),
-  lastStepUpAt: z.coerce.date().nullable(),
-  lastStepUpMethod: z.enum(['otp', 'password', 'biometric']).nullable(),
-  stepUpLockedUntil: z.coerce.date().nullable(),
-  revokedAt: z.coerce.date().nullable(),
-  revokedReason: z.string().nullable(),
-  currentJti: z.string().nullable(),
-  currentJtiExp: z.coerce.date().nullable(),
-  ipAtCreation: z.string().nullable(),
-  geoAtCreation: z.string().nullable(),
-  deviceName: z.string().nullable(),
-  os: z.string().nullable(),
-  appVersion: z.string().nullable(),
-  platform: z.string().nullable(),
-  lastAppVersion: z.string().nullable(),
-  pushToken: z.string().nullable(),
-  createdAt: z.coerce.date(),
-});
 
 @Injectable()
 export class MobileJwtGuard implements CanActivate {
@@ -64,12 +31,11 @@ export class MobileJwtGuard implements CanActivate {
 
   constructor(
     private readonly crypto:      CryptoService,
-    private readonly config:      AppConfigService,
     private readonly blacklist:   BlacklistCacheService,
     private readonly replay:      ReplayProtectionService,
     private readonly principals:  PrincipalCacheService,
-    @Inject(REDIS) private readonly redis: Redis,
-    @Inject(DRIZZLE)      private readonly db:    PostgresJsDatabase<typeof schema>,
+    private readonly sessionCache: SessionCacheInvalidatorService,
+    @Inject(DRIZZLE) private readonly db: PostgresJsDatabase<typeof schema>,
   ) {}
 
   canActivate(
@@ -83,7 +49,7 @@ export class MobileJwtGuard implements CanActivate {
     // ─ Step 1: Extract Bearer token ──────────────────────────────────────────
     const auth = req.headers['authorization'] ?? '';
     if (!auth.startsWith('Bearer '))
-      throw new UnauthorizedException('MISSING_TOKEN');
+      throw new UnauthorizedException(ErrorCodes.MISSING_TOKEN);
     const token = auth.slice(7);
 
     // ─ Step 2: Verify JWT + type:'access' (§18.3) ────────────────────────────
@@ -91,7 +57,7 @@ export class MobileJwtGuard implements CanActivate {
     // no casts. `type` is kept loose there so we own the INVALID_TOKEN_TYPE code.
     const payload = await this.crypto.verifyJwt(token);
     if (payload.type !== 'access') {
-      throw new UnauthorizedException('INVALID_TOKEN_TYPE');
+      throw new UnauthorizedException(ErrorCodes.INVALID_TOKEN_TYPE);
     }
 
     const { sub: userId, jti, deviceSessionId, pv: jwtPv } = payload;
@@ -99,7 +65,7 @@ export class MobileJwtGuard implements CanActivate {
 
     // ─ Step 3: JTI blacklist (LRU → Redis → DB) ──────────────────────────────
     if (await this.blacklist.isBlacklisted(jti)) {
-      throw new UnauthorizedException('TOKEN_REVOKED');
+      throw new UnauthorizedException(ErrorCodes.TOKEN_REVOKED);
     }
 
     // ─ Steps 4-5: Session load (Redis 30s cache → DB) + replay protection ────
@@ -129,10 +95,10 @@ export class MobileJwtGuard implements CanActivate {
     req: Request,
   ): Promise<typeof deviceSessions.$inferSelect> {
     const session = await this.loadSession(deviceSessionId);
-    if (!session) throw new UnauthorizedException('SESSION_NOT_FOUND');
-    if (session.revokedAt) throw new UnauthorizedException('SESSION_REVOKED');
+    if (!session) throw new UnauthorizedException(ErrorCodes.SESSION_NOT_FOUND);
+    if (session.revokedAt) throw new UnauthorizedException(ErrorCodes.SESSION_REVOKED);
     if (session.expiresAt < new Date())
-      throw new UnauthorizedException('SESSION_EXPIRED');
+      throw new UnauthorizedException(ErrorCodes.SESSION_EXPIRED);
     // Fallback defense alongside the blacklist: a session's currentJti is
     // stamped by every refresh rotation, so a token whose jti doesn't match it
     // has been superseded. This catches a superseded token even if the
@@ -163,23 +129,23 @@ export class MobileJwtGuard implements CanActivate {
     userId: string,
   ): Promise<{ device: CachedDevice; user: CachedUser }> {
     const device = await this.principals.getDevice(deviceId);
-    if (!device) throw new UnauthorizedException('DEVICE_NOT_FOUND');
-    if (device.isBlocked) throw new UnauthorizedException('DEVICE_BLOCKED');
+    if (!device) throw new UnauthorizedException(ErrorCodes.DEVICE_NOT_FOUND);
+    if (device.isBlocked) throw new UnauthorizedException(ErrorCodes.DEVICE_BLOCKED);
 
     const user = await this.principals.getUser(userId);
-    if (!user) throw new UnauthorizedException('USER_NOT_FOUND');
+    if (!user) throw new UnauthorizedException(ErrorCodes.USER_NOT_FOUND);
     // Soft-delete check on the cached projection — replaces the redundant 5s
     // revocation cache.
-    if (user.deletedAt) throw new UnauthorizedException('USER_NOT_FOUND');
-    if (user.isBlocked) throw new UnauthorizedException('USER_BLOCKED');
+    if (user.deletedAt) throw new UnauthorizedException(ErrorCodes.USER_NOT_FOUND);
+    if (user.isBlocked) throw new UnauthorizedException(ErrorCodes.USER_BLOCKED);
     if (user.status === 'suspended' || user.status === 'locked') {
-      throw new UnauthorizedException('USER_SUSPENDED');
+      throw new UnauthorizedException(ErrorCodes.USER_SUSPENDED);
     }
     if (user.accountLockedUntil && new Date(user.accountLockedUntil) > new Date()) {
-      throw new UnauthorizedException('ACCOUNT_LOCKED');
+      throw new UnauthorizedException(ErrorCodes.ACCOUNT_LOCKED);
     }
     if (!user.phoneVerified)
-      throw new UnauthorizedException('PHONE_NOT_VERIFIED');
+      throw new UnauthorizedException(ErrorCodes.PHONE_NOT_VERIFIED);
 
     return { device, user };
   }
@@ -212,14 +178,14 @@ export class MobileJwtGuard implements CanActivate {
     id: string,
   ): Promise<typeof deviceSessions.$inferSelect | null> {
     // Degrade to DB on a Redis ERROR (not a miss) OR a corrupt/mismatched
-    // cached payload (readTypedCache validates against DeviceSessionSchema
-    // and returns null rather than trusting a blind cast): the session row
-    // lives durably in `deviceSessions`, so both must fall through to it —
-    // NOT return null, which would read as "no session" and log every user
-    // out. Only a real cache miss (null) proceeds to DB too; all three paths
-    // converge below.
+    // cached payload (SessionCacheInvalidatorService.read validates the
+    // shape and returns null rather than trusting a blind cast): the session
+    // row lives durably in `deviceSessions`, so both must fall through to it
+    // — NOT return null, which would read as "no session" and log every
+    // user out. Only a real cache miss (null) proceeds to DB too; all three
+    // paths converge below.
     try {
-      const cached = await readTypedCache(this.redis, sessionKey(id), DeviceSessionSchema);
+      const cached = await this.sessionCache.read(id);
       if (cached) return cached;
     } catch (err) {
       this.logger.warn(
@@ -235,15 +201,8 @@ export class MobileJwtGuard implements CanActivate {
       .where(eq(deviceSessions.id, id));
 
     if (row) {
-      try {
-        await this.redis.setex(
-          sessionKey(id),
-          this.config.sessionCacheTtlSeconds,
-          JSON.stringify(row),
-        );
-      } catch {
-        /* best-effort cache fill — a Redis write failure must not fail the request */
-      }
+      // fillIfNotTombstoned is itself best-effort — see SessionCacheInvalidatorService.
+      await this.sessionCache.fillIfNotTombstoned(id, row);
     }
     return row ?? null;
   }

@@ -1,5 +1,5 @@
 import { Inject, Injectable } from '@nestjs/common';
-import { and, desc, eq, inArray, sql } from 'drizzle-orm';
+import { and, desc, eq, inArray, lt, sql } from 'drizzle-orm';
 import type { PostgresJsDatabase } from 'drizzle-orm/postgres-js';
 import { DRIZZLE, type DbExecutor } from '#db/db.module.js';
 import { requireRow } from '#db/require-row.js';
@@ -118,7 +118,7 @@ export class DeviceAccessRepository {
    * caller treats a unique violation as "already claimed" and re-reads.
    */
   async insertSlot(
-    data: { storeFk: string; deviceFk: string; userFk: string; locationFk?: string | null },
+    data: { storeFk: string; deviceFk: string; userFk: string },
     tx?: DbExecutor,
   ): Promise<StoreDeviceAccess> {
     const [row] = await this.client(tx)
@@ -270,11 +270,12 @@ export class DeviceAccessRepository {
       ));
   }
 
-  /** Revoke ALL of a device's slots across every store (block, F8). */
+  /** Revoke ALL of a device's slots across every store (block/F8, or a
+   *  device-scoped logout releasing every store it was using). */
   async revokeAllSlotsForDevice(
     deviceId: string,
     revokedBy: string,
-    reason: 'stolen',
+    reason: 'owner_removed' | 'stolen' | 'auto_expired' | 'plan_downgrade' | 'released',
     tx?: DbExecutor,
   ): Promise<void> {
     await this.client(tx)
@@ -284,6 +285,70 @@ export class DeviceAccessRepository {
         eq(storeDeviceAccess.deviceFk, deviceId),
         eq(storeDeviceAccess.status, 'active'),
       ));
+  }
+
+  /**
+   * Revoke one specific slot by its own id — the reconciliation resolve flow
+   * works in slot ids directly (a device can hold active slots in more than
+   * one store at once, so a bare device id can't unambiguously identify which
+   * one to revoke; see ReconciliationService.getContext). Returns rows
+   * affected (0 or 1).
+   */
+  async revokeSlotById(
+    slotId: string,
+    revokedBy: string,
+    reason: 'owner_removed' | 'stolen' | 'auto_expired' | 'plan_downgrade' | 'released',
+    tx?: DbExecutor,
+  ): Promise<number> {
+    const rows = await this.client(tx)
+      .update(storeDeviceAccess)
+      .set({ status: 'revoked', revokedAt: new Date(), revokedBy, revokedReason: reason, modifiedAt: new Date() })
+      .where(and(
+        eq(storeDeviceAccess.id, slotId),
+        eq(storeDeviceAccess.status, 'active'),
+      ))
+      .returning({ id: storeDeviceAccess.id });
+    return rows.length;
+  }
+
+  /**
+   * Auto-expire slots idle past `staleBefore` (device-management: slots free
+   * on owner-remove / block / 30-day expiry). `limit` bounds each call to one
+   * batch — the cron loops until a batch comes back short of `limit`, so a
+   * mass idle-expiry never runs as one unbounded UPDATE. The predicate is
+   * repeated on the outer UPDATE (not just the inner id-selecting SELECT), same
+   * as SubscriptionRepository.expireTrials, so a concurrent touchSlot() between
+   * the inner snapshot and this UPDATE is re-validated by Postgres's
+   * EvalPlanQual and skipped instead of blindly expiring a slot that was just
+   * heartbeated.
+   */
+  async expireStaleSlots(staleBefore: Date, limit: number, tx?: DbExecutor): Promise<string[]> {
+    const client = this.client(tx);
+    const rows = await client
+      .update(storeDeviceAccess)
+      .set({
+        status:         'expired',
+        revokedAt:      new Date(),
+        revokedReason:  'auto_expired',
+        modifiedAt:     new Date(),
+      })
+      .where(and(
+        inArray(
+          storeDeviceAccess.id,
+          client
+            .select({ id: storeDeviceAccess.id })
+            .from(storeDeviceAccess)
+            .where(and(
+              eq(storeDeviceAccess.status, 'active'),
+              lt(storeDeviceAccess.lastAccessedAt, staleBefore),
+            ))
+            .limit(limit),
+        ),
+        eq(storeDeviceAccess.status, 'active'),
+        lt(storeDeviceAccess.lastAccessedAt, staleBefore),
+      ))
+      .returning({ id: storeDeviceAccess.id });
+    return rows.map((r) => r.id);
   }
 
   // ─── Device identity (owned by the user) ───────────────────────────────────

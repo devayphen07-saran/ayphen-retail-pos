@@ -2,6 +2,7 @@ import type {
   LoginResult,
   StageOneResult,
   BootstrapResult,
+  ProfileResult,
 } from '../types/auth-result.js';
 import type { RotateResult } from '../services/refresh-token.service.js';
 import type { OtpChallengeResponse } from '../dto/response/otp.response.js';
@@ -9,6 +10,7 @@ import type {
   LoginResponse,
   RefreshResponse,
   BootstrapResponse,
+  ProfileResponse,
 } from '../dto/response/auth.response.js';
 
 /**
@@ -27,13 +29,14 @@ export const AuthMapper = {
 
   toLoginResponse(r: LoginResult): LoginResponse {
     return {
-      access_token:      r.accessToken,
-      refresh_token:     r.refreshToken,
-      user:              { id: r.user.id, permissions_version: r.user.permissionsVersion },
-      is_new_user:       r.isNewUser,
-      device_id:         r.deviceId,
-      device_session_id: r.deviceSessionId,
-      is_trusted:        r.isTrusted,
+      access_token:             r.accessToken,
+      refresh_token:            r.refreshToken,
+      device_session_id:        r.deviceSessionId,
+      snapshot:                 r.snapshot,
+      snapshot_signature:       r.snapshotSignature,
+      last_account_mode:        r.lastAccountMode,
+      pending_invitation_count: r.pendingInvitationCount,
+      profile_complete:         r.profileComplete,
     };
   },
 
@@ -42,26 +45,29 @@ export const AuthMapper = {
       access_token:     r.accessToken,
       refresh_token:    r.refreshToken,
       snapshot_version: r.snapshotVersion,
-      snapshot:             r.snapshotResult?.snapshot ?? null,
-      snapshot_signature:   r.snapshotResult?.signature ?? null,
-      snapshot_changed:     r.snapshotResult !== null,
-      force_bootstrap:      false,
-      store_access_changed: r.snapshotResult !== null,
+      snapshot:           r.snapshotResult?.snapshot ?? null,
+      snapshot_signature: r.snapshotResult?.signature ?? null,
     };
   },
 
   toBootstrapResponse(r: BootstrapResult): BootstrapResponse {
     return {
-      user:                    { id: r.user.id, permissions_version: r.user.permissionsVersion },
-      device_id:               r.deviceId,
-      device_session_id:       r.deviceSessionId,
-      is_trusted:              r.isTrusted,
-      permissions_version:     r.user.permissionsVersion,
-      snapshot:                r.snapshot,
-      snapshot_signature:      r.snapshotSignature,
-      last_account_mode:       r.lastAccountMode,
-      has_pending_invitations: r.hasPendingInvitations,
+      device_session_id:        r.deviceSessionId,
+      snapshot:                 r.snapshot,
+      snapshot_signature:       r.snapshotSignature,
+      last_account_mode:        r.lastAccountMode,
       pending_invitation_count: r.pendingInvitationCount,
+      profile_complete:         r.profileComplete,
+    };
+  },
+
+  toProfileResponse(r: ProfileResult): ProfileResponse {
+    return {
+      name:                r.name,
+      email:               r.email,
+      phone:               r.phone,
+      phone_verified:      r.phoneVerified,
+      profile_picture_url: r.profilePictureUrl,
     };
   },
 };

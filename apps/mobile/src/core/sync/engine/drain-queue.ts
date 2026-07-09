@@ -1,3 +1,5 @@
+import type { PermissionSnapshot } from '@ayphen/api-manager';
+import { useAuthStore } from '@store';
 import { appliersRegistry } from '../appliers/appliers.registry';
 import { syncCursorRepository } from '../repositories/sync-cursor.repository';
 import {
@@ -240,6 +242,15 @@ export async function drainMutationQueueOnce(
       result.sync_cursor,
       result.server_time,
     );
+  }
+
+  // The backend computes a fresh snapshot on every push (delta.service.ts)
+  // precisely because a mutation is the highest-value moment to catch a
+  // permission change — mirror the same trust boundary as
+  // rotateWithFreshChallenge (interceptors.ts): only apply it when BOTH the
+  // snapshot and its signature are present.
+  if (result.snapshot && result.snapshot_signature) {
+    useAuthStore.getState().setSnapshot(result.snapshot as PermissionSnapshot, result.snapshot_signature);
   }
 
   return { drained: batch.length, hasMorePulled: result.has_more };

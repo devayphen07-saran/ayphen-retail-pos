@@ -44,7 +44,6 @@ export const STORE_OWNER_CRUD: CrudMatrixMap = Object.freeze({
   Subscription: VIEW_EDIT,
   Device: freezeCrud({ view: true, create: false, edit: true, delete: true }),
   Store: freezeCrud({ view: true, create: false, edit: true, delete: true }),
-  Location: FULL,
   Invitation: FULL,
   OwnershipTransfer: NO_DELETE,
   UserRoleMapping: FULL,

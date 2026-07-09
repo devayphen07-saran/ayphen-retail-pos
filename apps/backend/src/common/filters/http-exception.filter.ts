@@ -196,6 +196,17 @@ export class AllExceptionsFilter implements ExceptionFilter {
           errorCode: ErrorCodes.VALIDATION_FAILED,
           message:   'The request violates a data constraint',
         };
+      case '40P01': // deadlock_detected — one side of a lock-order conflict
+                    // (e.g. a payment webhook and a reconciliation-resolve
+                    // both touching the same account) is always chosen as the
+                    // victim and aborted; a clean retryable signal here, not
+                    // a bare 500, since the loser's transaction is intact
+                    // and safe to retry as-is.
+        return {
+          status:    HttpStatus.SERVICE_UNAVAILABLE,
+          errorCode: ErrorCodes.TRANSIENT_CONFLICT,
+          message:   'This action conflicted with another in-flight request — please retry',
+        };
       default:
         this.logger.error(`Unhandled PostgresError ${pgErr.code}: ${pgErr.message}`);
         return {

@@ -12,15 +12,15 @@ import { useEnterStore } from '../../shared/hooks/useEnterStore';
  * one to open (mobile-03 §4: "no pointer & >1 store → STORE PICKER, don't
  * auto-pick stores[0]").
  *
- * The snapshot's `storeLocations` entries carry the store `name` and its
- * locations (auth/types.ts PermissionSnapshot), so each row shows the store
- * name + location count — never the raw store id.
+ * The snapshot's `stores` entries carry the store `name`
+ * (auth/types.ts PermissionSnapshot), so each row shows the store name —
+ * never the raw store id.
  */
 export function StorePickerScreen() {
   const { theme } = useMobileTheme();
   const snapshot = useAuthStore((s) => s.snapshot);
   const { enterStore, checking, cancelChecking } = useEnterStore();
-  const storeLocations = useMemo(() => snapshot?.storeLocations ?? [], [snapshot]);
+  const stores = useMemo(() => snapshot?.stores ?? [], [snapshot]);
 
   const openStore = async (store: StoreContext) => {
     // A tap fires a network device-slot claim (below). Ignore further taps
@@ -41,8 +41,7 @@ export function StorePickerScreen() {
           Select a store to continue.
         </Typography.Caption>
         <Column gap={10}>
-          {storeLocations.map((store) => {
-            const count = store.locations?.length ?? 0;
+          {stores.map((store) => {
             return (
               <StoreCard key={store.store_id} onPress={() => openStore(store)} activeOpacity={0.7}>
                 <Row align="center" gap={12}>
@@ -53,12 +52,6 @@ export function StorePickerScreen() {
                     <Typography.Body weight="semiBold" numberOfLines={1}>
                       {store.name || 'Unnamed store'}
                     </Typography.Body>
-                    <Row align="center" gap={4}>
-                      <LucideIcon name="MapPin" size={12} color={theme.colorTextTertiary} />
-                      <Typography.Caption type="secondary">
-                        {count} location{count === 1 ? '' : 's'}
-                      </Typography.Caption>
-                    </Row>
                   </Column>
                   <ChevronSlot>
                     <LucideIcon name="ChevronRight" size={16} color={theme.colorTextTertiary} />

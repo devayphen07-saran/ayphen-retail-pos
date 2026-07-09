@@ -71,7 +71,7 @@ export class OtpRequestService {
       expiresAt,
     });
 
-    await this.otpService.generateAndSend(phone, ttl);
+    await this.otpService.generateAndSend(phone, purpose, ttl);
 
     await this.rateLimitService.recordAttempt({
       ip,

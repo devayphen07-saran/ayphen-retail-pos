@@ -1,8 +1,7 @@
-import { Inject, Injectable, Logger } from '@nestjs/common';
-import { eq } from 'drizzle-orm';
-import { DRIZZLE, UnitOfWork, type Database, type DbTransaction } from '#db/db.module.js';
+import { Injectable, Logger } from '@nestjs/common';
+import { UnitOfWork, type DbTransaction } from '#db/db.module.js';
 import { unwrapPgError } from '#db/rethrow-unique-violation.js';
-import { accountSubscriptions } from '#db/schema.js';
+import { SubscriptionRepository, type SubscriptionSyncState } from '../../subscription/subscription.repository.js';
 import { ErrorCodes, type ErrorCode } from '#common/error-codes.js';
 import { ServiceUnavailableError } from '#common/exceptions/app.exception.js';
 import { parse } from '#common/validation/parse.js';
@@ -88,13 +87,6 @@ class HandlerRejectedSignal extends Error {
 /** A concurrent identical mutation won the idempotency insert — roll back and poll. */
 class RaceLostSignal extends Error {}
 
-interface SubscriptionState {
-  status: string;
-  accessValidUntil: Date | null;
-  reconciliationStatus: string;
-  reconciliationEffectiveAt: Date | null;
-}
-
 interface MutationEnv {
   now: Date;
   storeId: string;
@@ -102,7 +94,7 @@ interface MutationEnv {
   deviceId: string;
   sessionCreatedAt: Date;
   permissions: EffectivePermissions;
-  subscription: SubscriptionState | null;
+  subscription: SubscriptionSyncState | null;
   failedGuuids: Set<string>;
 }
 
@@ -124,7 +116,7 @@ export class SyncDeltaService {
   private readonly logger = new Logger(SyncDeltaService.name);
 
   constructor(
-    @Inject(DRIZZLE) private readonly db: Database,
+    private readonly subscriptions: SubscriptionRepository,
     private readonly uow: UnitOfWork,
     private readonly handlers: MutationHandlerRegistry,
     private readonly idempotency: SyncIdempotencyRepository,
@@ -173,15 +165,7 @@ export class SyncDeltaService {
     const session = await this.sessions.findById(principal.deviceSessionId);
     const sessionCreatedAt: Date = session?.createdAt ?? now;
 
-    const [sub] = await this.db
-      .select({
-        status: accountSubscriptions.status,
-        accessValidUntil: accountSubscriptions.accessValidUntil,
-        reconciliationStatus: accountSubscriptions.reconciliationStatus,
-        reconciliationEffectiveAt: accountSubscriptions.reconciliationEffectiveAt,
-      })
-      .from(accountSubscriptions)
-      .where(eq(accountSubscriptions.accountFk, accountId));
+    const sub = await this.subscriptions.findSyncStateByAccount(accountId);
 
     const permissions = await this.rbac.getCachedPermissions(userId, storeId, true);
 
@@ -192,7 +176,7 @@ export class SyncDeltaService {
       deviceId: principal.deviceId,
       sessionCreatedAt,
       permissions,
-      subscription: sub ?? null,
+      subscription: sub,
       failedGuuids: new Set<string>(),
     };
   }
@@ -417,10 +401,19 @@ export class SyncDeltaService {
         'a plan downgrade is awaiting reconciliation',
       );
     }
+    // A mutation cannot predate its own device session (mirrors §12 layer 3 in
+    // checkGrace above). Without this floor, a raw API client (bypassing the
+    // app's own local lapse gating) could pin client_modified_at to any
+    // instant before access_valid_until forever, permanently evading
+    // SUBSCRIPTION_LAPSED_AT_WRITE regardless of how long ago access actually
+    // lapsed. This still trusts client_modified_at within the session's
+    // lifetime — closing that fully needs the signed access_valid_until
+    // hardening already tracked as planned (subscription.md §23, Rec7).
+    const subAsOf = effectiveAsOf > env.sessionCreatedAt ? effectiveAsOf : env.sessionCreatedAt;
     if (
       sub.accessValidUntil &&
       env.now > sub.accessValidUntil &&
-      effectiveAsOf > sub.accessValidUntil
+      subAsOf > sub.accessValidUntil
     ) {
       // Deterministic for this stamp — cache it (a renewal can't retro-authorize
       // a write made after the window closed).
@@ -519,6 +512,27 @@ export class SyncDeltaService {
     env: MutationEnv,
   ): Promise<MutationResultWire> {
     if (error instanceof HandlerRejectedSignal) {
+      // A CREATE-path DUPLICATE_ENTRY here comes from the entity's own guuid
+      // unique-constraint (§11 savepoint), which fires for BOTH a genuine
+      // resubmit-of-a-different-mutation-id AND the losing side of a same
+      // mutation_id race (two concurrent retries of one dropped ack — neither
+      // had committed yet when both passed the pre-tx idempotency check).
+      // `idempotency.record()` below is a no-op against the winner's already
+      // -committed row in that second case, so recheck for a live winner row
+      // before answering `rejected` — the wire contract treats `rejected` as
+      // terminal/droppable (unlike `duplicate`), and telling the loser its
+      // create failed when the mutation actually already applied lets a
+      // client drop the queued item and recreate it with a fresh guuid,
+      // producing a real duplicate record.
+      if (error.outcome.code === ErrorCodes.DUPLICATE_ENTRY) {
+        const winner = await this.idempotency.find(m.mutation_id, env.userId, env.storeId);
+        if (winner && this.idempotency.isLive(winner, env.now)) {
+          const cached = winner.result as Record<string, unknown>;
+          const sanitized = winner.status === 'conflict' ? { ...cached, server_row: undefined } : cached;
+          return { mutation_id: m.mutation_id, status: 'duplicate', cached: sanitized };
+        }
+      }
+
       const wire: MutationResultWire = {
         mutation_id: m.mutation_id,
         status: 'rejected',

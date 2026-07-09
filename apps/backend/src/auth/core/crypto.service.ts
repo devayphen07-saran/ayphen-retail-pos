@@ -78,6 +78,22 @@ export class CryptoService implements OnModuleInit {
       .sign(this.currentSecret);
   }
 
+  /**
+   * Decode (without verifying) the `jti`/`exp` claims of a token this process
+   * itself just signed — used to persist `currentJti`/`currentJtiExp`
+   * alongside the session/token row that issued it, in the same transaction.
+   * Never use this on an externally-supplied token; that must go through
+   * `verifyJwt`.
+   */
+  decodeOwnJwtClaims(token: string): { jti: string; exp: number } {
+    const parts = token.split('.');
+    const payload = JSON.parse(Buffer.from(parts[1]!, 'base64url').toString()) as {
+      jti: string;
+      exp: number;
+    };
+    return payload;
+  }
+
   async verifyJwt(token: string): Promise<VerifiedAccessClaims> {
     let payload: unknown;
     try {

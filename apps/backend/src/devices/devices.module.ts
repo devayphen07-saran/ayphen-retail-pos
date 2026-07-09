@@ -3,6 +3,7 @@ import { AuthCoreModule } from '#auth/core/auth-core.module.js';
 import { MobileAuthModule } from '#auth/mobile/mobile-auth.module.js';
 import { SubscriptionModule } from '../subscription/subscription.module.js';
 import { DeviceAccessService } from './device-access.service.js';
+import { DeviceSlotExpiryCronService } from './device-slot-expiry-cron.service.js';
 import {
   StoreDeviceController,
   StoreAccessController,
@@ -23,6 +24,6 @@ import { MyDeviceController } from './my-device.controller.js';
     StoreAccessController,
     MyDeviceController,
   ],
-  providers: [DeviceAccessService],
+  providers: [DeviceAccessService, DeviceSlotExpiryCronService],
 })
 export class DevicesModule {}

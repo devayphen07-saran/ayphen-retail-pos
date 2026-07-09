@@ -9,10 +9,11 @@ import { listLocalTables, type LocalTableSummary } from '../utils/sqlite-introsp
 
 /**
  * Developer > Local Tables — raw SQLite table browser (menu-config.ts's
- * `developer` section, already gated to __DEV__ builds by MoreScreen). Reads
- * `sqlite_master` directly rather than the Drizzle schema exports so it also
- * shows anything Drizzle itself creates outside the SQL migrations (e.g.
- * `__drizzle_migrations`).
+ * `developer` section, hidden from the menu in production AND __DEV__-gated
+ * at the route itself — local-tables.tsx — so a deep link can't reach it
+ * either). Reads `sqlite_master` directly rather than the Drizzle schema
+ * exports so it also shows anything Drizzle itself creates outside the SQL
+ * migrations (e.g. `__drizzle_migrations`).
  */
 export function LocalTablesScreen() {
   const { theme } = useMobileTheme();

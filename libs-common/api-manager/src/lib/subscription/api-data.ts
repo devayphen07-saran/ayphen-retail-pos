@@ -34,8 +34,8 @@ export const CANCEL_SUBSCRIPTION = new APIData('me/subscription/cancel', APIMeth
 /** Undo a pending cancellation, still within the paid period (§13 case A). Owner + step-up required server-side. */
 export const REACTIVATE_SUBSCRIPTION = new APIData('me/subscription/reactivate', APIMethod.POST);
 
-/** The downgrade resolve screen's data — every store/location/device the
- *  owner can choose to keep, plus the plan's new limits. */
+/** The downgrade resolve screen's data — every store/device the owner can
+ *  choose to keep, plus the plan's new limits. */
 export const GET_RECONCILIATION = new APIData('me/subscription/reconciliation', APIMethod.GET);
 
 /** The owner's downgrade resolution. Owner + step-up required server-side. */

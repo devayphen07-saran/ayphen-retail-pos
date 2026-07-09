@@ -1,0 +1,1 @@
+ALTER TABLE `sync_store_meta` ADD `permissions` text;

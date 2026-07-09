@@ -264,7 +264,7 @@ export class RbacService {
   }
 
   /** Batched counterpart to `invalidateUserStoreCache` — one pipelined DEL
-   *  for every user instead of N sequential round trips (bulk location
+   *  for every user instead of N sequential round trips (bulk role
    *  assignment can touch up to 50 users in one call). */
   async invalidateUserStoreCacheForUsers(
     userIds: string[],
@@ -388,7 +388,7 @@ export class RbacService {
     return memberIds;
   }
 
-  /** Bump one user's permissions version (e.g. location assignment change, H-6). */
+  /** Bump one user's permissions version (e.g. role assignment change, H-6). */
   async bumpPermissionsVersionForUser(userId: string, tx?: DbExecutor): Promise<void> {
     await this.repo.bumpPermissionsVersion([userId], tx);
   }

@@ -15,12 +15,15 @@ import { DeviceService, type DeviceInfo } from './device.service.js';
 import { AuthSessionRepository } from '../repositories/auth-session.repository.js';
 import { RefreshTokenService } from './refresh-token.service.js';
 import { AccountBootstrapService } from './account-bootstrap.service.js';
+import { SnapshotService } from './snapshot.service.js';
+import { InvitationLookupRepository } from '../repositories/invitation-lookup.repository.js';
 import type { StageOneResult, LoginResult } from '../types/auth-result.js';
 
 @Injectable()
 export class AuthSignupService {
   constructor(
     private readonly userRepo: UserRepository,
+    private readonly invitationRepo: InvitationLookupRepository,
     private readonly rateLimit: RateLimitService,
     private readonly otpReqService: OtpRequestService,
     private readonly otpService: OtpService,
@@ -28,6 +31,7 @@ export class AuthSignupService {
     private readonly deviceService: DeviceService,
     private readonly sessionRepo: AuthSessionRepository,
     private readonly tokenService: RefreshTokenService,
+    private readonly snapshot: SnapshotService,
     private readonly crypto: CryptoService,
     private readonly config: AppConfigService,
     private readonly audit: AuditService,
@@ -68,7 +72,7 @@ export class AuthSignupService {
       'signup',
     );
     if (!otpRequest)
-      throw new AppException(ErrorCodes.TOKEN_EXPIRED, 'OTP_EXPIRED', 422);
+      throw new AppException(ErrorCodes.OTP_EXPIRED, 'OTP has expired or is no longer valid', 422);
 
     // Per-phone throttle at verify time — mirrors login, closes the IP-only gap.
     await this.rateLimit.checkPhoneOtpLimit(phone);
@@ -95,23 +99,39 @@ export class AuthSignupService {
         409,
       );
 
-    const { user, device, session, refreshToken } = await this.createUserAtomically(
-      phone,
-      name,
-      deviceInfo,
-      ip,
-    );
+    const { user, session, refreshToken, accessToken } =
+      await this.createUserAtomically(phone, name, deviceInfo, ip);
 
-    const accessToken = await this.crypto.signJwt(user.id, session.id, user.permissionsVersion);
+    // Best-effort, same resilience as login: a snapshot-build hiccup must not
+    // fail an otherwise-successful signup. A brand-new user has never picked
+    // a mode (lastAccountMode is always null), but can already have pending
+    // invitations matched by phone/email from before they signed up.
+    let snapshot: LoginResult['snapshot'] = null;
+    let snapshotSignature: LoginResult['snapshotSignature'] = null;
+    let pendingInvitationCount = 0;
+    try {
+      const snapshotResult = await this.snapshot.getOrBuild(user.id);
+      snapshot = snapshotResult.snapshot;
+      snapshotSignature = snapshotResult.signature;
+      pendingInvitationCount = await this.invitationRepo.countPendingForContact(
+        user.phone ?? null,
+        user.email ?? null,
+      );
+    } catch {
+      // fields stay null/0 — client falls back to its existing bootstrap call.
+    }
 
     return {
       accessToken,
       refreshToken,
-      user: { id: user.guuid, permissionsVersion: user.permissionsVersion },
-      isNewUser: true,
-      deviceId: device.id,
       deviceSessionId: session.id,
-      isTrusted: device.isTrusted,
+      snapshot,
+      snapshotSignature,
+      lastAccountMode: null,
+      pendingInvitationCount,
+      // Signup never collects an email (phone+OTP only) — always false for a
+      // brand-new account, computed rather than hardcoded in case that changes.
+      profileComplete: user.email !== null,
     };
   }
 
@@ -171,23 +191,48 @@ export class AuthSignupService {
           tx,
         );
 
+        // Sign inside the tx and stamp currentJti/currentJtiExp on the same
+        // session row before it commits — see auth-login.service.ts for why:
+        // a session must always be blacklist-able, even before its first
+        // token refresh.
+        const accessToken = await this.crypto.signJwt(
+          user.id,
+          session.id,
+          user.permissionsVersion,
+        );
+        const claims = this.crypto.decodeOwnJwtClaims(accessToken);
+        const accessTokenExp = new Date(claims.exp * 1000);
+        await this.sessionRepo.updateCurrentJti(
+          session.id,
+          claims.jti,
+          accessTokenExp,
+          tx,
+        );
+
         // Committed in the same transaction as account creation — a
         // transient audit-write failure must roll back the signup, not
         // leave a durably-created account with no audit trail for it.
-        await this.audit.logInTransaction({
-          event: 'SIGNUP',
-          activityType: 'AUTH_SIGNUP',
-          prefix: 'User',
-          suffix: `signed up with phone`,
-          userId: user!.id,
-          ipAddress: ip,
-        }, tx);
+        await this.audit.logInTransaction(
+          {
+            event: 'SIGNUP',
+            activityType: 'AUTH_SIGNUP',
+            prefix: 'User',
+            suffix: `signed up with phone`,
+            userId: user.id,
+            ipAddress: ip,
+          },
+          tx,
+        );
 
-        return { user: user!, device, session, refreshToken };
+        return { user, device, session, refreshToken, accessToken };
       });
     } catch (err) {
       if (unwrapPgError(err)?.code === '23505') {
-        throw new AppException(ErrorCodes.DUPLICATE_ENTRY, 'USER_ALREADY_EXISTS', 409);
+        throw new AppException(
+          ErrorCodes.DUPLICATE_ENTRY,
+          'USER_ALREADY_EXISTS',
+          409,
+        );
       }
       throw err;
     }

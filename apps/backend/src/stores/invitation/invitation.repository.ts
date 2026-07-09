@@ -1,15 +1,12 @@
 import { Inject, Injectable } from '@nestjs/common';
-import { and, eq, gt, inArray, isNull, or, sql } from 'drizzle-orm';
+import { and, eq, gt, or, sql } from 'drizzle-orm';
 import type { PostgresJsDatabase } from 'drizzle-orm/postgres-js';
 import { DRIZZLE, type DbExecutor } from '#db/db.module.js';
 import { requireRow } from '#db/require-row.js';
 import * as schema from '#db/schema.js';
 import {
   invitations,
-  invitationLocations,
-  userRoleMappings,
   accountUsers,
-  locations,
   stores,
   roles,
   users,
@@ -48,71 +45,9 @@ export class InvitationRepository {
   }
 
   /**
-   * Distinct users with an active role assignment in this store — the
-   * denominator of the max_users_per_store gate (subscription §10).
-   */
-  async countActiveStaff(storeId: string, tx?: DbExecutor): Promise<number> {
-    const [row] = await this.client(tx)
-      .select({ n: sql<number>`count(distinct ${userRoleMappings.userFk})::int` })
-      .from(userRoleMappings)
-      .where(
-        and(eq(userRoleMappings.storeFk, storeId), isNull(userRoleMappings.revokedAt)),
-      );
-    return row?.n ?? 0;
-  }
-
-  /** Batched counterpart to `countActiveStaff` — one grouped query for every
-   *  store in the set instead of N sequential per-store counts. */
-  async countActiveStaffByStores(storeIds: string[], tx?: DbExecutor): Promise<Map<string, number>> {
-    if (storeIds.length === 0) return new Map();
-    const rows = await this.client(tx)
-      .select({
-        storeFk: userRoleMappings.storeFk,
-        n: sql<number>`count(distinct ${userRoleMappings.userFk})::int`,
-      })
-      .from(userRoleMappings)
-      .where(and(inArray(userRoleMappings.storeFk, storeIds), isNull(userRoleMappings.revokedAt)))
-      .groupBy(userRoleMappings.storeFk);
-    // storeFk is nullable on this table (system-wide role rows) but the
-    // inArray filter above already excludes those — narrow the type back.
-    return new Map(rows.map((r) => [r.storeFk as string, r.n]));
-  }
-
-  /** Resolve the account that owns a store — needed to read the store's
-   *  entitlements (max_users_per_store) at accept time, where only the storeFk
-   *  is in hand. */
-  async getAccountIdForStore(storeId: string, tx?: DbExecutor): Promise<string | null> {
-    const [row] = await this.client(tx)
-      .select({ accountFk: stores.accountFk })
-      .from(stores)
-      .where(eq(stores.id, storeId));
-    return row?.accountFk ?? null;
-  }
-
-  /** Whether the user already holds an active role in this store — i.e. already
-   *  occupies a seat. `countActiveStaff` counts DISTINCT users, so accepting an
-   *  invite for an existing staff member consumes no new seat; the accept-time
-   *  limit gate skips the check in that case (avoids a false USER_LIMIT_REACHED
-   *  when assigning a second role at the cap). */
-  async isActiveStaffMember(userId: string, storeId: string, tx?: DbExecutor): Promise<boolean> {
-    const [row] = await this.client(tx)
-      .select({ userFk: userRoleMappings.userFk })
-      .from(userRoleMappings)
-      .where(
-        and(
-          eq(userRoleMappings.userFk, userId),
-          eq(userRoleMappings.storeFk, storeId),
-          isNull(userRoleMappings.revokedAt),
-        ),
-      )
-      .limit(1);
-    return Boolean(row);
-  }
-
-  /**
    * Lock the store row for the duration of the transaction (SELECT ... FOR
    * UPDATE). Serializes concurrent invitation-creation attempts against the
-   * same store so the max_users_per_store recheck below it can't race.
+   * same store so the expire-then-insert sequence in create() can't race.
    */
   async lockStore(storeId: string, tx: DbExecutor): Promise<void> {
     await tx
@@ -131,50 +66,6 @@ export class InvitationRepository {
       .values(data)
       .returning({ id: invitations.id, token: invitations.token });
     return requireRow(row);
-  }
-
-  /**
-   * Of the given ids, the subset that are active locations of this store. The
-   * caller compares length to reject unknown/foreign location ids (a client
-   * can't scope an invite to a location outside the store it's inviting into).
-   */
-  async filterStoreLocationIds(
-    storeId: string,
-    ids: string[],
-    tx?: DbExecutor,
-  ): Promise<string[]> {
-    if (ids.length === 0) return [];
-    const rows = await this.client(tx)
-      .select({ id: locations.id })
-      .from(locations)
-      .where(and(
-        eq(locations.storeFk, storeId),
-        eq(locations.isActive, true),
-        inArray(locations.id, ids),
-      ));
-    return rows.map((r) => r.id);
-  }
-
-  /** Record which locations an invitation grants (the "WHERE" gate applied on accept). */
-  async insertInvitationLocations(
-    invitationId: string,
-    locationIds: string[],
-    tx?: DbExecutor,
-  ): Promise<void> {
-    if (locationIds.length === 0) return;
-    await this.client(tx)
-      .insert(invitationLocations)
-      .values(locationIds.map((locationFk) => ({ invitationFk: invitationId, locationFk })))
-      .onConflictDoNothing();
-  }
-
-  /** The location ids an invitation grants — read at accept time to assign the invitee. */
-  async listInvitationLocationIds(invitationId: string, tx?: DbExecutor): Promise<string[]> {
-    const rows = await this.client(tx)
-      .select({ locationFk: invitationLocations.locationFk })
-      .from(invitationLocations)
-      .where(eq(invitationLocations.invitationFk, invitationId));
-    return rows.map((r) => r.locationFk).filter((id): id is string => id !== null);
   }
 
   /** A pending invite already outstanding for this contact + role in this store. */
@@ -233,6 +124,21 @@ export class InvitationRepository {
         sql`${invitations.expiresAt} <= now()`,
         or(...contactMatch),
       ));
+  }
+
+  /** Live (pending, unexpired) invitations still pointing at this role — used
+   *  to block role deletion so an invite can't later 404 with ROLE_NOT_FOUND
+   *  at accept-time instead of being blocked up front. */
+  async countActivePendingForRole(roleId: string, tx?: DbExecutor): Promise<number> {
+    const [row] = await this.client(tx)
+      .select({ n: sql<number>`count(*)::int` })
+      .from(invitations)
+      .where(and(
+        eq(invitations.roleFk, roleId),
+        eq(invitations.status, 'pending'),
+        gt(invitations.expiresAt, new Date()),
+      ));
+    return row?.n ?? 0;
   }
 
   async findByToken(token: string, tx?: DbExecutor): Promise<InvitationRow | null> {

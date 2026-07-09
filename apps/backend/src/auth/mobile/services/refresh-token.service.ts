@@ -25,7 +25,7 @@ import {
   REFRESH_IDEM_DONE_TTL_SECONDS,
 } from './refresh-idempotency.service.js';
 import { SnapshotService } from './snapshot.service.js';
-import type { SnapshotResult } from '../types/permission-snapshot.js';
+import type { SnapshotResult } from '#common/types/permission-snapshot.js';
 import { AppConfigService } from '#config/app-config.service.js';
 
 /**
@@ -348,15 +348,8 @@ export class RefreshTokenService {
       session.id,
       user.permissionsVersion,
     );
-    const newJtiExp = new Date(
-      Date.now() + this.config.accessTokenTtlSeconds * 1000,
-    );
-
-    // Extract jti from new token (decode without verify — just payload)
-    const parts = accessToken.split('.');
-    const claims = JSON.parse(
-      Buffer.from(parts[1]!, 'base64url').toString(),
-    ) as { jti: string };
+    const claims = this.crypto.decodeOwnJwtClaims(accessToken);
+    const newJtiExp = new Date(claims.exp * 1000);
 
     // 4. Atomic rotation — commits or throws.
     const refreshToken = await this.commitRotation(

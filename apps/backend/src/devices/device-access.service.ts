@@ -1,4 +1,4 @@
-import { Injectable } from '@nestjs/common';
+import { Injectable, Logger } from '@nestjs/common';
 import { UnitOfWork } from '#db/db.module.js';
 import { unwrapPgError } from '#db/rethrow-unique-violation.js';
 import { ForbiddenError, NotFoundError } from '#common/exceptions/app.exception.js';
@@ -34,6 +34,8 @@ export interface MyDevice {
  */
 @Injectable()
 export class DeviceAccessService {
+  private readonly logger = new Logger(DeviceAccessService.name);
+
   constructor(
     private readonly repo: DeviceAccessRepository,
     private readonly entitlements: EntitlementService,
@@ -43,17 +45,50 @@ export class DeviceAccessService {
     private readonly cacheInvalidator: SessionCacheInvalidatorService,
   ) {}
 
-  /** Blacklist + drop the session cache for every revoked session so a
-   *  blocked/removed device's already-issued access token stops working
-   *  immediately, instead of surviving until its own natural expiry. */
+  /**
+   * Blacklist + drop the session cache for every revoked session so a
+   * blocked/removed device's already-issued access token stops working
+   * immediately, instead of surviving until its own natural expiry.
+   *
+   * Best-effort by design: the DB mutation (remove/block) has already
+   * committed by the time this runs, so a Redis failure here must not
+   * surface as a request failure — that would misreport an already-
+   * successful removal/block as an error, and (worse, for `blockDevice`'s
+   * stolen-device kill-switch) would leave the live token silently usable
+   * with no retry/alert. Log and swallow instead.
+   */
   private async revokeLiveTokens(
+    context: string,
     sessions: { id: string; currentJti: string | null; currentJtiExp: Date | null }[],
   ): Promise<void> {
+    // Independent, not sequential: these are two separate defense layers
+    // (durable JTI blacklist + Redis session-cache invalidation) against the
+    // same already-issued token. A transient failure in one must not skip
+    // the other — a sequential await-then-await here would let a blacklist
+    // DB hiccup silently prevent the cache invalidation from ever running,
+    // leaving the stolen device's token live via the stale session cache for
+    // up to its full TTL (backend-standard review finding).
     const toBlacklist = sessions
       .filter((s) => s.currentJti && s.currentJtiExp)
       .map((s) => ({ jti: s.currentJti!, exp: s.currentJtiExp! }));
-    await this.blacklist.addManyToBlacklist(toBlacklist);
-    await this.cacheInvalidator.invalidateMany(sessions.map((s) => s.id));
+
+    const [blacklistResult, cacheResult] = await Promise.allSettled([
+      this.blacklist.addManyToBlacklist(toBlacklist),
+      this.cacheInvalidator.invalidateMany(sessions.map((s) => s.id)),
+    ]);
+
+    if (blacklistResult.status === 'rejected') {
+      this.logger.error(
+        `${context}: failed to blacklist ${toBlacklist.length} JTI(s) post-commit — ` +
+          `token(s) remain valid until natural expiry: ${blacklistResult.reason instanceof Error ? blacklistResult.reason.message : String(blacklistResult.reason)}`,
+      );
+    }
+    if (cacheResult.status === 'rejected') {
+      this.logger.error(
+        `${context}: failed to invalidate ${sessions.length} session-cache entr(ies) post-commit — ` +
+          `stale cache may still authenticate revoked session(s) until its TTL expires: ${cacheResult.reason instanceof Error ? cacheResult.reason.message : String(cacheResult.reason)}`,
+      );
+    }
   }
 
   /**
@@ -84,6 +119,22 @@ export class DeviceAccessService {
         // StoreService.createStore / InvitationService's own account/store
         // locks on the same class of plan-entitlement race).
         await this.repo.lockStore(storeId, tx);
+
+        // Re-check for this exact device's own slot now that the store is
+        // locked: the pre-lock `findActiveSlot` above can race against this
+        // device's OWN concurrent retry (a dropped ack causing a client
+        // resend) — both requests see "no slot yet", the loser then blocks
+        // on the lock, and without this re-check it would recount, see its
+        // own winner-request's row already occupying the last slot, and
+        // reject its own device with DEVICE_LIMIT_REACHED. A device re-
+        // claiming its own existing slot is idempotent and must never be
+        // limit-gated.
+        const raced = await this.repo.findActiveSlot(storeId, deviceId, tx);
+        if (raced) {
+          await this.repo.touchSlot(raced.id, tx);
+          return { access: 'granted' as const, isNew: false };
+        }
+
         // Recount inside the txn; null limit = unlimited (Enterprise).
         const active = await this.repo.countActiveSlots(storeId, tx);
         if (!this.entitlements.canCreate(limit, active)) {
@@ -156,7 +207,7 @@ export class DeviceAccessService {
 
     // Best-effort, post-commit — same reasoning as auth-logout.service.ts:
     // failure here shouldn't roll back a successful removal.
-    await this.revokeLiveTokens(sessions);
+    await this.revokeLiveTokens(`removeDevice(${targetDeviceId})`, sessions);
   }
 
   async listStoreDevices(storeId: string): Promise<StoreDeviceRow[]> {
@@ -183,7 +234,7 @@ export class DeviceAccessService {
     // Post-commit: kill the device's already-issued access token(s) now,
     // instead of leaving them valid until natural expiry (the whole point of
     // "block a stolen device" is that it stops working immediately).
-    await this.revokeLiveTokens(sessions);
+    await this.revokeLiveTokens(`blockDevice(${targetDeviceId})`, sessions);
   }
 
   /** Unblock a recovered device (F9). Slots/sessions stay revoked — device is "fresh". */

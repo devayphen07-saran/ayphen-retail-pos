@@ -15,6 +15,10 @@ export const UpdatePermissionsDtoSchema = z.object({
       }),
     )
     .max(200),
+  // Optimistic-lock guard — the version the client last saw (from
+  // RoleDetailResponse.row_version). A stale value means someone else edited
+  // this role's permissions since the client loaded the edit screen.
+  expected_row_version: z.number().int().positive(),
 });
 export type UpdatePermissionsDto = z.infer<typeof UpdatePermissionsDtoSchema>;
 

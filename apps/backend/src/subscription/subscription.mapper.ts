@@ -20,20 +20,21 @@ export const SubscriptionResponseMapper = {
   toResponse(v: SubscriptionView): SubscriptionResponse {
     const s = v.subscription;
     return {
+      id:                    s.id,
       subscription_version: s.subscriptionVersion,
       status:               s.status,
-      access_valid_until:   s.accessValidUntil?.toISOString() ?? null,
       trial_ends_at:        s.trialEndsAt?.toISOString() ?? null,
       current_period_end:   s.currentPeriodEnd?.toISOString() ?? null,
+      cancel_at_period_end: s.cancelAtPeriodEnd,
       show_upgrade_banner:  v.showUpgradeBanner,
       banner_severity:      v.bannerSeverity,
       reconciliation_status: s.reconciliationStatus,
       plan: {
-        code:         v.planCode,
-        name:         v.planName,
-        billing_code: v.billingPlanCode,
-        entitlements: v.entitlements,
-        features:     v.features,
+        code:          v.planCode,
+        name:          v.planName,
+        billing_cycle: v.billingCycle,
+        price:         v.price,
+        entitlements:  v.entitlements,
       },
     };
   },
@@ -59,6 +60,7 @@ export const SubscriptionResponseMapper = {
       })),
       entitlements: e.entitlements,
       features:     e.features,
+      feature_labels: e.featureLabels,
     };
   },
 
@@ -107,22 +109,12 @@ export const SubscriptionResponseMapper = {
     return {
       limits: {
         max_stores:    ctx.limits.maxStores,
-        max_locations: ctx.limits.maxLocations,
         max_devices:   ctx.limits.maxDevices,
-        max_users:     ctx.limits.maxUsers,
       },
       stores: ctx.stores.map((s) => ({
         id: s.id,
         name: s.name,
-        location_count: s.locationCount,
         device_count: s.deviceCount,
-        user_count: s.userCount,
-      })),
-      locations: ctx.locations.map((l) => ({
-        id: l.id,
-        store_id: l.storeId,
-        name: l.name,
-        is_primary: l.isPrimary,
       })),
       devices: ctx.devices.map((d) => ({
         id: d.id,

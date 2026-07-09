@@ -40,14 +40,21 @@ type Params = {
   phone: string;
   mode: 'login' | 'signup';
   otpRequestId: string;
+  /** Seconds until this code expires — from the OTP challenge response. */
+  expiresIn: string;
   /** Signup only — collected + validated on the phone screen, forwarded here. */
   name?: string;
 };
 
+function formatExpiryNote(seconds: number): string {
+  const minutes = Math.round(seconds / 60);
+  return `Code expires in ${minutes} minute${minutes === 1 ? '' : 's'} · 3 attempts allowed`;
+}
+
 /** Step 2 — verify OTP, issue tokens, enter the app. Name + consent come from
  *  step 1 (phone screen); signup sends them at verify time. */
 export default function OtpScreen() {
-  const { phone, mode, otpRequestId, name } = useLocalSearchParams<Params>();
+  const { phone, mode, otpRequestId, expiresIn, name } = useLocalSearchParams<Params>();
   const isSignup = mode === 'signup';
   const { login } = useAuth();
   const { theme } = useMobileTheme();
@@ -80,6 +87,7 @@ export default function OtpScreen() {
   const [currentOtpRequestId, setCurrentOtpRequestId] = useState(otpRequestId);
   const [resendSecondsLeft, setResendSecondsLeft] = useState(30);
   const [isResending, setIsResending] = useState(false);
+  const [codeExpirySeconds, setCodeExpirySeconds] = useState(Number(expiresIn) || 300);
 
   useEffect(() => {
     if (resendSecondsLeft <= 0) return;
@@ -93,6 +101,7 @@ export default function OtpScreen() {
       const mut = isSignup ? requestSignupOtp : requestLoginOtp;
       const res = await mut.mutateAsync({ bodyParam: { phone } });
       setCurrentOtpRequestId(res.otp_request_id);
+      setCodeExpirySeconds(res.expires_in);
       setAttemptsRemaining(null);
       reset(DEFAULT_OTP_VERIFY_VALUES);
       setResendSecondsLeft(30);
@@ -290,7 +299,7 @@ export default function OtpScreen() {
                 <Typography.Caption color={theme.colorTrustNote}>
                   {attemptsRemaining != null
                     ? `${attemptsRemaining} attempt${attemptsRemaining === 1 ? '' : 's'} left`
-                    : 'Code expires in 5 minutes · 3 attempts allowed'}
+                    : formatExpiryNote(codeExpirySeconds)}
                 </Typography.Caption>
               </OtpNote>
 

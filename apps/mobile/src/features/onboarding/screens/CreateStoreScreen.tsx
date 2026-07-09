@@ -52,6 +52,7 @@ import { handleFormError } from '../../../utils/handleFormError';
 import { onValidationError } from '../../../utils/onValidationError';
 import { setLastOpenedStoreId } from '@features/store/shared/utils/prefs';
 import { useAuth } from '@core/providers/AuthProvider';
+import { useAuthStore } from '@store';
 
 const STEP_META = [
   {
@@ -204,10 +205,17 @@ export function CreateStoreScreen() {
         bodyParam: toCreateStorePayload(values),
       });
       await setLastOpenedStoreId(res.id);
-      // Store creation bumps permissionsVersion server-side (H-6) — refetch
-      // bootstrap so the snapshot reflects the new STORE_OWNER role + store
-      // before the gate re-evaluates, or it'll bounce back here (empty stores[]).
-      await refetchUser();
+      // Store creation bumps permissionsVersion server-side (H-6) and the
+      // response now embeds the refreshed snapshot directly — patch it in
+      // place instead of a full bootstrap round trip, or the gate would
+      // bounce back here (empty stores[]) before the gate re-evaluates.
+      // Falls back to refetchUser() if the backend's best-effort embed came
+      // back null (rare).
+      if (res.snapshot && res.snapshot_signature) {
+        useAuthStore.getState().setSnapshot(res.snapshot, res.snapshot_signature);
+      } else {
+        await refetchUser();
+      }
       // Clean baseline before navigating away — matches every other
       // FormScreen/auth-screen success path (forms-agent.md §6); this screen
       // unmounts on replace so the practical effect is nil, but leaving it out

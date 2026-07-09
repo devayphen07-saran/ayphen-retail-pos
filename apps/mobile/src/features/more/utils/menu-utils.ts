@@ -6,7 +6,6 @@ import type { MenuColorToken } from './menu-config';
  * Everything else falls through to the generic "Coming soon" placeholder.
  */
 export const ITEM_ROUTES: Partial<Record<string, string>> = {
-  locations: '/(store)/locations',
   roles: '/(store)/roles',
   'invite-staff': '/(store)/invite-staff',
   invitations: '/(onboarding)/invitations',

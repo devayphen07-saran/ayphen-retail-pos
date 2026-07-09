@@ -9,6 +9,7 @@ import {
 } from '@ayphen/api-manager';
 import { setLastOpenedStoreId } from '@features/store/shared/utils/prefs';
 import { useAuth } from '@core/providers/AuthProvider';
+import { useAuthStore } from '@store';
 import { InvitationRowSkeleton } from '../loading/InvitationRowSkeleton';
 import { InviteCard } from '../components/InviteCard';
 
@@ -39,9 +40,15 @@ export function InvitationsScreen() {
       try {
         const res = await acceptInvitation.mutateAsync({ pathParam: { id: invite.id } });
         await setLastOpenedStoreId(res.store_id);
-        // Accept bumps permissionsVersion server-side — refetch bootstrap so the
-        // new store shows up in the snapshot before the gate re-evaluates.
-        await refetchUser();
+        // Accept bumps permissionsVersion server-side and the response now
+        // embeds the refreshed snapshot directly — patch it in place instead
+        // of a full bootstrap round trip. Falls back to refetchUser() if the
+        // backend's best-effort embed came back null (rare).
+        if (res.snapshot && res.snapshot_signature) {
+          useAuthStore.getState().setSnapshot(res.snapshot, res.snapshot_signature);
+        } else {
+          await refetchUser();
+        }
         router.replace('/(app)');
       } catch (err) {
         const message = err instanceof Error ? err.message : 'Could not accept the invitation.';

@@ -28,6 +28,18 @@ function sessionSubtitle(session: SessionResponse): string {
   return [session.os, session.app_version].filter(Boolean).join(' · ');
 }
 
+/** "Signed in from <ip> on <date>" — omitted if the IP wasn't recorded
+ *  (older sessions predating that column). */
+function signedInFrom(session: SessionResponse): string | null {
+  if (!session.ip_at_creation) return null;
+  const date = new Date(session.created_at).toLocaleDateString(undefined, {
+    day: 'numeric',
+    month: 'short',
+    year: 'numeric',
+  });
+  return `Signed in from ${session.ip_at_creation} on ${date}`;
+}
+
 /** Where the user is logged in, across devices — reached from More > System &
  *  Account > Sessions. "This Device" logs out locally + server-side; "Other
  *  Devices" revokes just that session server-side. */
@@ -114,6 +126,11 @@ export function SessionsScreen() {
                           {sessionSubtitle(current) ? ' · ' : ''}
                           Last used {timeAgo(current.last_used_at)}
                         </Typography.Caption>
+                        {signedInFrom(current) && (
+                          <Typography.Caption type="secondary">
+                            {signedInFrom(current)}
+                          </Typography.Caption>
+                        )}
                       </Column>
                       <LogOutButton onPress={confirmLogoutThisDevice} activeOpacity={0.7}>
                         <Typography.Caption weight="bold" color={theme.color.danger.main}>
@@ -157,6 +174,11 @@ export function SessionsScreen() {
                             {sessionSubtitle(session) ? ' · ' : ''}
                             Last used {timeAgo(session.last_used_at)}
                           </Typography.Caption>
+                          {signedInFrom(session) && (
+                            <Typography.Caption type="secondary">
+                              {signedInFrom(session)}
+                            </Typography.Caption>
+                          )}
                         </Column>
                         <LogOutButton
                           onPress={() => confirmRevoke(session)}

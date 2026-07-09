@@ -25,7 +25,7 @@ import { RejectedCard } from '../components/RejectedCard';
 import { FailedCard } from '../components/FailedCard';
 
 // Discriminated row model for the ONE FlashList this screen renders — mutation-
-// queue/DLQ backlogs are NOT bounded the way roles/locations/devices are (an
+// queue/DLQ backlogs are NOT bounded the way roles/devices are (an
 // extended offline period or a bad release can grow either into the dozens),
 // so this must be virtualized rather than a ScrollView+map like those bounded
 // lists. `gap` picks between the small within-section spacing and the larger

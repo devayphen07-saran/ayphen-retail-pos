@@ -204,6 +204,7 @@ export class MobileAuthController {
     await this.logoutService.logout(
       p.userId,
       p.deviceSessionId,
+      p.deviceId,
       p.currentJti,
       p.currentJtiExp,
     );

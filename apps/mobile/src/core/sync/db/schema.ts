@@ -262,5 +262,9 @@ export const schemaMeta = sqliteTable('schema_meta', {
 export const syncStoreMeta = sqliteTable('sync_store_meta', {
   storeId: text('store_id').primaryKey(),
   permissionsVersion: integer('permissions_version'),
+  /** JSON-encoded `string[]` of the `entity:action` grants last synced under
+   *  (permission-rebase.ts) — lets a version bump be diffed for a REVOKED
+   *  `view` grant, not just detected as "something changed". */
+  permissions: text('permissions'),
   updatedAt: text('updated_at').notNull(),
 });

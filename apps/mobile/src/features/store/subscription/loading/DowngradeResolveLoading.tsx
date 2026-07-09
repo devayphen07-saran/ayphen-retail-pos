@@ -14,7 +14,7 @@ export function DowngradeResolveLoading() {
         <SkeletonBox width="70%" height={11} />
       </Column>
 
-      {/* Resource sections (stores / locations / devices) */}
+      {/* Resource sections (stores / devices) */}
       {[0, 1].map((s) => (
         <Column key={s} gap={8}>
           <SkeletonBox width={160} height={16} />

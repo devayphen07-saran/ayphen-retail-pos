@@ -44,13 +44,22 @@ export class HealthController {
     return this.health.check([]);
   }
 
-  /** Readiness probe — the process can serve traffic (db + redis reachable). */
+  /**
+   * Readiness probe — the process can serve traffic. DB-only: Redis backs
+   * caches/rate-limiting/session-cache/blacklist, and every one of those
+   * paths already degrades to a DB fallback rather than failing outright
+   * (see rate-limit.service.ts, mobile-jwt.guard.ts's session cache,
+   * throttle/redis-throttler-storage.ts's deliberate fail-open). Failing
+   * readiness on a Redis blip would pull every pod out of rotation at once —
+   * a bigger, correlated outage than the degraded-but-serving state the app
+   * is actually in. Redis health is still tracked in the full `check()`
+   * below, for alerting, not for routing traffic away.
+   */
   @Get('ready')
   @HealthCheck()
   ready(): Promise<HealthCheckResult> {
     return this.health.check([
       () => this.db.isHealthy('database'),
-      () => this.redis.isHealthy('redis'),
     ]);
   }
 }

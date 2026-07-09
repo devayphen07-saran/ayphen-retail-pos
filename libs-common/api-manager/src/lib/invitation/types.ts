@@ -2,12 +2,12 @@
  * Wire types for the invitation domain. Field names mirror the backend DTOs
  * (snake_case) exactly — see `apps/backend/src/stores/invitation.controller.ts`.
  */
+import type { PermissionSnapshot } from '../auth/types';
 
 export interface CreateInvitationRequest {
   role_id: string;
   phone?: string;
   email?: string;
-  location_ids: string[];
 }
 
 export interface CreateInvitationResponse {
@@ -29,6 +29,8 @@ export interface AcceptInvitationRequest {
 
 export interface AcceptInvitationResponse {
   store_id: string;
+  snapshot: PermissionSnapshot | null;
+  snapshot_signature: string | null;
 }
 
 export interface RejectInvitationRequest {

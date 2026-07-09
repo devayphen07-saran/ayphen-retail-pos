@@ -20,13 +20,15 @@ export default function AppGate() {
   const { refetchUser, logout } = useAuth();
   const lastOpenedStoreId = useAuthStore((s) => s.lastOpenedStoreId);
   const lastAccountMode = useAuthStore((s) => s.lastAccountMode);
+  const profileComplete = useAuthStore((s) => s.profileComplete);
+  const profileGateAcknowledged = useAuthStore((s) => s.profileGateAcknowledged);
   // `snapshot` itself is a stable reference from the store — deriving the
   // array with useMemo (keyed on it) avoids handing Zustand's useSyncExternalStore
   // a freshly-allocated `?? []` on every read, which loops ("getSnapshot should
   // be cached").
   const snapshot = useAuthStore((s) => s.snapshot);
-  const storeLocations = useMemo(() => snapshot?.storeLocations ?? [], [snapshot]);
-  const storeIds = useMemo(() => storeLocations.map((s) => s.store_id), [storeLocations]);
+  const stores = useMemo(() => snapshot?.stores ?? [], [snapshot]);
+  const storeIds = useMemo(() => stores.map((s) => s.store_id), [stores]);
 
   const routesToOnboardingHub =
     isBootstrapped &&
@@ -68,6 +70,16 @@ export default function AppGate() {
       );
     }
     return <BootstrapLoader />;
+  }
+
+  // Checked before mode-select — identity completion precedes workspace
+  // routing. `profileGateAcknowledged` is a one-shot per login: a user who
+  // taps "Skip" isn't bounced back here on every AppGate re-entry within the
+  // same session (mode chosen, store created), but a fresh login re-asks if
+  // the profile is still incomplete then (email is optional at the DB level,
+  // so this is a skippable nudge, never a permanent lock).
+  if (!profileComplete && !profileGateAcknowledged) {
+    return <Redirect href="/(onboarding)/complete-profile" />;
   }
 
   if (!lastAccountMode) return <Redirect href="/(onboarding)/mode-select" />;

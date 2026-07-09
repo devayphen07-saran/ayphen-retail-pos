@@ -1,6 +1,6 @@
 import { router } from 'expo-router';
 import { Alert } from '@ayphen/mobile-ui-components';
-import { useCreateInvitationMutation, useLocationsQuery, useRolesQuery } from '@ayphen/api-manager';
+import { useCreateInvitationMutation, useRolesQuery } from '@ayphen/api-manager';
 import { useActiveStoreStore } from '@store';
 import { FormScreen } from '../../../../components/FormScreen';
 import {
@@ -13,11 +13,9 @@ import { InviteFields } from '../components/InviteFields';
 
 /**
  * Owner/manager side of the invitation flow: invite a person by phone to a
- * custom role scoped to one+ locations. Role and locations are dropdowns
- * (SelectGeneric + a bespoke multi-select sheet for locations, since
- * SelectGeneric itself is single-select-only). The contact field never waits
- * on roles/locations — each dropdown owns its own loading state instead of
- * the whole screen swapping to a full-page skeleton.
+ * custom role scoped to the whole store. Role is a dropdown (SelectGeneric).
+ * The contact field never waits on roles — the dropdown owns its own loading
+ * state instead of the whole screen swapping to a full-page skeleton.
  */
 export function InviteStaffScreen() {
   const storeId = useActiveStoreStore((s) => s.storeId) ?? '';
@@ -29,12 +27,6 @@ export function InviteStaffScreen() {
     isError: rolesError,
     refetch: refetchRoles,
   } = useRolesQuery(storeId, { enabled: !!storeId });
-  const {
-    data: locations,
-    isLoading: locationsLoading,
-    isError: locationsError,
-    refetch: refetchLocations,
-  } = useLocationsQuery(storeId, { enabled: !!storeId });
 
   // Only custom roles are invitable — system roles (Owner, etc.) are rejected
   // server-side, so don't offer them here.
@@ -46,8 +38,8 @@ export function InviteStaffScreen() {
       defaultValues={DEFAULT_INVITE_STAFF_VALUES}
       title="Invite Staff"
       submitLabel="Send invitation"
-      loading={rolesLoading || locationsLoading}
-      submitDisabled={rolesLoading || locationsLoading}
+      loading={rolesLoading}
+      submitDisabled={rolesLoading}
       fallbackError="Could not send the invitation."
       onSubmit={async (values) => {
         await createInvitation.mutateAsync({
@@ -88,10 +80,6 @@ export function InviteStaffScreen() {
           rolesLoading={rolesLoading}
           rolesError={rolesError}
           onRetryRoles={() => void refetchRoles()}
-          locations={locations ?? []}
-          locationsLoading={locationsLoading}
-          locationsError={locationsError}
-          onRetryLocations={() => void refetchLocations()}
           isSubmitting={isSubmitting}
           submitOnLast={submitOnLast}
         />

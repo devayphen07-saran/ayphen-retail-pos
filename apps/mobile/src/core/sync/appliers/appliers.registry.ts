@@ -8,8 +8,20 @@ import { productCaseRepository } from '../repositories/product-case.repository';
 import { customerRepository } from '../repositories/customer.repository';
 import type { SyncApplier } from './applier.types';
 
-function fromRepo(entityType: string, repo: { upsertAll: SyncApplier['upsertAll']; deleteByGuuids: SyncApplier['applyDeletes'] }): SyncApplier {
-  return { entityType, upsertAll: repo.upsertAll, applyDeletes: repo.deleteByGuuids };
+function fromRepo(
+  entityType: string,
+  repo: {
+    upsertAll: SyncApplier['upsertAll'];
+    deleteByGuuids: SyncApplier['applyDeletes'];
+    deleteAllForStore: SyncApplier['deleteAllForStore'];
+  },
+): SyncApplier {
+  return {
+    entityType,
+    upsertAll: repo.upsertAll,
+    applyDeletes: repo.deleteByGuuids,
+    deleteAllForStore: repo.deleteAllForStore,
+  };
 }
 
 /**
@@ -18,7 +30,7 @@ function fromRepo(entityType: string, repo: { upsertAll: SyncApplier['upsertAll'
  * (transport.ts sends `registry.entityTypes()` on every pull), so an entity
  * the mobile app doesn't understand yet is never dumped on it (the backend's
  * `SyncFilterRegistry.supported()` filters accordingly). Adding an entity
- * later (location, staff, supplier, paymentaccount, store_device_access) is
+ * later (staff, supplier, paymentaccount, store_device_access) is
  * registration here + a repository, never a change to the pull/push pipeline.
  */
 class AppliersRegistry {

@@ -33,12 +33,11 @@ function timeAgo(iso: string): string {
 }
 
 /**
- * The downgrade resolve screen — the owner picks which stores/locations/
- * devices to keep after a plan change left the account over limit
- * (subscription §15D, device-management §19). Nothing here is auto-picked;
- * the account stays in `reconciliation_status='pending'` (every write
- * blocked account-wide) until this is submitted. Head Office never appears
- * as a lockable choice — it's immune, always kept implicitly.
+ * The downgrade resolve screen — the owner picks which stores/devices to
+ * keep after a plan change left the account over limit (subscription §15D,
+ * device-management §19). Nothing here is auto-picked; the account stays in
+ * `reconciliation_status='pending'` (every write blocked account-wide) until
+ * this is submitted.
  */
 export function DowngradeResolveScreen() {
   const { theme } = useMobileTheme();
@@ -46,7 +45,6 @@ export function DowngradeResolveScreen() {
   const resolve = useResolveReconciliationMutation();
 
   const [keepStoreIds, setKeepStoreIds] = useState<Set<string>>(new Set());
-  const [keepLocationIds, setKeepLocationIds] = useState<Set<string>>(new Set());
   const [keepDeviceIds, setKeepDeviceIds] = useState<Set<string>>(new Set());
   const [submitting, setSubmitting] = useState(false);
   const [fieldErrors, setFieldErrors] = useState<Record<string, string> | null>(null);
@@ -63,10 +61,9 @@ export function DowngradeResolveScreen() {
 
   // Seed a sensible starting selection once: keep the first `maxStores`
   // stores, current-device's store prioritized first (never bumped out by
-  // the slice below), and within each, the first `maxLocations` non-primary
-  // locations and first `maxDevices` devices (current device prioritized).
-  // The owner can change any of it before submitting — this is just a
-  // reasonable default, not a silent auto-apply.
+  // the slice below), and within each, the first `maxDevices` devices
+  // (current device prioritized). The owner can change any of it before
+  // submitting — this is just a reasonable default, not a silent auto-apply.
   useEffect(() => {
     if (!ctx || seeded.current) return;
     seeded.current = true;
@@ -80,15 +77,8 @@ export function DowngradeResolveScreen() {
       : orderedStores.slice(0, ctx.limits.max_stores).map((s) => s.id);
     setKeepStoreIds(new Set(storeIds));
 
-    const locationIds = new Set<string>();
     const deviceIds = new Set<string>();
     for (const storeId of storeIds) {
-      const storeLocations = ctx.locations.filter((l) => l.store_id === storeId && !l.is_primary);
-      const kept = ctx.limits.max_locations === null
-        ? storeLocations
-        : storeLocations.slice(0, ctx.limits.max_locations - 1); // -1: primary always counts as slot 1
-      kept.forEach((l) => locationIds.add(l.id));
-
       const storeDevices = ctx.devices.filter((d) => d.store_id === storeId);
       const sorted = [...storeDevices].sort((a, b) =>
         a.is_current_device === b.is_current_device ? 0 : a.is_current_device ? -1 : 1,
@@ -98,7 +88,6 @@ export function DowngradeResolveScreen() {
         : sorted.slice(0, ctx.limits.max_devices);
       keptDevices.forEach((d) => deviceIds.add(d.id));
     }
-    setKeepLocationIds(locationIds);
     setKeepDeviceIds(deviceIds);
     // currentDeviceStoreId is derived from ctx itself — re-deriving it here
     // on every ctx change is what we want, not an extra dependency to track.
@@ -109,14 +98,6 @@ export function DowngradeResolveScreen() {
     setKeepStoreIds((prev) => {
       const copy = new Set(prev);
       if (next) copy.add(storeId); else copy.delete(storeId);
-      return copy;
-    });
-  };
-
-  const toggleLocation = (locationId: string, next: boolean) => {
-    setKeepLocationIds((prev) => {
-      const copy = new Set(prev);
-      if (next) copy.add(locationId); else copy.delete(locationId);
       return copy;
     });
   };
@@ -141,7 +122,6 @@ export function DowngradeResolveScreen() {
       await resolve.mutateAsync({
         bodyParam: {
           keep_store_ids: [...keepStoreIds],
-          keep_location_ids: [...keepLocationIds],
           keep_device_ids: [...keepDeviceIds],
         },
       });
@@ -182,7 +162,7 @@ export function DowngradeResolveScreen() {
             return (
           <Column gap={16}>
             <Typography.Caption type="secondary">
-              Your plan changed and some stores, locations, or devices are over the new limit.
+              Your plan changed and some stores or devices are over the new limit.
               Choose what to keep — everything else is locked, not deleted, and you can undo this
               anytime by upgrading or removing something else.
             </Typography.Caption>
@@ -207,7 +187,6 @@ export function DowngradeResolveScreen() {
                           {isCurrentDeviceStore && <Tag label="This device" variant="info" size="sm" />}
                         </Row>
                         <Typography.Caption type="secondary">
-                          {store.location_count} location{store.location_count === 1 ? '' : 's'} ·{' '}
                           {store.device_count} device{store.device_count === 1 ? '' : 's'}
                         </Typography.Caption>
                       </Column>
@@ -224,33 +203,10 @@ export function DowngradeResolveScreen() {
             </Section>
 
             {ctx.stores.filter((s) => keepStoreIds.has(s.id)).map((store) => {
-              const storeLocations = ctx.locations.filter((l) => l.store_id === store.id);
               const storeDevices = ctx.devices.filter((d) => d.store_id === store.id);
               return (
                 <Section key={store.id}>
                   <Typography.Subtitle weight="bold">{store.name}</Typography.Subtitle>
-
-                  {storeLocations.length > 0 && (
-                    <Column gap={8}>
-                      <Typography.Caption type="secondary">
-                        Locations{ctx.limits.max_locations !== null ? ` (keep up to ${ctx.limits.max_locations})` : ''}
-                      </Typography.Caption>
-                      {storeLocations.map((loc) => (
-                        <Row key={loc.id} align="center" justify="space-between">
-                          <Row align="center" gap={6}>
-                            <Typography.Body>{loc.name}</Typography.Body>
-                            {loc.is_primary && <Tag label="Head Office" variant="info" size="sm" />}
-                          </Row>
-                          <CheckBox
-                            value={loc.is_primary || keepLocationIds.has(loc.id)}
-                            onValueChange={(next) => toggleLocation(loc.id, next)}
-                            disabled={loc.is_primary}
-                            size={16}
-                          />
-                        </Row>
-                      ))}
-                    </Column>
-                  )}
 
                   {storeDevices.length > 0 && (
                     <Column gap={8}>
@@ -282,18 +238,11 @@ export function DowngradeResolveScreen() {
               );
             })}
 
-            {(fieldErrors?.keepLocationIds || fieldErrors?.keepDeviceIds) && (
+            {fieldErrors?.keepDeviceIds && (
               <Column gap={4}>
-                {fieldErrors.keepLocationIds && (
-                  <Typography.Caption color={theme.colorError}>
-                    {fieldErrors.keepLocationIds}
-                  </Typography.Caption>
-                )}
-                {fieldErrors.keepDeviceIds && (
-                  <Typography.Caption color={theme.colorError}>
-                    {fieldErrors.keepDeviceIds}
-                  </Typography.Caption>
-                )}
+                <Typography.Caption color={theme.colorError}>
+                  {fieldErrors.keepDeviceIds}
+                </Typography.Caption>
               </Column>
             )}
           </Column>

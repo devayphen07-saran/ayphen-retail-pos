@@ -7,7 +7,6 @@ import {
   lookup,
   paymentMethods,
   taxRates,
-  locations,
   users,
   userRoleMappings,
   products,
@@ -203,34 +202,11 @@ export class SyncFilterRegistry {
           guuid: storeDeviceAccess.guuid,
           deviceFk: storeDeviceAccess.deviceFk,
           userFk: storeDeviceAccess.userFk,
-          locationFk: storeDeviceAccess.locationFk,
           status: storeDeviceAccess.status,
           deviceLabel: storeDeviceAccess.deviceLabel,
           lastAccessedAt: storeDeviceAccess.lastAccessedAt,
           revokedAt: storeDeviceAccess.revokedAt,
           modifiedAt: storeDeviceAccess.modifiedAt,
-        },
-      }),
-      new GenericSyncFilter({
-        entityType: 'location',
-        dependencyOrder: 40,
-        permissionEntity: 'Location',
-        table: locations,
-        idColumn: locations.id,
-        modifiedAtColumn: locations.modifiedAt,
-        scopeWhere: storeScope(locations.storeFk),
-        aliveWhere: eq(locations.isActive, true),
-        columns: {
-          id: locations.id,
-          guuid: locations.guuid,
-          name: locations.name,
-          isPrimary: locations.isPrimary,
-          isDefault: locations.isDefault,
-          enable: locations.enable,
-          displayOrder: locations.displayOrder,
-          locked: locations.locked,
-          rowVersion: locations.rowVersion,
-          modifiedAt: locations.modifiedAt,
         },
       }),
       new GenericSyncFilter({
@@ -442,5 +418,21 @@ export class SyncFilterRegistry {
     if (!supportedEntityTypes?.length) return this.filters;
     const wanted = new Set(supportedEntityTypes);
     return this.filters.filter((f) => wanted.has(f.entityType));
+  }
+
+  /**
+   * Requested types with no matching filter at all — distinct from an older
+   * client simply not yet knowing about a newer entity (that's `supported()`'s
+   * normal narrowing). This is the opposite direction: a client asked for a
+   * type this server has never heard of, which today `supported()` would
+   * silently just drop forever with no error anywhere (e.g. a casing typo
+   * against the intentionally-non-snake_case wire strings like `taxrate` —
+   * see sync.constants.ts). Callers should log this, not throw: an unknown
+   * requested type must never break an otherwise-valid pull for every other
+   * entity, but it should be visible in logs instead of vanishing silently.
+   */
+  unknownTypes(supportedEntityTypes?: string[]): string[] {
+    if (!supportedEntityTypes?.length) return [];
+    return supportedEntityTypes.filter((t) => !this.byType.has(t));
   }
 }

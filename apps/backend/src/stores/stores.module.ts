@@ -13,19 +13,16 @@ import { InvitationService } from './invitation/invitation.service.js';
 import { EntitlementService } from '../subscription/entitlement.service.js';
 import { SubscriptionStatusGuard } from '#auth/mobile/guards/subscription-status.guard.js';
 import { MobileAuthModule } from '#auth/mobile/mobile-auth.module.js';
-import { LocationsModule } from '../locations/locations.module.js';
 
 /**
  * Store lifecycle + role/invitation management (Phase 4.5). RbacService,
  * AuditService, UnitOfWork come from global modules; MobileJwtGuard (with its
- * module-scoped deps) from MobileAuthModule. LocationsModule supplies
- * UserLocationRepository — invitation accept assigns the invitee's granted
- * locations through the same repository the locations module owns.
+ * module-scoped deps) from MobileAuthModule.
  * StoreRepository/InvitationRepository come from the global
  * SharedRepositoriesModule (#common/shared-repositories.module.js).
  */
 @Module({
-  imports: [MobileAuthModule, LocationsModule],
+  imports: [MobileAuthModule],
   controllers: [
     StoreController,
     RoleController,

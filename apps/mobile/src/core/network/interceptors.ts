@@ -359,10 +359,15 @@ function ensureHeaders(
 function extractEnvelopeTimestamp(data: unknown): string | undefined {
   if (!data || typeof data !== 'object') return undefined;
 
-  const candidate = data as { timestamp?: unknown };
-  return typeof candidate.timestamp === 'string'
-    ? candidate.timestamp
-    : undefined;
+  // Most endpoints wrap the response in the standard envelope (`timestamp`).
+  // The sync controller is `@SkipTransform()` — its responses carry
+  // `server_time` directly instead, so without this fallback, clock-skew
+  // correction never fires from sync traffic (only from the one-time launch
+  // bootstrap and any other non-sync call the app happens to make).
+  const candidate = data as { timestamp?: unknown; server_time?: unknown };
+  if (typeof candidate.timestamp === 'string') return candidate.timestamp;
+  if (typeof candidate.server_time === 'string') return candidate.server_time;
+  return undefined;
 }
 
 // ─────────────────────────────────────────────────────────────────────────────

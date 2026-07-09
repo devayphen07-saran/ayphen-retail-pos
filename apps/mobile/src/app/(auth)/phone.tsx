@@ -101,6 +101,7 @@ export default function PhoneScreen() {
           phone: trimmed,
           mode,
           otpRequestId: res.otp_request_id,
+          expiresIn: String(res.expires_in),
           ...(isSignup
             ? {
                 name: normalizeName(name),

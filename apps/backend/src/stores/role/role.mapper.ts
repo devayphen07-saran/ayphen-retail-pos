@@ -41,6 +41,6 @@ export const RoleResponseMapper = {
       const entry = permissions[grant.entityCode];
       if (entry && CRUD_ACTIONS.includes(grant.action)) entry[grant.action] = true;
     }
-    return { ...RoleResponseMapper.toResponse(role), permissions };
+    return { ...RoleResponseMapper.toResponse(role), permissions, row_version: role.rowVersion };
   },
 };

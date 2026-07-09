@@ -27,7 +27,7 @@ export function ConfirmCheckoutSheet({ displayName, priceLabel, isDowngrade, onC
           <DowngradeWarning align="flex-start" gap={8}>
             <LucideIcon name="TriangleAlert" size={15} color={theme.colorWarning} />
             <Typography.Caption color={theme.colorWarning} style={{ flex: 1 }}>
-              Downgrading may lock stores, locations, or devices over your new plan's limits.
+              Downgrading may lock stores or devices over your new plan's limits.
               Nothing is deleted, and you'll be able to choose what to keep.
             </Typography.Caption>
           </DowngradeWarning>

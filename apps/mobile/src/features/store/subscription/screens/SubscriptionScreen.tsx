@@ -7,7 +7,6 @@ import {
   AppLayout,
   Column,
   Divider,
-  GroupedMenu,
   LucideIcon,
   LucideIconNameType,
   Row,
@@ -46,11 +45,6 @@ const ENTITLEMENT_ROWS: Array<{
 }> = [
   { key: 'max_stores', label: 'Stores', iconName: 'Store' },
   {
-    key: 'max_locations_per_store',
-    label: 'Locations per store',
-    iconName: 'MapPin',
-  },
-  {
     key: 'max_users_per_store',
     label: 'Staff per store',
     iconName: 'UsersRound',
@@ -60,6 +54,7 @@ const ENTITLEMENT_ROWS: Array<{
     label: 'Devices per store',
     iconName: 'Smartphone',
   },
+  { key: 'max_products', label: 'Products', iconName: 'Package' },
 ];
 
 const BANNER_COLOR_KEY: Record<
@@ -79,6 +74,12 @@ const BANNER_ICON: Record<
   warning: 'TriangleAlert',
   critical: 'CircleAlert',
 };
+
+function formatMajor(amount: number, currency: string): string {
+  const major = amount / 100;
+  const symbol = currency === 'INR' ? '₹' : `${currency} `;
+  return `${symbol}${major.toLocaleString('en-IN')}`;
+}
 
 function statusLabel(status: string): string {
   switch (status) {
@@ -117,9 +118,10 @@ function daysLeftLabel(sub: SubscriptionResponse): string | null {
   return `Renews in ${days} day${days === 1 ? '' : 's'}`;
 }
 
-/** "Next payment on 14 Jul 2026" — absolute companion to the relative
- *  `daysLeftLabel` above, shown once billing (not trial) is the live state. */
-function nextPaymentLabel(sub: SubscriptionResponse): string | null {
+/** "Renews on 14 Jul 2026" (or "Subscription ends on 14 Jul 2026" once
+ *  cancelled) — absolute companion to the relative `daysLeftLabel` above,
+ *  shown once billing (not trial) is the live state. */
+function renewalLabel(sub: SubscriptionResponse): string | null {
   if (sub.status === 'trialing' || !sub.current_period_end) return null;
   const date = new Date(sub.current_period_end);
   const formatted = date.toLocaleDateString('en-GB', {
@@ -127,7 +129,9 @@ function nextPaymentLabel(sub: SubscriptionResponse): string | null {
     month: 'short',
     year: 'numeric',
   });
-  return `Next payment on ${formatted}`;
+  return sub.cancel_at_period_end
+    ? `Subscription ends on ${formatted}`
+    : `Renews on ${formatted}`;
 }
 
 /** Fraction of the trial/billing window already elapsed, clamped to [0.04, 1]
@@ -194,8 +198,8 @@ export function SubscriptionScreen() {
                         color={theme.colorErrorText}
                         weight="semiBold"
                       >
-                        Your plan changed and some stores, locations, or devices
-                        are over the new limit. Choose what to keep — nothing is
+                        Your plan changed and some stores or devices are over
+                        the new limit. Choose what to keep — nothing is
                         deleted, but writes are blocked until you resolve this.
                       </Typography.Caption>
                       <ResolveLink
@@ -282,16 +286,31 @@ export function SubscriptionScreen() {
                       </StatusPill>
                     </Row>
 
-                    <Typography.H2
-                      weight="bold"
-                      color={theme.colorWhite}
+                    <Row
+                      align="baseline"
+                      justify="space-between"
                       style={{ marginTop: theme.sizing.small }}
                     >
-                      {sub.plan.name}
-                    </Typography.H2>
+                      <Typography.H2 weight="bold" color={theme.colorWhite}>
+                        {sub.plan.name}
+                      </Typography.H2>
+                      {sub.plan.price && (
+                        <Row align="baseline" gap={4}>
+                          <Typography.Subtitle weight="bold" color={theme.colorWhite}>
+                            {formatMajor(sub.plan.price.amount, sub.plan.price.currency)}
+                          </Typography.Subtitle>
+                          <Typography.Caption color={theme.overlay.onDark55}>
+                            /{sub.plan.billing_cycle === 'annual' ? 'yr' : 'mo'}
+                          </Typography.Caption>
+                        </Row>
+                      )}
+                    </Row>
 
                     {daysLeftLabel(sub) && (
                       <Column gap={6} style={{ marginTop: theme.sizing.small }}>
+                        <Typography.Overline color={theme.overlay.onDark55} weight="bold">
+                          {sub.status === 'trialing' ? 'TRIAL PERIOD' : 'BILLING CYCLE'}
+                        </Typography.Overline>
                         <ProgressTrack>
                           <ProgressFill
                             style={{
@@ -308,13 +327,13 @@ export function SubscriptionScreen() {
                       </Column>
                     )}
 
-                    {nextPaymentLabel(sub) && (
+                    {renewalLabel(sub) && (
                       <Typography.Caption
                         color={theme.overlay.onDark55}
                         weight="medium"
                         style={{ marginTop: theme.sizing.xSmall }}
                       >
-                        {nextPaymentLabel(sub)}
+                        {renewalLabel(sub)}
                       </Typography.Caption>
                     )}
 
@@ -326,7 +345,7 @@ export function SubscriptionScreen() {
                         weight="bold"
                         color={theme.color.primary.main}
                       >
-                        {sub.status === 'trialing' ? 'View plans' : 'Upgrade'}
+                        {sub.status === 'trialing' ? 'View plans' : 'Manage plan'}
                       </Typography.Body>
                       <LucideIcon
                         name="ArrowRight"
@@ -383,30 +402,6 @@ export function SubscriptionScreen() {
                     })}
                   </LimitsCard>
                 </Column>
-
-                <GroupedMenu
-                  data={[
-                    {
-                      label: 'Billing',
-                      items: [
-                        {
-                          icon: 'Receipt',
-                          iconColor: theme.color?.blue?.main,
-                          title: 'Billing & invoices',
-                          subtitle: 'Coming soon',
-                          disabled: true,
-                        },
-                        {
-                          icon: 'Wallet',
-                          iconColor: theme.color?.violet?.main,
-                          title: 'Payment method',
-                          subtitle: 'Coming soon',
-                          disabled: true,
-                        },
-                      ],
-                    },
-                  ]}
-                />
               </Column>
             );
           }}

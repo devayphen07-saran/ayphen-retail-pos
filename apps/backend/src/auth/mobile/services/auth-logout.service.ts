@@ -1,8 +1,9 @@
-import { Injectable } from '@nestjs/common';
+import { Injectable, Logger } from '@nestjs/common';
 import { AppException } from '#common/exceptions/app.exception.js';
 import { ErrorCodes } from '#common/error-codes.js';
 import { UnitOfWork } from '#db/db.module.js';
 import { AuditService } from '#common/audit/audit.service.js';
+import { DeviceAccessRepository } from '../../../devices/device-access.repository.js';
 import { AuthSessionRepository } from '../repositories/auth-session.repository.js';
 import { RefreshTokenRepository } from '../repositories/refresh-token.repository.js';
 import { BlacklistCacheService } from './blacklist-cache.service.js';
@@ -12,17 +13,27 @@ import type { SessionWithDevice } from '../repositories/auth-session.repository.
 
 @Injectable()
 export class AuthLogoutService {
+  private readonly logger = new Logger(AuthLogoutService.name);
+
   constructor(
     private readonly sessionRepo:      AuthSessionRepository,
     private readonly refreshTokenRepo: RefreshTokenRepository,
+    private readonly deviceAccess:     DeviceAccessRepository,
     private readonly blacklist:        BlacklistCacheService,
     private readonly cacheInvalidator: SessionCacheInvalidatorService,
     private readonly audit:            AuditService,
     private readonly uow:              UnitOfWork,
   ) {}
 
-  /** Log out the current session — blacklist its JWT, revoke it + its refresh tokens, drop its cache. */
-  async logout(userId: string, deviceSessionId: string, currentJti: string, jtiExp: Date): Promise<void> {
+  /**
+   * Log out the current session — blacklist its JWT, revoke it + its refresh
+   * tokens, drop its cache, and release every store slot this device was
+   * holding (device-management: a logged-out device isn't actively using a
+   * store anymore, so it shouldn't keep occupying a plan-limited slot until
+   * the 30-day auto-expiry cron eventually catches it). Re-opening a store on
+   * this device after a fresh login is a normal, idempotent slot re-claim.
+   */
+  async logout(userId: string, deviceSessionId: string, deviceId: string, currentJti: string, jtiExp: Date): Promise<void> {
     // Blacklist insert + session/refresh-token revocation commit together or
     // not at all — previously the blacklist write ran before this transaction,
     // so a crash between the two could blacklist the JWT while leaving the
@@ -31,13 +42,17 @@ export class AuthLogoutService {
       await this.blacklist.addToBlacklist(currentJti, jtiExp, tx);
       await this.sessionRepo.revokeSession(deviceSessionId, 'user_logout', tx);
       await this.refreshTokenRepo.revokeBySession(deviceSessionId, 'user_logout', tx);
+      await this.deviceAccess.revokeAllSlotsForDevice(deviceId, userId, 'released', tx);
       await this.audit.logInTransaction({
         event: 'LOGOUT', activityType: 'AUTH_LOGOUT',
         prefix: 'User', suffix: 'logged out',
         userId,
       }, tx);
     });
-    await this.cacheInvalidator.invalidate(deviceSessionId);
+    await this.shieldedInvalidate(
+      () => this.cacheInvalidator.invalidate(deviceSessionId),
+      `logout(${deviceSessionId})`,
+    );
   }
 
   /** Log out every active session for the user, blacklisting each active JWT. */
@@ -65,7 +80,10 @@ export class AuthLogoutService {
         userId,
       }, tx);
     });
-    await this.cacheInvalidator.invalidateAllForUser(userId);
+    await this.shieldedInvalidate(
+      () => this.cacheInvalidator.invalidateAllForUser(userId),
+      `logoutAll(${userId})`,
+    );
   }
 
   /** Cursor-paginated list of a user's active sessions. */
@@ -101,6 +119,29 @@ export class AuthLogoutService {
         userId,
       }, tx);
     });
-    await this.cacheInvalidator.invalidate(sessionId);
+    await this.shieldedInvalidate(
+      () => this.cacheInvalidator.invalidate(sessionId),
+      `revokeSession(${sessionId})`,
+    );
+  }
+
+  /**
+   * The blacklist write above is durable — committed in the same transaction
+   * as the revocation — so a cache-invalidation failure here is redundant
+   * with, not a substitute for, that guarantee. Shielded so a transient
+   * Redis blip turns into a stale cache entry (self-heals on its own TTL),
+   * not a 500 on an already-successful logout/revoke (backend-standard
+   * review finding — this was previously unguarded, inconsistent with
+   * DeviceAccessService's best-effort wrapping for the equivalent call).
+   */
+  private async shieldedInvalidate(invalidate: () => Promise<void>, context: string): Promise<void> {
+    try {
+      await invalidate();
+    } catch (err) {
+      this.logger.error(
+        `${context}: session-cache invalidation failed post-commit — stale cache entry ` +
+          `will self-heal on its own TTL: ${err instanceof Error ? err.message : String(err)}`,
+      );
+    }
   }
 }

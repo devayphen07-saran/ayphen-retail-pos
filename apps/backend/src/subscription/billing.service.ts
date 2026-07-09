@@ -12,6 +12,7 @@ import { REDIS } from '#common/redis/redis.provider.js';
 import { readTypedCache } from '#common/redis/typed-cache.js';
 import { SubscriptionRepository } from './subscription.repository.js';
 import { SubscriptionService } from './subscription.service.js';
+import { RateLimitService } from '#auth/core/rate-limit.service.js';
 import {
   PAYMENT_PROVIDER,
   type PaymentProvider,
@@ -60,6 +61,7 @@ export class BillingService {
   constructor(
     private readonly repo: SubscriptionRepository,
     private readonly subscriptions: SubscriptionService,
+    private readonly rateLimit: RateLimitService,
     @Inject(PAYMENT_PROVIDER) private readonly payments: PaymentProvider,
     @Inject(REDIS) private readonly redis: Redis,
   ) {}
@@ -70,6 +72,15 @@ export class BillingService {
     planCode: string,
   ): Promise<CheckoutResult> {
     const accountId = await this.requireOwnedAccount(userId);
+
+    // Identity-scoped limit — checkout triggers a real outbound Razorpay
+    // Orders API call (with its own retries) per invocation, and the global
+    // per-IP throttler alone is a DDoS backstop, not an abuse control (see
+    // ThrottleModule's comment) — a single carrier-NAT IP is thousands of
+    // legitimate users. 10 checkout attempts per account per 5 minutes is
+    // generous for legitimate retry/plan-comparison flows.
+    await this.rateLimit.checkAccountActionLimit(accountId, 'checkout', 300, 10);
+
     const prefill = await this.repo.findBillingPrefill(userId);
 
     const price = resolvePlanPrice(planCode);

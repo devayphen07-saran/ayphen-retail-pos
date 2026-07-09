@@ -11,6 +11,8 @@ import {
   STEP_UP_OTP,
   STEP_UP_VERIFY,
   ACCOUNT_MODE,
+  PROFILE,
+  UPDATE_PROFILE,
 } from './api-data';
 import type {
   OtpChallengeResponse,
@@ -23,6 +25,8 @@ import type {
   StepUpVerifyRequest,
   StepUpResponse,
   AccountModeRequest,
+  ProfileResponse,
+  UpdateProfileRequest,
 } from './types';
 
 /**
@@ -115,6 +119,37 @@ export const useLogoutMutation = () =>
 /** Set business/personal workspace mode (mobile-03 §3c/3d). */
 export const useUpdateAccountModeMutation = () =>
   useMutation(ACCOUNT_MODE.mutationOptions<void, AccountModeRequest>());
+
+// ── Profile ──────────────────────────────────────────────────────────────────
+
+export const profileKeys = {
+  all:    ['profile'] as const,
+  detail: () => [...profileKeys.all, 'detail'] as const,
+};
+
+/** The profile screen's data — refetched fresh every time it mounts, not
+ *  carried on the auth store the way BOOTSTRAP's routing fields are. */
+export const useProfileQuery = (options?: { enabled?: boolean }) =>
+  useQuery({
+    ...PROFILE.queryOptions<ProfileResponse>(),
+    queryKey: profileKeys.detail(),
+    enabled: options?.enabled ?? true,
+  });
+
+/** Save profile fields (complete-profile gate + the profile screen's future
+ *  edit action). Refreshes the cached profile with the server's response
+ *  instead of refetching — the caller still owns updating authStore's
+ *  `profileComplete` flag off the same response (see CompleteProfileScreen). */
+export const useUpdateProfileMutation = () => {
+  const queryClient = useQueryClient();
+  return useMutation(
+    UPDATE_PROFILE.mutationOptions<ProfileResponse, UpdateProfileRequest>({
+      onSuccess: (data) => {
+        queryClient.setQueryData(profileKeys.detail(), data);
+      },
+    }),
+  );
+};
 
 // ── Step-up ──────────────────────────────────────────────────────────────────
 

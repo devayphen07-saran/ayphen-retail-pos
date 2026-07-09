@@ -10,8 +10,6 @@ import {
   roles,
   rolePermissions,
   userRoleMappings,
-  locations,
-  userLocationMappings,
   stores,
 } from '#db/schema.js';
 import { CryptoService } from '../../core/crypto.service.js';
@@ -21,24 +19,14 @@ import { readTypedCache } from '#common/redis/typed-cache.js';
 import type {
   PermissionSnapshot,
   SnapshotResult,
-  StoreLocationsEntry,
-} from '../types/permission-snapshot.js';
+  StoreEntry,
+} from '#common/types/permission-snapshot.js';
 
 const snapshotKey = (userId: string) => `snapshot:${userId}`;
 
-const LocationSnapshotEntrySchema = z.object({
-  id: z.string(),
-  name: z.string(),
-  is_primary: z.boolean(),
-  is_default: z.boolean(),
-  is_locked: z.boolean(),
-});
-
-const StoreLocationsEntrySchema: ZodType<StoreLocationsEntry> = z.object({
+const StoreEntrySchema: ZodType<StoreEntry> = z.object({
   store_id: z.string(),
   name: z.string(),
-  default_location_id: z.string().nullable(),
-  locations: z.array(LocationSnapshotEntrySchema),
   permissions: z.array(z.string()),
 });
 
@@ -46,7 +34,7 @@ const PermissionSnapshotSchema: ZodType<PermissionSnapshot> = z.object({
   userId: z.string(),
   permissionsVersion: z.number(),
   generatedAt: z.string(),
-  storeLocations: z.array(StoreLocationsEntrySchema),
+  stores: z.array(StoreEntrySchema),
 });
 
 const SnapshotResultSchema: ZodType<SnapshotResult> = z.object({
@@ -127,7 +115,7 @@ export class SnapshotService {
       userId: user?.guuid ?? userId,
       permissionsVersion: user?.permissionsVersion ?? 1,
       generatedAt: new Date().toISOString(),
-      storeLocations: await this.buildStoreAccessBlock(userId),
+      stores: await this.buildStoreAccessBlock(userId),
     };
 
     const canonical = this.crypto.canonicalJson(snapshot);
@@ -148,16 +136,13 @@ export class SnapshotService {
   }
 
   /**
-   * Per-store accessible locations AND this user's own CRUD grants, both
-   * scoped to the same stores (adoption §8.2, rbac.md §26.8/§14). Owners see
-   * all locations in their stores; other users see only assigned ones. Each
-   * store's default is surfaced so the device knows which location to open
-   * on cold start without a network call.
+   * This user's own CRUD grants, scoped per store (adoption §8.2,
+   * rbac.md §26.8/§14).
    */
   private async buildStoreAccessBlock(
     userId: string,
-  ): Promise<StoreLocationsEntry[]> {
-    // Stores the user has any active role in, and which of those they own.
+  ): Promise<StoreEntry[]> {
+    // Stores the user has any active role in.
     const roleRows = await this.db
       .select({ storeFk: userRoleMappings.storeFk, code: roles.code })
       .from(userRoleMappings)
@@ -169,12 +154,10 @@ export class SnapshotService {
         ),
       );
 
-    const ownedStores = new Set<string>();
     const storeIds = new Set<string>();
     for (const r of roleRows) {
       if (!r.storeFk) continue; // system-wide roles carry no store
       storeIds.add(r.storeFk);
-      if (r.code === 'STORE_OWNER') ownedStores.add(r.storeFk);
     }
     if (storeIds.size === 0) return [];
 
@@ -213,63 +196,12 @@ export class SnapshotService {
       permissionsByStore.set(p.storeFk, set);
     }
 
-    // Active locations, scoped to this user's stores. The `inArray(storeFk)`
-    // filter is load-bearing: without it this scans the entire `locations`
-    // table across ALL tenants on every snapshot build (cost scales with
-    // platform size, not the user) and then discards the non-matching rows in
-    // memory below.
-    const allLocations = await this.db
-      .select({
-        id: locations.id,
-        storeFk: locations.storeFk,
-        name: locations.name,
-        isPrimary: locations.isPrimary,
-        isDefault: locations.isDefault,
-        locked: locations.locked,
-      })
-      .from(locations)
-      .where(
-        and(
-          eq(locations.isActive, true),
-          inArray(locations.storeFk, [...storeIds]),
-        ),
-      );
-
-    // Location ids this user is explicitly assigned to (for the non-owner path).
-    const assignedRows = await this.db
-      .select({ locationFk: userLocationMappings.locationFk })
-      .from(userLocationMappings)
-      .where(
-        and(
-          eq(userLocationMappings.userFk, userId),
-          isNull(userLocationMappings.revokedAt),
-        ),
-      );
-    const assigned = new Set(assignedRows.map((r) => r.locationFk));
-
-    const byStore = new Map<string, StoreLocationsEntry>();
+    const byStore = new Map<string, StoreEntry>();
     for (const storeId of storeIds) {
       byStore.set(storeId, {
         store_id: storeId,
         name: storeNames.get(storeId) ?? '',
-        default_location_id: null,
-        locations: [],
         permissions: [...(permissionsByStore.get(storeId) ?? [])],
-      });
-    }
-
-    for (const loc of allLocations) {
-      const entry = byStore.get(loc.storeFk);
-      if (!entry) continue; // location in a store the user has no role in
-      const visible = ownedStores.has(loc.storeFk) || assigned.has(loc.id);
-      if (loc.isDefault) entry.default_location_id = loc.id; // default is always advertised
-      if (!visible) continue;
-      entry.locations.push({
-        id: loc.id,
-        name: loc.name,
-        is_primary: loc.isPrimary,
-        is_default: loc.isDefault,
-        is_locked: loc.locked,
       });
     }
 

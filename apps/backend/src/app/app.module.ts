@@ -19,11 +19,11 @@ import { SharedRepositoriesModule } from '#common/shared-repositories.module.js'
 import { StoresModule } from '../stores/stores.module.js';
 import { SubscriptionModule } from '../subscription/subscription.module.js';
 import { DevicesModule } from '../devices/devices.module.js';
-import { LocationsModule } from '../locations/locations.module.js';
 import { EntityTypesModule } from '../entity-types/entity-types.module.js';
 import { LookupModule } from '../lookup/lookup.module.js';
 import { ReferenceDataModule } from '../reference-data/reference-data.module.js';
 import { SyncModule } from '../sync/sync.module.js';
+import { FilesModule } from '../files/files.module.js';
 
 @Module({
   imports: [
@@ -43,11 +43,11 @@ import { SyncModule } from '../sync/sync.module.js';
     StoresModule,
     SubscriptionModule,
     DevicesModule,
-    LocationsModule,
     EntityTypesModule,
     LookupModule,
     ReferenceDataModule,
     SyncModule,
+    FilesModule,
     RouteCoverageModule,   // last — runs route-config validation after all routes wired
   ],
   providers: [

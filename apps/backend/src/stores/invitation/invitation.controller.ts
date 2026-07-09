@@ -19,10 +19,8 @@ import {
   StoreContext,
   RequirePermissions,
   CurrentUser,
-  CurrentStoreContext,
 } from '#common/rbac/decorators/rbac.decorators.js';
 import type { MobilePrincipal } from '#common/types/principal.js';
-import type { ResolvedStoreContext } from '#common/rbac/resolved-store-context.js';
 import { InvitationService } from './invitation.service.js';
 import { InvitationMapper } from './invitation.mapper.js';
 import type {
@@ -37,7 +35,7 @@ import {
   RejectInvitationDtoSchema,
 } from './dto/invitation.dto.js';
 
-/** Create an invitation — store-scoped, gated by Invitation.create + max_users. */
+/** Create an invitation — store-scoped, gated by Invitation.create. */
 @Controller('stores/:storeId/invitations')
 @UseGuards(MobileJwtGuard, TenantGuard, PermissionsGuard, SubscriptionStatusGuard)
 @StoreContext('param.storeId')
@@ -49,15 +47,13 @@ export class StoreInvitationController {
   async create(
     @Param('storeId', ParseUUIDPipe) storeId: string,
     @CurrentUser() user: MobilePrincipal,
-    @CurrentStoreContext() ctx: ResolvedStoreContext,
     @Body() body: unknown,
   ): Promise<CreatedInvitationResponse> {
     const dto = parse(body, CreateInvitationDtoSchema);
-    const result = await this.invitations.create(storeId, ctx.accountId, user.userId, {
-      roleId:      dto.role_id,
-      phone:       dto.phone,
-      email:       dto.email,
-      locationIds: dto.location_ids,
+    const result = await this.invitations.create(storeId, user.userId, {
+      roleId: dto.role_id,
+      phone:  dto.phone,
+      email:  dto.email,
     });
     return InvitationMapper.toCreatedResponse(result);
   }
@@ -119,6 +115,9 @@ export class InvitationController {
 export class MeInvitationsController {
   constructor(private readonly invitations: InvitationService) {}
 
+  // Deliberately unpaginated: bounded by how many stores are actively
+  // inviting this exact contact right now, not by total account/store count
+  // — realistically single digits. Revisit if that assumption ever breaks.
   @Get('invitations')
   async listMine(@CurrentUser() user: MobilePrincipal): Promise<MyInvitationResponse[]> {
     const rows = await this.invitations.listMyInvitations(user.userId);

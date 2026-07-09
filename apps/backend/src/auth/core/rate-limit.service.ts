@@ -41,7 +41,6 @@ export class RateLimitService {
       `rl:ip:${ip}`,
       IP_WINDOW_SECONDS,
       this.config.ipMaxAttempts,
-      () => this.repo.countIpAttempts(ip),
       'Too many requests from this IP — please wait before retrying',
     );
   }
@@ -51,8 +50,27 @@ export class RateLimitService {
       `rl:otp:${phone}`,
       PHONE_WINDOW_SECONDS,
       this.config.otpMaxAttempts,
-      () => this.repo.countPhoneOtpAttempts(phone),
       'Too many OTP requests for this phone — please wait before retrying',
+    );
+  }
+
+  /** Generic identity-scoped limiter for a specific action — e.g. checkout,
+   *  which triggers a real outbound payment-gateway call per invocation and
+   *  isn't covered by the global per-IP throttler (mobile-carrier NAT means
+   *  one IP is thousands of legitimate users; see ThrottleModule's comment).
+   *  `action` namespaces the Redis key so different actions don't share a
+   *  counter. */
+  async checkAccountActionLimit(
+    accountId: string,
+    action: string,
+    windowSeconds: number,
+    limit: number,
+  ): Promise<void> {
+    await this.enforce(
+      `rl:acct:${action}:${accountId}`,
+      windowSeconds,
+      limit,
+      'Too many requests — please wait before retrying',
     );
   }
 
@@ -71,21 +89,24 @@ export class RateLimitService {
     key: string,
     windowSeconds: number,
     limit: number,
-    dbCount: () => Promise<number>,
     message: string,
   ): Promise<void> {
     const redisCount = await this.incrWindow(key, windowSeconds);
 
     if (redisCount !== null) {
       // INCR counts THIS request too, so block strictly above the limit —
-      // parity with the DB path, which counts only prior recorded attempts.
+      // parity with the DB fallback below, which also counts this request.
       if (redisCount > limit) this.reject(message);
       return;
     }
 
-    // Redis unavailable — enforce off the audit table like before.
-    const count = await dbCount();
-    if (count >= limit) this.reject(message);
+    // Redis unavailable — atomic Postgres fixed-window counter (see
+    // RateLimitRepository.incrementFallbackWindow for why this must be an
+    // atomic increment, not a "SELECT COUNT then decide" read).
+    const windowMs = windowSeconds * 1000;
+    const windowStart = new Date(Math.floor(Date.now() / windowMs) * windowMs);
+    const dbCount = await this.repo.incrementFallbackWindow(key, windowStart);
+    if (dbCount > limit) this.reject(message);
   }
 
   /** Returns the post-increment count, or null when Redis is unreachable. */

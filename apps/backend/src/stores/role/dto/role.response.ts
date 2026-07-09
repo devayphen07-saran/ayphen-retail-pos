@@ -18,6 +18,10 @@ export interface RoleEntityPermissions {
 /** GET /stores/:storeId/roles/:roleId — role + its current permission matrix. */
 export interface RoleDetailResponse extends RoleResponse {
   permissions: Record<string, RoleEntityPermissions>;
+  // Optimistic-lock token — round-trip this as `expected_row_version` on
+  // PATCH .../permissions so a stale edit is rejected instead of silently
+  // clobbering someone else's concurrent change.
+  row_version: number;
 }
 
 /** POST /stores/:storeId/roles response. */

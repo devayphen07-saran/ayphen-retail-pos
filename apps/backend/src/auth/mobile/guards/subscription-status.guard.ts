@@ -18,6 +18,7 @@ import * as schema from '#db/schema.js';
 import { accountSubscriptions } from '#db/schema.js';
 import { REDIS } from '#common/redis/redis.provider.js';
 import { readTypedCache } from '#common/redis/typed-cache.js';
+import { ErrorCodes } from '#common/error-codes.js';
 import type { ResolvedStoreContext } from '#common/rbac/resolved-store-context.js';
 import {
   subVersionPointerKey,
@@ -114,12 +115,12 @@ export class SubscriptionStatusGuard implements CanActivate {
     const accountId = this.resolveAccountId(req);
     if (!accountId) {
       // Guard applied without a tenant guard ahead of it — fail safe.
-      throw new ForbiddenException('STORE_CONTEXT_MISSING');
+      throw new ForbiddenException(ErrorCodes.STORE_CONTEXT_MISSING);
     }
 
     const sub = await this.loadSubscription(accountId);
     if (!sub) {
-      throw new ForbiddenException('SUBSCRIPTION_NOT_FOUND');
+      throw new ForbiddenException(ErrorCodes.SUBSCRIPTION_NOT_FOUND);
     }
 
     // Freshness is emitted on every request (even reads / allow-expired) so the
@@ -144,25 +145,25 @@ export class SubscriptionStatusGuard implements CanActivate {
 
     // Suspended (admin/abuse) — always blocked, regardless of access window.
     if (SUSPENDED_STATUSES.has(sub.status)) {
-      throw new ForbiddenException('SUBSCRIPTION_SUSPENDED');
+      throw new ForbiddenException(ErrorCodes.SUBSCRIPTION_SUSPENDED);
     }
 
     // Definitively inactive (grace-over / cancelled period-over).
     if (PAYMENT_REQUIRED_STATUSES.has(sub.status)) {
-      throw new HttpException('SUBSCRIPTION_PAYMENT_REQUIRED', HttpStatus.PAYMENT_REQUIRED);
+      throw new HttpException(ErrorCodes.SUBSCRIPTION_PAYMENT_REQUIRED, HttpStatus.PAYMENT_REQUIRED);
     }
 
     // Soft block: access window closed (trial ended / paid period over) but the
     // status hasn't flipped yet (reconciliation cron lag) — same wire contract.
     if (sub.accessValidUntil && new Date(sub.accessValidUntil) < new Date()) {
-      throw new HttpException('SUBSCRIPTION_PAYMENT_REQUIRED', HttpStatus.PAYMENT_REQUIRED);
+      throw new HttpException(ErrorCodes.SUBSCRIPTION_PAYMENT_REQUIRED, HttpStatus.PAYMENT_REQUIRED);
     }
 
-    // A downgrade left some resource (stores/locations/devices) over its new
+    // A downgrade left some resource (stores/devices) over its new
     // limit — every write is blocked account-wide until the owner resolves
     // which to keep (POST /subscription/reconciliation). Reads always work.
     if (sub.reconciliationStatus === 'pending') {
-      throw new ForbiddenException('SUBSCRIPTION_RECONCILIATION_REQUIRED');
+      throw new ForbiddenException(ErrorCodes.SUBSCRIPTION_RECONCILIATION_REQUIRED);
     }
 
     // Store-level lock (downgrade-reconciliation §5, applied and permanent
@@ -172,7 +173,7 @@ export class SubscriptionStatusGuard implements CanActivate {
     // write-gate chokepoint every mutating store-scoped route passes through.
     const storeContext = (req as Request & { context?: ResolvedStoreContext }).context;
     if (storeContext?.isLocked) {
-      throw new ForbiddenException('STORE_LOCKED');
+      throw new ForbiddenException(ErrorCodes.STORE_LOCKED);
     }
 
     return true;

@@ -7,22 +7,26 @@ export type BannerSeverity = 'none' | 'info' | 'warning' | 'critical';
 
 /** GET /me/subscription. */
 export interface SubscriptionResponse {
+  id:                    string;
   subscription_version: number;
   status:               string; // 'trialing' | 'active' | 'past_due' | 'paused' | 'cancelled' | 'expired'
-  access_valid_until:   string | null; // ISO
   trial_ends_at:        string | null; // ISO
   current_period_end:   string | null; // ISO
+  // false → renews automatically at current_period_end. true → access ends there.
+  cancel_at_period_end: boolean;
   show_upgrade_banner:  boolean;
   banner_severity:      BannerSeverity;
   // 'pending' → a downgrade left something over limit; every write is blocked
   // account-wide until the owner resolves it (GET/POST /me/subscription/reconciliation).
   reconciliation_status: 'none' | 'pending' | 'applied';
   plan: {
-    code:         string;
-    name:         string;
-    billing_code: string | null; // e.g. 'starter_annual' — matches PlanPricingOption.plan_code
-    entitlements: Record<string, number | null>;
-    features:     Record<string, boolean>;
+    code:          string;
+    name:          string;
+    billing_cycle: 'monthly' | 'annual' | null;
+    // Today's list price for the current billing cycle — null pre-checkout.
+    // Not a locked-in historical charge; this app doesn't grandfather pricing yet.
+    price:         { amount: number; currency: string } | null;
+    entitlements:  Record<string, number | null>;
   };
 }
 
@@ -56,6 +60,8 @@ export interface PlanCatalogEntry {
   pricing:            PlanPricingOption[];
   entitlements:       Record<string, number | null>;
   features:           Record<string, boolean>;
+  // Display label per `features` key, same for every plan.
+  feature_labels:     Record<string, string>;
 }
 
 /** POST /me/account/subscription/checkout body. */
@@ -91,26 +97,16 @@ export interface SubscriptionActionResponse {
   subscription_version: number;
 }
 
-/** GET /me/subscription/reconciliation — the downgrade resolve screen's data.
- *  Head Office never appears in `locations` as a lockable candidate — it's
- *  immune, always kept implicitly. */
+/** GET /me/subscription/reconciliation — the downgrade resolve screen's data. */
 export interface ReconciliationResponse {
   limits: {
-    max_stores:    number | null;
-    max_locations: number | null;
-    max_devices:   number | null;
+    max_stores:  number | null;
+    max_devices: number | null;
   };
   stores: Array<{
-    id:             string;
-    name:           string;
-    location_count: number;
-    device_count:   number;
-  }>;
-  locations: Array<{
-    id:         string;
-    store_id:   string;
-    name:       string;
-    is_primary: boolean;
+    id:           string;
+    name:         string;
+    device_count: number;
   }>;
   devices: Array<{
     id:                string;
@@ -125,15 +121,13 @@ export interface ReconciliationResponse {
 
 /** POST /me/subscription/reconciliation body — the owner's downgrade resolution. */
 export interface ReconciliationRequest {
-  keep_store_ids:    string[];
-  keep_location_ids: string[];
-  keep_device_ids:   string[];
+  keep_store_ids:  string[];
+  keep_device_ids: string[];
 }
 
 /** POST /me/subscription/active-store body — post-downgrade swap. */
 export interface ActiveStoreSwapRequest {
   activate_store_id:   string;
   deactivate_store_id: string;
-  keep_location_ids:   string[];
   keep_device_ids:     string[];
 }

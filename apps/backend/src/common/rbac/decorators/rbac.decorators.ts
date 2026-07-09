@@ -10,7 +10,6 @@ import type { ResolvedStoreContext } from '../resolved-store-context.js';
 
 export const IS_PUBLIC_KEY          = 'rbac:isPublic';
 export const STORE_CONTEXT_KEY      = 'rbac:storeContext';
-export const LOCATION_CONTEXT_KEY   = 'rbac:locationContext';
 export const REQUIRE_PERMISSIONS_KEY = 'rbac:requirePermissions';
 export const REQUIRE_SPECIAL_KEY    = 'rbac:requireSpecial';
 export const ONLINE_ONLY_KEY        = 'rbac:onlineOnly';
@@ -27,10 +26,8 @@ export type StoreContextSource =
   | 'none';
 
 /**
- * Extract a raw id from the request per 'scope.key' — shared by TenantGuard
- * (store id) and LocationGuard (location id) so this security-relevant input
- * parsing has exactly one implementation instead of two independently
- * maintained copies.
+ * Extract a raw id from the request per 'scope.key' — used by TenantGuard
+ * (store id) to parse this security-relevant input.
  */
 export function readScopedSource(
   req: Request,
@@ -74,10 +71,6 @@ export const Public = () => SetMetadata(IS_PUBLIC_KEY, true);
 /** Tell TenantGuard where to read the store id from (rbac.md §11). */
 export const StoreContext = (source: StoreContextSource) =>
   SetMetadata(STORE_CONTEXT_KEY, source);
-
-/** Tell LocationGuard where to read the location id from (adoption §8.1). */
-export const LocationContext = (source: StoreContextSource) =>
-  SetMetadata(LOCATION_CONTEXT_KEY, source);
 
 /** PermissionsGuard enforces a CRUD check (rbac.md §10C, §11). */
 export const RequirePermissions = (meta: RequirePermissionsMeta) =>

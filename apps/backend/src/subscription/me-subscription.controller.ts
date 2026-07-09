@@ -125,8 +125,8 @@ export class MeSubscriptionController {
   }
 
   /**
-   * The downgrade resolve screen's data — every store/location/device the
-   * owner can choose to keep, plus the plan's new limits. Meaningful only
+   * The downgrade resolve screen's data — every store/device the owner can
+   * choose to keep, plus the plan's new limits. Meaningful only
    * while `reconciliation_status='pending'`, but always safe to call (an
    * account with nothing over limit just returns everything active).
    */
@@ -149,9 +149,8 @@ export class MeSubscriptionController {
   ): Promise<ReconciliationApplyResponse> {
     const dto = parse(body, ReconciliationDtoSchema);
     await this.reconciliation.applyForUser(user.userId, user.deviceId, {
-      keepStoreIds:    dto.keep_store_ids,
-      keepLocationIds: dto.keep_location_ids,
-      keepDeviceIds:   dto.keep_device_ids,
+      keepStoreIds:  dto.keep_store_ids,
+      keepDeviceIds: dto.keep_device_ids,
     });
     return SubscriptionResponseMapper.toAppliedResponse();
   }
@@ -168,10 +167,9 @@ export class MeSubscriptionController {
     @Body() body: unknown,
   ): Promise<ReconciliationApplyResponse> {
     const dto = parse(body, ActiveStoreSwapDtoSchema);
-    await this.reconciliation.swapActiveStoreForUser(user.userId, {
+    await this.reconciliation.swapActiveStoreForUser(user.userId, user.deviceId, {
       activateStoreId:   dto.activate_store_id,
       deactivateStoreId: dto.deactivate_store_id,
-      keepLocationIds:   dto.keep_location_ids,
       keepDeviceIds:     dto.keep_device_ids,
     });
     return SubscriptionResponseMapper.toAppliedResponse();

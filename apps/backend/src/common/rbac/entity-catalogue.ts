@@ -129,12 +129,6 @@ export const ENTITIES = [
     supportsAttachments: true,
   },
   {
-    code: 'Location',
-    label: 'Locations',
-    isOfflineSafe: true,
-    supportsAttachments: false,
-  },
-  {
     code: 'Invitation',
     label: 'Invitations',
     isOfflineSafe: false,

@@ -11,7 +11,12 @@ async function bootstrap() {
   app.useLogger(app.get(Logger));
 
   applyGlobalConfig(app);
-  setupSwagger(app);
+  // /docs is unauthenticated and excluded from the global prefix — it must
+  // never ship in production, where it would hand an anonymous internet
+  // client the full route/DTO/error-code surface for free.
+  if (env.NODE_ENV !== 'production') {
+    setupSwagger(app);
+  }
 
   // Drain the pg pool / Redis and run OnApplicationShutdown hooks on SIGTERM/SIGINT.
   app.enableShutdownHooks();

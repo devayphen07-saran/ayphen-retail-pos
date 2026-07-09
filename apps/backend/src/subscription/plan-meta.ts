@@ -22,22 +22,35 @@ export const PLAN_META: Record<string, PlanMeta> = {
     displayOrder:      0,
     isRecommended:     false,
     shortDescription:  'For trying the platform',
-    featureHighlights: ['1 store', '1 location', '100 products', 'Offline POS'],
+    featureHighlights: ['1 store', '100 products', 'Offline POS'],
   },
   starter: {
     displayOrder:      1,
     isRecommended:     true,
     shortDescription:  'Perfect for growing stores',
-    featureHighlights: ['3 locations', '5 devices', '10 staff', '2,000 products', 'Barcode scanning'],
+    featureHighlights: ['5 devices', '10 staff', '2,000 products', 'Barcode scanning'],
   },
   growth: {
     displayOrder:      2,
     isRecommended:     false,
     shortDescription:  'For multi-store businesses',
-    featureHighlights: ['Unlimited stores', 'Unlimited locations', '20 devices', 'Unlimited staff', 'Advanced reports'],
+    featureHighlights: ['Unlimited stores', '20 devices', 'Unlimited staff', 'Advanced reports'],
   },
 };
 
 export function resolvePlanMeta(planName: string): PlanMeta {
   return PLAN_META[planName] ?? DEFAULT_META;
 }
+
+/**
+ * Display label for each `plan_features.key` (subscription §22B plans screen
+ * "compare features" table). Same shape/purpose as `featureHighlights` above —
+ * purely presentational, keeps clients from hand-maintaining their own copy
+ * of feature-flag names. Extend here when a new feature flag is seeded.
+ */
+export const FEATURE_LABELS: Record<string, string> = {
+  barcode_scanning: 'Barcode scanning',
+  advanced_reports: 'Advanced reports',
+  offline_mode:     'Offline mode',
+  multi_store:      'Multi-store',
+};

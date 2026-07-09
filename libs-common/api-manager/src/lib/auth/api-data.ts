@@ -91,6 +91,21 @@ export const BOOTSTRAP = new APIData('me/bootstrap', APIMethod.GET);
 /** Set business/personal workspace mode. Body: `{ mode }`. Auth required. */
 export const ACCOUNT_MODE = new APIData('me/account-mode', APIMethod.PATCH);
 
+/**
+ * Display data for the profile screen (name/email/phone/picture). Auth
+ * required. Deliberately separate from BOOTSTRAP: this is data for a screen
+ * the user may open rarely, fetched fresh only when it mounts — not a
+ * routing fact needed on every launch the way `last_account_mode` is.
+ */
+export const PROFILE = new APIData('me/profile', APIMethod.GET);
+
+/**
+ * Update profile fields (currently name/email — see UpdateProfileRequest's
+ * doc comment for why phone is excluded). Auth required. Returns the updated
+ * ProfileResponse so the client can apply it without a second GET.
+ */
+export const UPDATE_PROFILE = new APIData('me/profile', APIMethod.PATCH);
+
 // ── Device challenge / step-up ───────────────────────────────────────────────
 
 /**

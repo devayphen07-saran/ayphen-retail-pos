@@ -19,6 +19,14 @@ import {
 
 export type AccountSubscription = typeof accountSubscriptions.$inferSelect;
 
+/** Projection consumed by the sync push preflight gate (§20). */
+export interface SubscriptionSyncState {
+  status: string;
+  accessValidUntil: Date | null;
+  reconciliationStatus: string;
+  reconciliationEffectiveAt: Date | null;
+}
+
 export interface SubscriptionWithPlan {
   subscription: AccountSubscription;
   planCode:     string;
@@ -54,6 +62,46 @@ export class SubscriptionRepository {
       .from(accounts)
       .where(eq(accounts.ownerUserFk, userId));
     return row?.id ?? null;
+  }
+
+  /** Raw entitlement row for an account+key, or null when no such row exists.
+   *  The caller distinguishes "row absent" (plan doesn't grant it) from
+   *  "row present with value=NULL" (unlimited) — §3.1 rule 4 — so this returns
+   *  the row rather than collapsing both cases. */
+  async findEntitlementValue(
+    accountId: string,
+    key: string,
+    tx?: DbExecutor,
+  ): Promise<{ value: number | null } | null> {
+    const [row] = await this.client(tx)
+      .select({ value: planEntitlements.value })
+      .from(accountSubscriptions)
+      .innerJoin(planEntitlements, eq(planEntitlements.planFk, accountSubscriptions.planFk))
+      .where(
+        and(
+          eq(accountSubscriptions.accountFk, accountId),
+          eq(planEntitlements.key, key),
+        ),
+      );
+    return row ?? null;
+  }
+
+  /** Point-in-time gate state for the sync push preflight (§20): status +
+   *  access window + reconciliation flags for an account, or null if none. */
+  async findSyncStateByAccount(
+    accountId: string,
+    tx?: DbExecutor,
+  ): Promise<SubscriptionSyncState | null> {
+    const [row] = await this.client(tx)
+      .select({
+        status: accountSubscriptions.status,
+        accessValidUntil: accountSubscriptions.accessValidUntil,
+        reconciliationStatus: accountSubscriptions.reconciliationStatus,
+        reconciliationEffectiveAt: accountSubscriptions.reconciliationEffectiveAt,
+      })
+      .from(accountSubscriptions)
+      .where(eq(accountSubscriptions.accountFk, accountId));
+    return row ?? null;
   }
 
   /** The account owner's user id (for account-level billing audit). */
@@ -209,6 +257,44 @@ export class SubscriptionRepository {
       throw new NotFoundError(ErrorCodes.SUBSCRIPTION_NOT_FOUND, 'Subscription not found for account');
     }
     return row;
+  }
+
+  /**
+   * Same effect as `applyTransition`, but the row's CURRENT state must match
+   * `precondition` at UPDATE time — repeated in the WHERE clause, not just
+   * read-then-branched in app code, so Postgres's EvalPlanQual re-validates
+   * against the latest committed row instead of trusting an earlier read.
+   * Closes two races `applyTransition` alone can't: a double-tap (two
+   * concurrent cancel() calls) and a race with a cron transition flipping
+   * status underneath this call (backend-standard review finding).
+   *
+   * Returns `null` — never a 404 throw — on a zero-match UPDATE, since zero
+   * rows can mean either "account not found" or "precondition no longer
+   * holds"; the caller re-fetches to tell the two apart.
+   */
+  async applyTransitionIf(
+    accountId: string,
+    precondition: { status: AccountSubscription['status']; cancelAtPeriodEnd?: boolean },
+    patch: Partial<Pick<AccountSubscription, 'cancelAtPeriodEnd'>>,
+    tx?: DbExecutor,
+  ): Promise<AccountSubscription | null> {
+    const conditions = [
+      eq(accountSubscriptions.accountFk, accountId),
+      eq(accountSubscriptions.status, precondition.status),
+    ];
+    if (precondition.cancelAtPeriodEnd !== undefined) {
+      conditions.push(eq(accountSubscriptions.cancelAtPeriodEnd, precondition.cancelAtPeriodEnd));
+    }
+    const [row] = await this.client(tx)
+      .update(accountSubscriptions)
+      .set({
+        ...patch,
+        subscriptionVersion: sql`${accountSubscriptions.subscriptionVersion} + 1`,
+        updatedAt: new Date(),
+      })
+      .where(and(...conditions))
+      .returning();
+    return row ?? null;
   }
 
   /**

@@ -1,10 +1,11 @@
 import { Inject, Injectable } from '@nestjs/common';
-import { eq, sql } from 'drizzle-orm';
+import { and, eq, isNull, sql } from 'drizzle-orm';
 import type { PostgresJsDatabase } from 'drizzle-orm/postgres-js';
 import { DRIZZLE, type DbExecutor } from '#db/db.module.js';
 import { requireRow } from '#db/require-row.js';
 import * as schema from '#db/schema.js';
-import { users } from '#db/schema.js';
+import { users, files } from '#db/schema.js';
+import type { ProfileResult } from '../types/auth-result.js';
 
 export type User = typeof users.$inferSelect;
 
@@ -40,6 +41,21 @@ export class UserRepository {
     tx?: DbExecutor,
   ): Promise<void> {
     await (tx ?? this.db).update(users).set({ lastAccountMode: mode }).where(eq(users.id, id));
+  }
+
+  /** Partial write — only the keys the caller actually supplied are touched;
+   *  an omitted field is left as-is, never nulled out. Throws the raw
+   *  Postgres 23505 on an email collision; the service translates it. */
+  async updateProfile(
+    id: string,
+    patch: { name?: string; email?: string },
+    tx?: DbExecutor,
+  ): Promise<void> {
+    const set: Partial<typeof users.$inferInsert> = {};
+    if (patch.name !== undefined) set.name = patch.name;
+    if (patch.email !== undefined) set.email = patch.email;
+    if (Object.keys(set).length === 0) return;
+    await (tx ?? this.db).update(users).set(set).where(eq(users.id, id));
   }
 
   /**
@@ -83,5 +99,29 @@ export class UserRepository {
         phoneVerified:       true,
       })
       .where(eq(users.id, id));
+  }
+
+  /**
+   * Display data for GET /me/profile. The join filters out a soft-deleted
+   * `files` row (e.g. a picture replaced/removed) so it correctly resolves to
+   * `profilePictureUrl: null` instead of a dead URL.
+   */
+  async findProfile(id: string, tx?: DbExecutor): Promise<ProfileResult | null> {
+    const [row] = await (tx ?? this.db)
+      .select({
+        name:              users.name,
+        email:             users.email,
+        phone:             users.phone,
+        phoneVerified:     users.phoneVerified,
+        profilePictureUrl: files.storageUrl,
+      })
+      .from(users)
+      .leftJoin(
+        files,
+        and(eq(files.id, users.imageAttachmentFk), isNull(files.deletedAt)),
+      )
+      .where(eq(users.id, id));
+    if (!row) return null;
+    return { ...row, profilePictureUrl: row.profilePictureUrl ?? null };
   }
 }

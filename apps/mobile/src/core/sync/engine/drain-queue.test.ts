@@ -6,6 +6,7 @@ import { pushDelta } from '../transport/sync-transport';
 import { appliersRegistry } from '../appliers/appliers.registry';
 import { mutationQueueRepository, type EnqueueInput } from '../repositories/mutation-queue.repository';
 import { products } from '../db/schema';
+import { useAuthStore } from '@store';
 import type { SyncDb } from '../db/types';
 
 const mockPush = pushDelta as jest.MockedFunction<typeof pushDelta>;
@@ -122,5 +123,54 @@ describe('drainMutationQueueOnce — failure paths (P0)', () => {
     const [row] = await mutationQueueRepository.listByStore(db, 'store-A');
     expect(row.status).toBe('pending'); // not stranded in 'inflight'
     expect(row.attempts).toBe(1);
+  });
+});
+
+describe('drainMutationQueueOnce — snapshot refresh on push (freshness)', () => {
+  beforeEach(() => {
+    useAuthStore.setState({ snapshot: null, snapshotSignature: null });
+  });
+
+  it('applies the snapshot the server piggybacks on a push response', async () => {
+    const db = createTestDb();
+    await seedOptimisticCreate(db);
+    const snapshot = {
+      userId: 'u-1',
+      permissionsVersion: 2,
+      generatedAt: NOW,
+      stores: [{ store_id: 'store-A', name: 'Main', permissions: ['Product:create'] }],
+    };
+    mockPush.mockResolvedValueOnce({
+      mutation_results: [{ mutation_id: 'm-1', status: 'applied', data: optimisticProductRow('g-1') }],
+      changes: {},
+      sync_cursor: null,
+      has_more: false,
+      server_time: NOW,
+      permissions_version: 2,
+      snapshot,
+      snapshot_signature: 'sig-1',
+    } as unknown as Awaited<ReturnType<typeof pushDelta>>);
+
+    await drainMutationQueueOnce(db, 'store-A');
+
+    expect(useAuthStore.getState().snapshot).toEqual(snapshot);
+    expect(useAuthStore.getState().snapshotSignature).toBe('sig-1');
+  });
+
+  it('does not touch the stored snapshot when the push response carries none', async () => {
+    const db = createTestDb();
+    await seedOptimisticCreate(db);
+    mockPush.mockResolvedValueOnce({
+      mutation_results: [{ mutation_id: 'm-1', status: 'applied', data: optimisticProductRow('g-1') }],
+      changes: {},
+      sync_cursor: null,
+      has_more: false,
+      server_time: NOW,
+      permissions_version: 1,
+    } as unknown as Awaited<ReturnType<typeof pushDelta>>);
+
+    await drainMutationQueueOnce(db, 'store-A');
+
+    expect(useAuthStore.getState().snapshot).toBeNull();
   });
 });

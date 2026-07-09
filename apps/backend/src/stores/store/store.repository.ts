@@ -10,7 +10,11 @@ import {
   stores,
   roles,
   userRoleMappings,
-  locations,
+  invitations,
+  products,
+  paymentAccounts,
+  storeDeviceAccess,
+  devices,
 } from '#db/schema.js';
 
 /** A store's active/locked state — the reconciliation "swap active store"
@@ -80,7 +84,10 @@ export class StoreRepository {
    * delta-detection (id only) and the reconciliation resolve screen (id + name)
    * (subscription §15D, device-management §19).
    */
-  async listActiveStores(accountId: string, tx?: DbExecutor): Promise<{ id: string; name: string }[]> {
+  async listActiveStores(
+    accountId: string,
+    tx?: DbExecutor,
+  ): Promise<{ id: string; name: string }[]> {
     return this.client(tx)
       .select({ id: stores.id, name: stores.name })
       .from(stores)
@@ -111,18 +118,28 @@ export class StoreRepository {
   /** Lock stores as downgrade-excess (reconciliation §5.1) — reversible, never deletes. */
   /** Scoped to `accountId` — a client-influenced store id list must never be
    *  able to lock a store belonging to a different account. */
-  async lockMany(storeIds: string[], accountId: string, tx: DbExecutor): Promise<void> {
+  async lockMany(
+    storeIds: string[],
+    accountId: string,
+    tx: DbExecutor,
+  ): Promise<void> {
     if (storeIds.length === 0) return;
     await tx
       .update(stores)
       .set({ locked: true, lockedReason: 'downgrade' })
-      .where(and(inArray(stores.id, storeIds), eq(stores.accountFk, accountId)));
+      .where(
+        and(inArray(stores.id, storeIds), eq(stores.accountFk, accountId)),
+      );
   }
 
   /** Unlock one specific store — the reconciliation "swap active store"
    *  endpoint's targeted counterpart to `unlockDowngraded`'s account-wide bulk
    *  restore. Scoped to `accountId` for the same reason as `lockMany`. */
-  async unlockOne(storeId: string, accountId: string, tx: DbExecutor): Promise<void> {
+  async unlockOne(
+    storeId: string,
+    accountId: string,
+    tx: DbExecutor,
+  ): Promise<void> {
     await tx
       .update(stores)
       .set({ locked: false, lockedReason: null })
@@ -136,7 +153,12 @@ export class StoreRepository {
     await tx
       .update(stores)
       .set({ locked: false, lockedReason: null })
-      .where(and(eq(stores.accountFk, accountId), eq(stores.lockedReason, 'downgrade')));
+      .where(
+        and(
+          eq(stores.accountFk, accountId),
+          eq(stores.lockedReason, 'downgrade'),
+        ),
+      );
   }
 
   /** Whether the account has any store at all (used for first-store trial start). */
@@ -164,9 +186,9 @@ export class StoreRepository {
     const [row] = await this.client(tx)
       .insert(roles)
       .values({
-        storeFk:    storeId,
-        code:       'STORE_OWNER',
-        name:       'Store Owner',
+        storeFk: storeId,
+        code: 'STORE_OWNER',
+        name: 'Store Owner',
         isEditable: false,
       })
       .returning({ id: roles.id });
@@ -178,26 +200,6 @@ export class StoreRepository {
     tx?: DbExecutor,
   ): Promise<void> {
     await this.client(tx).insert(userRoleMappings).values(data);
-  }
-
-  /**
-   * Auto-provision the Head Office location for a new store (device §5B / §26.1).
-   * is_primary=true, display_order=0 — counts as slot 1 of max_locations_per_store
-   * and is immune to downgrade-locking. The uk_location_primary index guarantees
-   * one per store.
-   */
-  async insertHeadOffice(storeId: string, tx?: DbExecutor): Promise<{ id: string }> {
-    const [row] = await this.client(tx)
-      .insert(locations)
-      .values({
-        storeFk: storeId,
-        name: 'Head Office',
-        isPrimary: true,
-        isDefault: true,   // Head Office is also the default the device opens into (§8.2)
-        displayOrder: 0,
-      })
-      .returning({ id: locations.id });
-    return requireRow(row);
   }
 
   /** Read the account's subscription trial state (for first-store trial start). */
@@ -223,11 +225,15 @@ export class StoreRepository {
   async findSubscriptionGate(
     accountId: string,
     tx?: DbExecutor,
-  ): Promise<{ status: string; accessValidUntil: Date | null; reconciliationStatus: string } | null> {
+  ): Promise<{
+    status: string;
+    accessValidUntil: Date | null;
+    reconciliationStatus: string;
+  } | null> {
     const [row] = await this.client(tx)
       .select({
-        status:               accountSubscriptions.status,
-        accessValidUntil:     accountSubscriptions.accessValidUntil,
+        status: accountSubscriptions.status,
+        accessValidUntil: accountSubscriptions.accessValidUntil,
         reconciliationStatus: accountSubscriptions.reconciliationStatus,
       })
       .from(accountSubscriptions)
@@ -252,10 +258,98 @@ export class StoreRepository {
       .where(eq(accountSubscriptions.id, subscriptionId));
   }
 
-  async bumpUserPermissionsVersion(userId: string, tx?: DbExecutor): Promise<void> {
+  async bumpUserPermissionsVersion(
+    userId: string,
+    tx?: DbExecutor,
+  ): Promise<void> {
     await this.client(tx)
       .update(schema.users)
       .set({ permissionsVersion: sql`${schema.users.permissionsVersion} + 1` })
       .where(eq(schema.users.id, userId));
+  }
+
+  /** Profile fields the setup-status "store profile complete" check reads. */
+  async findProfileFields(
+    storeId: string,
+  ): Promise<{
+    gstNumber: string | null;
+    address: string | null;
+    phone: string | null;
+    email: string | null;
+  } | null> {
+    const [row] = await this.db
+      .select({
+        gstNumber: stores.gstNumber,
+        address: stores.address,
+        phone: stores.phone,
+        email: stores.email,
+      })
+      .from(stores)
+      .where(eq(stores.id, storeId));
+    return row ?? null;
+  }
+
+  /** Whether this store has any accepted (not merely pending) staff invitation. */
+  async hasAcceptedInvitation(storeId: string): Promise<boolean> {
+    const [row] = await this.db
+      .select({ id: invitations.id })
+      .from(invitations)
+      .where(
+        and(
+          eq(invitations.storeFk, storeId),
+          eq(invitations.status, 'accepted'),
+        ),
+      )
+      .limit(1);
+    return !!row;
+  }
+
+  /** Whether this store has at least one active, non-deleted product. */
+  async hasActiveProduct(storeId: string): Promise<boolean> {
+    const [row] = await this.db
+      .select({ id: products.id })
+      .from(products)
+      .where(
+        and(
+          eq(products.storeFk, storeId),
+          eq(products.isActive, true),
+          isNull(products.deletedAt),
+        ),
+      )
+      .limit(1);
+    return !!row;
+  }
+
+  /** Whether this store has at least one active payment account configured. */
+  async hasActivePaymentAccount(storeId: string): Promise<boolean> {
+    const [row] = await this.db
+      .select({ id: paymentAccounts.id })
+      .from(paymentAccounts)
+      .where(
+        and(
+          eq(paymentAccounts.storeFk, storeId),
+          eq(paymentAccounts.isActive, true),
+        ),
+      )
+      .limit(1);
+    return !!row;
+  }
+
+  /** Whether this store has at least one trusted device with an active slot.
+   *  Trust lives on `devices.isTrusted`, not on the join table itself. */
+  async hasTrustedDevice(storeId: string): Promise<boolean> {
+    const [row] = await this.db
+      .select({ id: storeDeviceAccess.id })
+      .from(storeDeviceAccess)
+      .innerJoin(devices, eq(devices.id, storeDeviceAccess.deviceFk))
+      .where(
+        and(
+          eq(storeDeviceAccess.storeFk, storeId),
+          eq(storeDeviceAccess.status, 'active'),
+          eq(devices.isTrusted, true),
+        ),
+      )
+      .limit(1);
+    return !!row;
   }
 }

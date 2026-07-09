@@ -1,4 +1,4 @@
-import { Inject, Injectable } from '@nestjs/common';
+import { Inject, Injectable, Logger } from '@nestjs/common';
 import { DRIZZLE, type Database } from '#db/db.module.js';
 import { RbacService } from '#common/rbac/rbac.service.js';
 import { SyncCursorService, type EntityWatermark } from '../cursor/sync-cursor.service.js';
@@ -31,6 +31,8 @@ const EPOCH_WATERMARK: EntityWatermark = { ts: '1970-01-01T00:00:00.000000Z', id
  */
 @Injectable()
 export class SyncChangesService {
+  private readonly logger = new Logger(SyncChangesService.name);
+
   constructor(
     @Inject(DRIZZLE) private readonly db: Database,
     private readonly registry: SyncFilterRegistry,
@@ -55,6 +57,17 @@ export class SyncChangesService {
     const cursor = this.cursors.decode(cursorToken, userId, storeId, now);
     const permissions = await this.rbac.getCachedPermissions(userId, storeId, false);
     const ctx: SyncPullContext = { db: this.db, storeId, userId, permissions };
+
+    // A requested type this server has never heard of (typo, stale client
+    // constant, casing mismatch against a non-snake_case wire string like
+    // `taxrate`) would otherwise vanish with no trace — log it, but never
+    // fail the pull over it; every other requested entity must still work.
+    const unknown = this.registry.unknownTypes(supportedEntityTypes);
+    if (unknown.length) {
+      this.logger.warn(
+        `Unrecognized supported_entity_types requested by user=${userId} store=${storeId}: ${unknown.join(', ')}`,
+      );
+    }
 
     // Only entities this cursor tracks — a brand-new entity type cold-starts
     // through /sync/initial (which merges its anchor into the cursor), it is

@@ -1,23 +1,28 @@
 /** GET /me/subscription payload (subscription §19). snake_case wire contract. */
 export interface SubscriptionResponse {
+  id:                    string;
   subscription_version: number;
   status:               string;
-  access_valid_until:   string | null;   // ISO
   trial_ends_at:        string | null;   // ISO
   current_period_end:   string | null;   // ISO
+  // false → renews automatically at current_period_end. true → access ends
+  // at current_period_end and the account drops to no plan (subscription §13).
+  cancel_at_period_end: boolean;
   show_upgrade_banner:  boolean;
   banner_severity:      'none' | 'info' | 'warning' | 'critical';
   // 'pending' → a downgrade left something over limit; every write is blocked
   // account-wide until the owner resolves it (GET/POST /me/subscription/reconciliation).
   reconciliation_status: 'none' | 'pending' | 'applied';
   plan: {
-    code:         string;
-    name:         string;
-    // Billing cadence (e.g. 'starter_annual') — which priced plans catalog
-    // entry was purchased. Null pre-checkout (trialing, never billed).
-    billing_code: string | null;
-    entitlements: Record<string, number | null>;
-    features:     Record<string, boolean>;
+    code:          string;
+    name:          string;
+    billing_cycle: 'monthly' | 'annual' | null;
+    // What this account is actually being charged for the current billing cycle
+    // — resolved off the live price map (subscription.md notes there's no
+    // locked-in/grandfathered pricing yet, so this is today's list price for
+    // that plan, not a historical charge). Null pre-checkout.
+    price:         { amount: number; currency: string } | null;
+    entitlements:  Record<string, number | null>;
   };
 }
 
@@ -42,27 +47,16 @@ export interface ReconciliationApplyResponse {
 
 /** GET /me/subscription/reconciliation — the resolve screen's data (this
  *  session's downgrade-reconciliation design). Only present/meaningful while
- *  `reconciliation_status='pending'`; Head Office is never included in
- *  `locations` as a lockable candidate — it's immune, always kept. */
+ *  `reconciliation_status='pending'`. */
 export interface ReconciliationResponse {
   limits: {
     max_stores:    number | null;
-    max_locations: number | null;
     max_devices:   number | null;
-    max_users:     number | null;
   };
   stores: Array<{
     id:             string;
     name:           string;
-    location_count: number;
     device_count:   number;
-    user_count:     number;
-  }>;
-  locations: Array<{
-    id:         string;
-    store_id:   string;
-    name:       string;
-    is_primary: boolean;
   }>;
   devices: Array<{
     id:                string;
@@ -103,4 +97,7 @@ export interface PlanCatalogEntry {
   pricing:            PlanPricingOption[];
   entitlements:       Record<string, number | null>;
   features:           Record<string, boolean>;
+  // Display label per `features` key (same for every plan) — so clients don't
+  // hand-maintain their own copy of feature-flag names for a comparison table.
+  feature_labels:     Record<string, string>;
 }

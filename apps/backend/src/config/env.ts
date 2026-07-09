@@ -47,6 +47,21 @@ const envSchema = z.object({
   // File upload limits
   UPLOAD_MAX_FILE_SIZE_MB:          z.coerce.number().default(10),
   UPLOAD_MAX_FILES_PER_REQUEST:     z.coerce.number().default(5),
+  // Object storage (S3-compatible: AWS S3 / Cloudflare R2 / MinIO). When
+  // STORAGE_BUCKET is unset the app binds the on-disk LocalStorageProvider
+  // (dev only) — same "absent → fake provider" pattern as payments above.
+  STORAGE_BUCKET:                   z.string().optional(),
+  STORAGE_REGION:                   z.string().default('us-east-1'),
+  STORAGE_ENDPOINT:                 z.string().optional(), // set for R2/MinIO; omit for AWS S3
+  STORAGE_ACCESS_KEY_ID:            z.string().optional(),
+  STORAGE_SECRET_ACCESS_KEY:        z.string().optional(),
+  STORAGE_FORCE_PATH_STYLE:         z.coerce.boolean().default(false), // true for MinIO
+  STORAGE_LOCAL_DIR:                z.string().default('.storage'),    // LocalStorageProvider root
+  // Presigned GET URL lifetime and staging TTL (table-architecture §33).
+  STORAGE_SIGNED_URL_TTL_SECONDS:   z.coerce.number().default(2100),   // 35 min, matches ayphen-3.0
+  TEMP_FILE_TTL_HOURS:              z.coerce.number().default(24),     // sweeper reaps uncommitted temps past this
+  // Public base URL — LocalStorageProvider builds signed raw-serve links off it.
+  PUBLIC_BASE_URL:                  z.string().default('http://localhost:3004'),
   JSON_BODY_LIMIT:                  z.string().default('1mb'),
   // Global per-IP request throttle (backstop, not abuse control — see
   // IP_MAX_ATTEMPTS note on carrier-grade NAT).
@@ -61,6 +76,7 @@ const envSchema = z.object({
   CRON_SUBSCRIPTION_RECONCILIATION: z.string().default('*/5 * * * *'),
   CRON_LOW_STOCK_CHECK:             z.string().default('0 8 * * *'),
   CRON_PENDING_ORDER_CLEANUP:       z.string().default('*/30 * * * *'),
+  CRON_TEMP_FILE_SWEEP:             z.string().default('15 * * * *'), // reap expired uncommitted temps hourly
 });
 
 export type Env = z.infer<typeof envSchema>;
@@ -85,8 +101,17 @@ if (env.NODE_ENV === 'production') {
   if (!env.RAZORPAY_KEY_ID || !env.RAZORPAY_KEY_SECRET || !env.RAZORPAY_WEBHOOK_SECRET)
     missing.push('RAZORPAY_KEY_ID / RAZORPAY_KEY_SECRET / RAZORPAY_WEBHOOK_SECRET');
   if (!env.SYNC_ROOT_SECRET) missing.push('SYNC_ROOT_SECRET');
+  // Without this, RedisProvider silently falls back to redis://localhost:6379
+  // (won't exist in a container) — the app boots successfully and only fails
+  // at runtime as "Redis is down", not as a config error, on the box holding
+  // sessions/rate-limiting/blacklist/throttle/caches.
+  if (!env.REDIS_URL) missing.push('REDIS_URL');
   if (!env.MSG91_AUTH_KEY || !env.MSG91_TEMPLATE_ID)
     missing.push('MSG91_AUTH_KEY / MSG91_TEMPLATE_ID');
+  // Without a bucket, uploads fall back to on-disk LocalStorageProvider, which
+  // is per-container ephemeral storage that vanishes on redeploy — data loss,
+  // not a dev convenience, in production.
+  if (!env.STORAGE_BUCKET) missing.push('STORAGE_BUCKET (+ STORAGE_ACCESS_KEY_ID / STORAGE_SECRET_ACCESS_KEY)');
 
   if (missing.length) {
     console.error('[Config] Missing required production configuration:');

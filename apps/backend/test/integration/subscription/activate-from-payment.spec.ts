@@ -9,7 +9,6 @@ import { DowngradeDetectionService } from '../../../src/subscription/downgrade-d
 import { ReconciliationService } from '../../../src/subscription/reconciliation.service';
 import { EntitlementService } from '../../../src/subscription/entitlement.service';
 import { StoreRepository } from '../../../src/stores/store/store.repository';
-import { LocationRepository } from '../../../src/locations/location.repository';
 import { DeviceAccessRepository } from '../../../src/devices/device-access.repository';
 import { env } from '../../../src/config/env';
 import {
@@ -47,7 +46,6 @@ describe('SubscriptionService.activateFromPayment — idempotency', () => {
         ReconciliationService,
         EntitlementService,
         StoreRepository,
-        LocationRepository,
         DeviceAccessRepository,
         { provide: REDIS, useFactory: () => new Redis(env.REDIS_URL!) },
       ],

@@ -7,7 +7,6 @@ export * from './lib/store';
 export * from './lib/invitation';
 export * from './lib/lookup';
 export * from './lib/subscription';
-export * from './lib/locations';
 export * from './lib/roles';
 export * from './lib/entity-types';
 export * from './lib/devices';

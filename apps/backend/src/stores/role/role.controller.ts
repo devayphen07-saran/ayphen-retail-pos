@@ -41,6 +41,9 @@ import type { RoleResponse, RoleDetailResponse, CreatedRoleResponse } from './dt
 export class RoleController {
   constructor(private readonly roles: RoleService) {}
 
+  // Deliberately unpaginated: bounded by how many custom roles one store
+  // defines, not by store/account size — realistically low tens at most.
+  // Revisit if that assumption ever breaks.
   @Get()
   @RequirePermissions({ entity: 'Role', action: 'view' })
   async list(@Param('storeId', ParseUUIDPipe) storeId: string): Promise<RoleResponse[]> {
@@ -80,7 +83,13 @@ export class RoleController {
     @Body() body: unknown,
   ): Promise<void> {
     const dto = parse(body, UpdatePermissionsDtoSchema);
-    await this.roles.updatePermissions(storeId, user.userId, roleId, dto.permissions);
+    await this.roles.updatePermissions(
+      storeId,
+      user.userId,
+      roleId,
+      dto.permissions,
+      dto.expected_row_version,
+    );
   }
 
   @Delete(':roleId')

@@ -2,13 +2,9 @@ import { z } from 'zod';
 
 export const CreateInvitationDtoSchema = z
   .object({
-    role_id:      z.string().uuid(),
-    phone:        z.string().max(20).optional(),
-    email:        z.string().email().optional(),
-    // Which locations the invited role is scoped to (the "WHERE" gate the
-    // invitee gets on accept). At least one — an invite must grant access
-    // somewhere, and location scoping is not optional in this flow.
-    location_ids: z.array(z.string().uuid()).min(1).max(50),
+    role_id: z.string().uuid(),
+    phone:   z.string().max(20).optional(),
+    email:   z.string().email().optional(),
   })
   .refine((d) => d.phone || d.email, {
     message: 'phone or email is required',

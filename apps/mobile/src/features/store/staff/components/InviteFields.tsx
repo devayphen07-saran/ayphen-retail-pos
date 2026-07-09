@@ -1,9 +1,8 @@
 import { useFormContext, useWatch } from 'react-hook-form';
 import { useMobileTheme } from '@ayphen/mobile-theme';
 import { Column, ConfigSelectItem, Input, SelectGeneric, Typography } from '@ayphen/mobile-ui-components';
-import type { LocationResponse, RoleResponse } from '@ayphen/api-manager';
+import type { RoleResponse } from '@ayphen/api-manager';
 import type { InviteStaffForm } from '../types/schema';
-import { LocationsSelect } from './LocationsSelect';
 
 const SET_OPTS = {
   shouldDirty: true,
@@ -18,10 +17,6 @@ export interface InviteFieldsProps {
   rolesLoading: boolean;
   rolesError: boolean;
   onRetryRoles: () => void;
-  locations: LocationResponse[];
-  locationsLoading: boolean;
-  locationsError: boolean;
-  onRetryLocations: () => void;
   isSubmitting: boolean;
   submitOnLast: () => void;
 }
@@ -31,10 +26,6 @@ export function InviteFields({
   rolesLoading,
   rolesError,
   onRetryRoles,
-  locations,
-  locationsLoading,
-  locationsError,
-  onRetryLocations,
   isSubmitting,
   submitOnLast,
 }: InviteFieldsProps) {
@@ -45,11 +36,10 @@ export function InviteFields({
     formState: { errors },
   } = useFormContext<InviteStaffForm>();
   const roleId = useWatch({ control, name: 'roleId' });
-  const locationIds = useWatch({ control, name: 'locationIds' });
 
   return (
     <Column gap={theme.sizing.large}>
-      {/* Contact — never gated on roles/locations loading */}
+      {/* Contact — never gated on roles loading */}
       <Column gap={theme.sizing.small}>
         <Typography.Subtitle weight="bold">
           Who are you inviting?
@@ -100,23 +90,6 @@ export function InviteFields({
           />
         )}
       />
-
-      {/* Locations — multi-select dropdown */}
-      <Column gap={theme.sizing.small}>
-        <LocationsSelect
-          locations={locations}
-          loading={locationsLoading}
-          error={locationsError}
-          onRetry={onRetryLocations}
-          selectedIds={locationIds ?? []}
-          disabled={isSubmitting}
-          errorMessage={errors.locationIds?.message}
-          onChange={(ids) => setValue('locationIds', ids, SET_OPTS)}
-        />
-        <Typography.Caption type="secondary">
-          The invitee will only have access to the locations you select.
-        </Typography.Caption>
-      </Column>
     </Column>
   );
 }

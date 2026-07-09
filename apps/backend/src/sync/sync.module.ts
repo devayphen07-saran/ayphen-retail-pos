@@ -1,5 +1,6 @@
 import { Module } from '@nestjs/common';
 import { MobileAuthModule } from '#auth/mobile/mobile-auth.module.js';
+import { SubscriptionModule } from '../subscription/subscription.module.js';
 import { SubscriptionStatusGuard } from '#auth/mobile/guards/subscription-status.guard.js';
 import { SyncRateLimitGuard } from './guards/sync-rate-limit.guard.js';
 import { DeviceSlotGuard } from './guards/device-slot.guard.js';
@@ -34,7 +35,7 @@ import { PaymentAccountMutationHandler } from './push/handlers/payment-account.h
  * SharedRepositoriesModule (#common/shared-repositories.module.js).
  */
 @Module({
-  imports: [MobileAuthModule],
+  imports: [MobileAuthModule, SubscriptionModule],
   controllers: [SyncController, TimeController],
   providers: [
     SubscriptionStatusGuard,

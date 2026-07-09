@@ -13,8 +13,7 @@
 
 import type { PermissionSnapshot } from '@ayphen/api-manager';
 
-type StoreLocationsEntry = PermissionSnapshot['storeLocations'][number];
-type LocationEntry = StoreLocationsEntry['locations'][number];
+type StoreEntry = PermissionSnapshot['stores'][number];
 
 export function hasPermission(
   snapshot: PermissionSnapshot | null | undefined,
@@ -28,8 +27,8 @@ export function hasPermission(
 export function getStoreEntry(
   snapshot: PermissionSnapshot | null | undefined,
   storeId: string,
-): StoreLocationsEntry | undefined {
-  return snapshot?.storeLocations.find((s) => s.store_id === storeId);
+): StoreEntry | undefined {
+  return snapshot?.stores.find((s) => s.store_id === storeId);
 }
 
 export function canAccessStore(
@@ -37,18 +36,4 @@ export function canAccessStore(
   storeId: string,
 ): boolean {
   return !!getStoreEntry(snapshot, storeId);
-}
-
-export function getLocations(
-  snapshot: PermissionSnapshot | null | undefined,
-  storeId: string,
-): LocationEntry[] {
-  return getStoreEntry(snapshot, storeId)?.locations ?? [];
-}
-
-export function getDefaultLocationId(
-  snapshot: PermissionSnapshot | null | undefined,
-  storeId: string,
-): string | null {
-  return getStoreEntry(snapshot, storeId)?.default_location_id ?? null;
 }

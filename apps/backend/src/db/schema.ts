@@ -120,87 +120,6 @@ export const stores = pgTable(
   (t) => [index('idx_stores_account').on(t.accountFk)],
 );
 
-// ─── Locations (rbac.md §26.1) ────────────────────────────────────────────────
-// A physical place where POS runs, under a store. Head Office (is_primary=true)
-// is auto-provisioned at store creation and counts as slot 1 of
-// max_locations_per_store; it is immune to downgrade-locking. Never hard-deleted
-// — archive via isActive=false. One primary per store (partial unique index).
-
-export const locations = pgTable(
-  'locations',
-  {
-    id: uuid('id').primaryKey().defaultRandom(),
-    storeFk: uuid('store_fk')
-      .notNull()
-      .references(() => stores.id, { onDelete: 'cascade' }),
-    name: text('name').notNull(),
-    isPrimary: boolean('is_primary').notNull().default(false), // true = Head Office
-    isDefault: boolean('is_default').notNull().default(false), // device opens into this one
-    enable: boolean('enable').notNull().default(true), // operational on/off (guarded)
-    isActive: boolean('is_active').notNull().default(true), // soft-delete
-    displayOrder: integer('display_order').notNull().default(0),
-    locked: boolean('locked').notNull().default(false), // downgrade-locked
-    lockedReason: text('locked_reason', { enum: ['downgrade'] }),
-    archivedAt: timestamp('archived_at', { withTimezone: true }),
-    createdAt: timestamp('created_at', { withTimezone: true })
-      .notNull()
-      .defaultNow(),
-    updatedAt: timestamp('updated_at', { withTimezone: true })
-      .notNull()
-      .defaultNow(),
-    ...syncColumns(), // pull-only for now (sync-engine.md §4) — no mutation handler yet
-  },
-  (t) => [
-    // Exactly one Head Office per store, and exactly one default per store
-    // (device-management §5B / adoption §8.2). Both enforced at the DB level.
-    uniqueIndex('uk_location_primary')
-      .on(t.storeFk)
-      .where(sql`${t.isPrimary} = true`),
-    uniqueIndex('uk_location_default')
-      .on(t.storeFk)
-      .where(sql`${t.isDefault} = true`),
-    index('idx_location_store_active')
-      .on(t.storeFk)
-      .where(sql`${t.isActive} = true`),
-    // Backstops the app-level nameTaken() check against a create/rename race
-    // (two concurrent requests can both pass the pre-check before either
-    // inserts) — the DB is the actual source of truth for uniqueness.
-    uniqueIndex('uk_location_name')
-      .on(t.storeFk, sql`lower(${t.name})`)
-      .where(sql`${t.isActive} = true`),
-    index('idx_locations_sync').on(t.storeFk, t.modifiedAt, t.id),
-  ],
-);
-
-// ─── User ↔ Location assignment (adoption §8.1, rbac.md §26.3) ─────────────────
-// Which locations within a store a user may work at. Store-scoped roles say WHAT
-// a user can do; this says WHERE. STORE_OWNER bypasses (implicitly all locations),
-// so owners need no rows here. No store_fk column — store derives via
-// location.store_fk (avoids denormalization drift).
-
-export const userLocationMappings = pgTable(
-  'user_location_mappings',
-  {
-    id: uuid('id').primaryKey().defaultRandom(),
-    userFk: uuid('user_fk')
-      .notNull()
-      .references(() => users.id, { onDelete: 'cascade' }),
-    locationFk: uuid('location_fk')
-      .notNull()
-      .references(() => locations.id, { onDelete: 'cascade' }),
-    assignedBy: uuid('assigned_by').references(() => users.id),
-    assignedAt: timestamp('assigned_at', { withTimezone: true })
-      .notNull()
-      .defaultNow(),
-    revokedAt: timestamp('revoked_at', { withTimezone: true }), // null = active
-  },
-  (t) => [
-    uniqueIndex('uk_ulm_user_location').on(t.userFk, t.locationFk),
-    index('idx_ulm_user_active').on(t.userFk, t.revokedAt),
-    index('idx_ulm_location').on(t.locationFk),
-  ],
-);
-
 // ─── Users ───────────────────────────────────────────────────────────────────
 // A user must be reachable by at least one channel — enforced by the
 // users_email_or_phone CHECK below (email/phone each nullable, but not both).
@@ -309,6 +228,11 @@ export const roles = pgTable(
     name: text('name').notNull(), // human label ("Head Cashier")
     description: text('description'),
     isEditable: boolean('is_editable').notNull().default(true), // false for system roles
+    // Optimistic-lock guard on permission edits — RoleService.updatePermissions
+    // checks-and-bumps this atomically in the UPDATE's WHERE clause, so two
+    // admins editing the same role's full permission matrix concurrently get
+    // a conflict signal instead of a silent last-write-wins clobber.
+    rowVersion: integer('row_version').notNull().default(1),
     ...auditColumns,
   },
   (t) => [
@@ -320,7 +244,7 @@ export const roles = pgTable(
     ),
     // A custom (editable) role can never carry a reserved system code — the
     // app-level check in RoleService.createRole is a fast pre-check; this is
-    // the actual backstop, since consumers like LocationGuard's owner bypass
+    // the actual backstop, since consumers like the store-owner bypass checks
     // trust roles.code === 'STORE_OWNER' unconditionally with no isEditable
     // check of their own.
     check(
@@ -364,11 +288,15 @@ export const rolePermissions = pgTable(
     revokedAt: timestamp('revoked_at', { withTimezone: true }), // NULL = active grant
   },
   (t) => [
-    uniqueIndex('role_permissions_role_entity_action_uq').on(
-      t.roleFk,
-      t.entityCode,
-      t.action,
-    ),
+    // Partial — scoped to ACTIVE grants only. Non-partial would collide with
+    // a grant's own revoked history row on re-grant (backend-standard review
+    // finding): every custom role is seeded with active grants, and the very
+    // first PATCH that retains one of them would try to insert a tuple that
+    // already exists as a soft-deleted row. History rows must be free to
+    // coexist with a fresh active grant of the same (role, entity, action).
+    uniqueIndex('role_permissions_role_entity_action_uq')
+      .on(t.roleFk, t.entityCode, t.action)
+      .where(sql`${t.revokedAt} IS NULL`),
     index('idx_role_permissions_role').on(t.roleFk),
   ],
 );
@@ -390,11 +318,13 @@ export const roleSpecialPermissions = pgTable(
     revokedAt: timestamp('revoked_at', { withTimezone: true }),
   },
   (t) => [
-    uniqueIndex('role_special_permissions_uq').on(
-      t.roleFk,
-      t.entityCode,
-      t.actionCode,
-    ),
+    // Partial — same reasoning as role_permissions_role_entity_action_uq
+    // above: this table is soft-deleted via revokedAt too, so a non-partial
+    // index would identically block re-granting a previously-revoked special
+    // permission.
+    uniqueIndex('role_special_permissions_uq')
+      .on(t.roleFk, t.entityCode, t.actionCode)
+      .where(sql`${t.revokedAt} IS NULL`),
     index('idx_role_special_permissions_role').on(t.roleFk),
   ],
 );
@@ -464,7 +394,7 @@ export const invitations = pgTable(
     index('idx_invitations_role').on(t.roleFk),
     // Backstops InvitationService.create's "one pending invite per contact +
     // role" pre-check (TOCTOU-able by itself, same shape as roles_store_name_uq
-    // / uk_location_name elsewhere in this schema). Two separate indexes, not
+    // elsewhere in this schema). Two separate indexes, not
     // one compound (store_fk, role_fk, phone, email) index, because the app
     // check is an OR across phone/email, not an AND — and Postgres unique
     // indexes never treat two NULLs as equal, so a phone-only invite's NULL
@@ -538,7 +468,7 @@ export const accountSubscriptions = pgTable(
     razorpaySubId: text('razorpay_sub_id'),
     // Downgrade-reconciliation gate (subscription §15D/§27, device-management
     // §19/§27 D11-adjacent). 'pending' = a plan change left some resource
-    // (stores/locations/devices) over its new limit; ALL writes are blocked
+    // (stores/devices) over its new limit; ALL writes are blocked
     // account-wide until the owner resolves which to keep (never auto-picked).
     // 'applied' = resolved; excess locked/revoked. reconciliationEffectiveAt is
     // the point-in-time boundary sync uses to accept offline writes made before
@@ -762,9 +692,6 @@ export const storeDeviceAccess = pgTable(
     userFk: uuid('user_fk')
       .notNull()
       .references(() => users.id, { onDelete: 'cascade' }),
-    // Location the slot is bound to (nullable until the location layer is fully
-    // wired; device-mgmt §26.7 makes this the active-location link).
-    locationFk: uuid('location_fk').references(() => locations.id),
     status: text('status', { enum: ['active', 'revoked', 'expired'] })
       .notNull()
       .default('active'),
@@ -916,6 +843,22 @@ export const loginAttempts = pgTable(
   ],
 );
 
+// ─── Rate-limit fallback counters (Redis-outage degraded path only) ──────────
+
+export const rateLimitFallbackCounters = pgTable(
+  'rate_limit_fallback_counters',
+  {
+    // Same key format as the Redis path (e.g. 'rl:ip:1.2.3.4', 'rl:otp:+91...')
+    // — one row per (key, fixed window bucket).
+    key: text('key').notNull(),
+    windowStart: timestamp('window_start', { withTimezone: true }).notNull(),
+    count: integer('count').notNull().default(0),
+  },
+  (t) => [
+    primaryKey({ columns: [t.key, t.windowStart] }),
+  ],
+);
+
 // ─── Auth Audit Logs (append-only — INSERT only, no UPDATE/DELETE) ───────────
 // prefix + suffix + activityType allow UI to render human-readable sentences
 // without knowing the event schema
@@ -945,30 +888,6 @@ export const auditLogs = pgTable(
     // Covers per-user and per-store audit history lookups, newest first.
     index('idx_audit_logs_user_created').on(t.userId, t.createdAt),
     index('idx_audit_logs_store_created').on(t.storeFk, t.createdAt),
-  ],
-);
-
-// ─── Invitation Locations (table-architecture.md §13) ─────────────────────────
-// Which branches an invitation grants access to. locationFk NULL = all locations.
-// On accept, one user_location_mappings row is created per branch.
-
-export const invitationLocations = pgTable(
-  'invitation_locations',
-  {
-    id: uuid('id').primaryKey().defaultRandom(),
-    invitationFk: uuid('invitation_fk')
-      .notNull()
-      .references(() => invitations.id, { onDelete: 'cascade' }),
-    locationFk: uuid('location_fk').references(() => locations.id, {
-      onDelete: 'cascade',
-    }), // null = all locations
-    createdAt: timestamp('created_at', { withTimezone: true })
-      .notNull()
-      .defaultNow(),
-  },
-  (t) => [
-    uniqueIndex('uk_invitation_locations').on(t.invitationFk, t.locationFk),
-    index('idx_invitation_locations_invitation').on(t.invitationFk),
   ],
 );
 
@@ -1085,22 +1004,31 @@ export const lookup = pgTable(
 // per-entity limits enforced at upload time. Committed rows are polymorphic
 // via entityTypeFk + recordGuuid (sync-safe) — recordId has no DB FK.
 
-export const temporaryFiles = pgTable('temporary_files', {
-  id: uuid('id').primaryKey().defaultRandom(),
-  guuid: uuid('guuid').notNull().defaultRandom().unique(),
-  fileName: varchar('file_name', { length: 255 }).notNull(), // original filename
-  storageKey: varchar('storage_key', { length: 1000 }).notNull(), // object-store key/path
-  storageUrl: text('storage_url'),
-  sizeBytes: bigint('size_bytes', { mode: 'number' }).notNull(),
-  mimeType: varchar('mime_type', { length: 100 }).notNull(),
-  sha256: varchar('sha256', { length: 64 }), // integrity / dedup
-  uploadedBy: uuid('uploaded_by').references(() => users.id),
-  expiresAt: timestamp('expires_at', { withTimezone: true }).notNull(), // staging TTL — sweeper deletes uncommitted temps
-  createdAt: timestamp('created_at', { withTimezone: true })
-    .notNull()
-    .defaultNow(),
-  // Ephemeral — no soft-delete; unclaimed rows are purged after expiresAt.
-});
+export const temporaryFiles = pgTable(
+  'temporary_files',
+  {
+    id: uuid('id').primaryKey().defaultRandom(),
+    guuid: uuid('guuid').notNull().defaultRandom().unique(),
+    fileName: varchar('file_name', { length: 255 }).notNull(), // original filename
+    storageKey: varchar('storage_key', { length: 1000 }).notNull(), // object-store key/path
+    storageUrl: text('storage_url'),
+    sizeBytes: bigint('size_bytes', { mode: 'number' }).notNull(),
+    mimeType: varchar('mime_type', { length: 100 }).notNull(),
+    sha256: varchar('sha256', { length: 64 }), // integrity / dedup
+    uploadedBy: uuid('uploaded_by').references(() => users.id),
+    expiresAt: timestamp('expires_at', { withTimezone: true }).notNull(), // staging TTL — sweeper deletes uncommitted temps
+    createdAt: timestamp('created_at', { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+    // Atomic claim gate for FilesService.commit(): the commit path claims a
+    // temp row with `UPDATE ... WHERE guuid = ? AND claimed_at IS NULL`
+    // before the slow copy+transaction, so two concurrent commits of the
+    // same upload can't both succeed (backend-standard review finding).
+    claimedAt: timestamp('claimed_at', { withTimezone: true }),
+    // Ephemeral — no soft-delete; unclaimed rows are purged after expiresAt.
+  },
+  (t) => [index('idx_temporary_files_expires_at').on(t.expiresAt)],
+);
 
 export const files = pgTable(
   'files',

@@ -36,6 +36,13 @@
       "when": 1783431817083,
       "tag": "0004_brief_harrier",
       "breakpoints": true
+    },
+    {
+      "idx": 5,
+      "version": "6",
+      "when": 1783502510761,
+      "tag": "0005_zippy_frightful_four",
+      "breakpoints": true
     }
   ]
 }

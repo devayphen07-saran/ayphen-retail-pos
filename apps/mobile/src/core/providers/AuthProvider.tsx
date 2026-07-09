@@ -129,15 +129,12 @@ async function runBootstrapAttempts(isCancelled?: () => boolean): Promise<void> 
 
       const bootstrap = bootstrapRes.data.data;
       useAuthStore.getState().setSession({
-        user: bootstrap.user,
-        deviceId: bootstrap.device_id,
         deviceSessionId: bootstrap.device_session_id,
-        isTrusted: bootstrap.is_trusted,
         snapshot: bootstrap.snapshot,
         snapshotSignature: bootstrap.snapshot_signature,
         lastAccountMode: bootstrap.last_account_mode,
-        hasPendingInvitations: bootstrap.has_pending_invitations,
         pendingInvitationCount: bootstrap.pending_invitation_count,
+        profileComplete: bootstrap.profile_complete,
       });
       useAuthStore.getState().setBootstrapped();
 
@@ -288,20 +285,33 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const login = useCallback(async (res: LoginResponse) => {
     await saveTokens(res.access_token, res.refresh_token);
 
-    useAuthStore.getState().setSession({
-      user: res.user,
-      deviceId: res.device_id,
-      deviceSessionId: res.device_session_id,
-      isTrusted: res.is_trusted,
-    });
-
-    // LoginResponse carries tokens + basic identity only — no snapshot,
-    // account mode, or invitations (those were added to bootstrap, not
-    // login). The post-login routing gate reads those off `isBootstrapped`
-    // and `isLastOpenedResolved`, so without this a fresh login leaves them
-    // permanently false and the gate spins forever (only a cold-launch
-    // relaunch runs these otherwise).
-    await Promise.all([fetchBootstrap(), hydrateLastOpenedStoreId()]);
+    // LoginResponse now carries the same routing fields (snapshot, account
+    // mode, invitation count) bootstrap does — a best-effort embed on the
+    // backend, so it can come back null on a snapshot-build hiccup. Apply
+    // all four together (never partially — a null snapshot means the whole
+    // embed failed, so lastAccountMode/pendingInvitationCount would be
+    // placeholder values too) and skip the extra round trip when present.
+    // `profile_complete` is NOT part of that fallible group — it's derived
+    // straight off the user row on the backend, always present regardless of
+    // snapshot outcome — so it's applied on both branches (here, and via
+    // bootstrap's own profile_complete in the fallback below).
+    if (res.snapshot && res.snapshot_signature) {
+      useAuthStore.getState().setSession({
+        deviceSessionId: res.device_session_id,
+        snapshot: res.snapshot,
+        snapshotSignature: res.snapshot_signature,
+        lastAccountMode: res.last_account_mode,
+        pendingInvitationCount: res.pending_invitation_count,
+        profileComplete: res.profile_complete,
+      });
+      useAuthStore.getState().setBootstrapped();
+      await hydrateLastOpenedStoreId();
+    } else {
+      useAuthStore.getState().setSession({ deviceSessionId: res.device_session_id });
+      // Embed failed (rare) — fall back to the full bootstrap round trip
+      // exactly as before this optimization existed.
+      await Promise.all([fetchBootstrap(), hydrateLastOpenedStoreId()]);
+    }
   }, []);
 
   const logout = useCallback(async () => {

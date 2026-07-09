@@ -14,19 +14,14 @@ import { RazorpayWebhookController } from './razorpay-webhook.controller.js';
 import { PAYMENT_PROVIDER } from './payment/payment-provider.js';
 import { FakePaymentProvider } from './payment/fake-payment.provider.js';
 import { RazorpayPaymentProvider } from './payment/razorpay-payment.provider.js';
-import { ProductCountRepository } from './product-count.repository.js';
 
 /**
  * Subscription lifecycle + billing (Phase B). The payment provider is chosen at
  * wiring time: Razorpay when its keys are configured, else the deterministic
  * Fake provider so the full flow is exercisable without a live gateway.
  * MobileJwtGuard + StepUpAuthGuard come from MobileAuthModule / global RbacModule.
- * StoreRepository/LocationRepository/DeviceAccessRepository/InvitationRepository
- * come from the global SharedRepositoriesModule
- * (#common/shared-repositories.module.js) — those four modules' consumer
- * graph is circular (DevicesModule and LocationsModule both import this
- * module), so none of them can `imports: [XModule]` its way to another's
- * export; the shared global module is what breaks the cycle.
+ * StoreRepository/DeviceAccessRepository/InvitationRepository come from the
+ * global SharedRepositoriesModule (#common/shared-repositories.module.js).
  */
 @Module({
   imports: [AuthCoreModule, MobileAuthModule],
@@ -39,7 +34,6 @@ import { ProductCountRepository } from './product-count.repository.js';
     SubscriptionLifecycleCronService,
     DowngradeDetectionService,
     ReconciliationService,
-    ProductCountRepository,
     FakePaymentProvider,
     RazorpayPaymentProvider,
     {

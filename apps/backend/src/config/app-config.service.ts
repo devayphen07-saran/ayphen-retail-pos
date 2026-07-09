@@ -35,7 +35,25 @@ export class AppConfigService {
     return Boolean(this.c.RAZORPAY_KEY_ID && this.c.RAZORPAY_KEY_SECRET && this.c.RAZORPAY_WEBHOOK_SECRET);
   }
   get cronTokenCleanup():                string    { return this.c.CRON_TOKEN_CLEANUP; }
+  get cronDeviceAutoExpiry():             string    { return this.c.CRON_DEVICE_AUTO_EXPIRY; }
   get cronLoginAttemptsCleanup():         string    { return this.c.CRON_LOGIN_ATTEMPTS_CLEANUP; }
   get loginAttemptsRetentionDays():       number    { return this.c.LOGIN_ATTEMPTS_RETENTION_DAYS; }
   get cronSubscriptionReconciliation():   string    { return this.c.CRON_SUBSCRIPTION_RECONCILIATION; }
+  get cronTempFileSweep():                string    { return this.c.CRON_TEMP_FILE_SWEEP; }
+
+  // ── Files & object storage (table-architecture §33) ─────────────────────
+  get uploadMaxFileSizeBytes():           number    { return this.c.UPLOAD_MAX_FILE_SIZE_MB * 1024 * 1024; }
+  get uploadMaxFilesPerRequest():         number    { return this.c.UPLOAD_MAX_FILES_PER_REQUEST; }
+  get storageBucket():                    string    { return this.c.STORAGE_BUCKET ?? ''; }
+  get storageRegion():                    string    { return this.c.STORAGE_REGION; }
+  get storageEndpoint():                  string    { return this.c.STORAGE_ENDPOINT ?? ''; }
+  get storageAccessKeyId():               string    { return this.c.STORAGE_ACCESS_KEY_ID ?? ''; }
+  get storageSecretAccessKey():           string    { return this.c.STORAGE_SECRET_ACCESS_KEY ?? ''; }
+  get storageForcePathStyle():            boolean   { return this.c.STORAGE_FORCE_PATH_STYLE; }
+  get storageLocalDir():                  string    { return this.c.STORAGE_LOCAL_DIR; }
+  get storageSignedUrlTtlSeconds():       number    { return this.c.STORAGE_SIGNED_URL_TTL_SECONDS; }
+  get tempFileTtlHours():                 number    { return this.c.TEMP_FILE_TTL_HOURS; }
+  get publicBaseUrl():                    string    { return this.c.PUBLIC_BASE_URL; }
+  /** True when a real object store is configured; otherwise the on-disk dev provider is bound. */
+  get storageConfigured():                boolean   { return Boolean(this.c.STORAGE_BUCKET); }
 }

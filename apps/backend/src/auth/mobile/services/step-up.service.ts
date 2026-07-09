@@ -76,7 +76,7 @@ export class StepUpService {
 
     // 1. Rate limit check (Redis + DB)
     if (session.stepUpLockedUntil && session.stepUpLockedUntil > new Date()) {
-      throw new AppException(ErrorCodes.RATE_LIMIT_EXCEEDED, 'STEP_UP_LOCKED', 429);
+      throw new AppException(ErrorCodes.STEP_UP_LOCKED, 'Too many step-up attempts, try again later', 429);
     }
 
     const attemptsKey = stepUpKey(deviceSessionId);
@@ -115,7 +115,7 @@ export class StepUpService {
       case 'otp_sms': {
         if (!dto.otpRequestId) throw new AppException(ErrorCodes.VALIDATION_FAILED, 'otp_request_id required', 422);
         const req = await this.otpRepo.findActiveRequest(dto.otpRequestId, phone, 'step_up');
-        if (!req) throw new AppException(ErrorCodes.TOKEN_EXPIRED, 'OTP_EXPIRED', 422);
+        if (!req) throw new AppException(ErrorCodes.OTP_EXPIRED, 'OTP has expired', 422);
         // Per-phone throttle at verify time — mirrors login/signup.
         await this.rateLimit.checkPhoneOtpLimit(phone);
         await this.otpService.verifyOtp(phone, dto.credential, req);

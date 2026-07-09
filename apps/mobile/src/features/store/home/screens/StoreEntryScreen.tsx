@@ -29,8 +29,8 @@ export function StoreEntryScreen({ storeId }: Props) {
     attemptedRef.current = true;
 
     // Same lookup store-picker.tsx does off the snapshot.
-    const storeLocations = useAuthStore.getState().snapshot?.storeLocations ?? [];
-    const store = storeLocations.find((s) => s.store_id === storeId);
+    const stores = useAuthStore.getState().snapshot?.stores ?? [];
+    const store = stores.find((s) => s.store_id === storeId);
 
     if (!store) {
       setNotFound(true);

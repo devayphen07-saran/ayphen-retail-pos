@@ -93,6 +93,15 @@ export function createSyncedTableRepository<
       await db.delete(cfg.table).where(inArray(cfg.guuidColumn, guuids));
     },
 
+    /** Wipe every locally-cached row for this store — used when a permission
+     *  rebase (permission-rebase.ts) detects a REVOKED `view` grant, since a
+     *  revoke has no server-side tombstone concept (delta just stops
+     *  delivering the entity); leaving stale rows in place would make them
+     *  readable offline indefinitely with no server round-trip to catch it. */
+    async deleteAllForStore(db: SyncDb, storeId: string): Promise<void> {
+      await db.delete(cfg.table).where(eq(cfg.storeIdColumn, storeId));
+    },
+
     async listByStore(db: SyncDb, storeId: string): Promise<TRow[]> {
       return db
         .select()

@@ -20,8 +20,7 @@ import {
  * (RBAC audit finding #4): `globalPermissions` used to flatten a user's CRUD
  * grants across every store they belong to, so a permission held in Store A
  * (e.g. Owner) leaked into the mobile UI's gating while Store B (e.g.
- * cashier) was active. `buildStoreAccessBlock` now scopes grants per store,
- * the same way it already scoped locations.
+ * cashier) was active. `buildStoreAccessBlock` now scopes grants per store.
  */
 describe('SnapshotService — per-store permission scoping', () => {
   let db: Database;
@@ -121,8 +120,8 @@ describe('SnapshotService — per-store permission scoping', () => {
   it("does not leak Store A's grants into Store B's entry", async () => {
     const { snapshot } = await service.getOrBuild(userId);
 
-    const storeAEntry = snapshot.storeLocations.find((s) => s.store_id === storeAId);
-    const storeBEntry = snapshot.storeLocations.find((s) => s.store_id === storeBId);
+    const storeAEntry = snapshot.stores.find((s) => s.store_id === storeAId);
+    const storeBEntry = snapshot.stores.find((s) => s.store_id === storeBId);
 
     expect(storeAEntry?.permissions).toEqual(
       expect.arrayContaining(['Role:create', 'Product:delete']),

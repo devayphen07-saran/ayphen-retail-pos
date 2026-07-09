@@ -40,6 +40,12 @@ export const migrations: MobileMigrationConfig = {
         "when": 1783431817083,
         "tag": "0004_brief_harrier",
         "breakpoints": true
+      },
+      {
+        "idx": 5,
+        "when": 1783502510761,
+        "tag": "0005_zippy_frightful_four",
+        "breakpoints": true
       }
     ]
   },
@@ -48,6 +54,7 @@ export const migrations: MobileMigrationConfig = {
     "m0001": "PRAGMA foreign_keys=OFF;--> statement-breakpoint\nCREATE TABLE `__new_lookups` (\n\t`id` text NOT NULL,\n\t`store_id` text NOT NULL,\n\t`guuid` text NOT NULL,\n\t`lookup_type_fk` text NOT NULL,\n\t`code` text NOT NULL,\n\t`label` text NOT NULL,\n\t`description` text,\n\t`sort_order` integer,\n\t`is_hidden` integer,\n\t`is_system` integer,\n\t`is_active` integer,\n\t`row_version` integer NOT NULL,\n\t`modified_at` text NOT NULL,\n\tPRIMARY KEY(`store_id`, `id`)\n);\n--> statement-breakpoint\nINSERT INTO `__new_lookups`(\"id\", \"store_id\", \"guuid\", \"lookup_type_fk\", \"code\", \"label\", \"description\", \"sort_order\", \"is_hidden\", \"is_system\", \"is_active\", \"row_version\", \"modified_at\") SELECT \"id\", \"store_id\", \"guuid\", \"lookup_type_fk\", \"code\", \"label\", \"description\", \"sort_order\", \"is_hidden\", \"is_system\", \"is_active\", \"row_version\", \"modified_at\" FROM `lookups`;--> statement-breakpoint\nDROP TABLE `lookups`;--> statement-breakpoint\nALTER TABLE `__new_lookups` RENAME TO `lookups`;--> statement-breakpoint\nPRAGMA foreign_keys=ON;",
     "m0002": "DELETE FROM `failed_applies` WHERE `id` NOT IN (SELECT MAX(`id`) FROM `failed_applies` GROUP BY `store_id`, `entity_type`, `entity_guuid`);--> statement-breakpoint\nCREATE UNIQUE INDEX `failed_applies_store_entity_unq` ON `failed_applies` (`store_id`,`entity_type`,`entity_guuid`);",
     "m0003": "CREATE TABLE `sync_store_meta` (\n\t`store_id` text PRIMARY KEY NOT NULL,\n\t`permissions_version` integer,\n\t`updated_at` text NOT NULL\n);\n",
-    "m0004": "ALTER TABLE `failed_applies` ADD `operation` text DEFAULT 'upsert' NOT NULL;"
+    "m0004": "ALTER TABLE `failed_applies` ADD `operation` text DEFAULT 'upsert' NOT NULL;",
+    "m0005": "ALTER TABLE `sync_store_meta` ADD `permissions` text;"
   }
 };

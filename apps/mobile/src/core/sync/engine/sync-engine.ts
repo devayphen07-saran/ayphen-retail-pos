@@ -38,28 +38,35 @@ export class SyncEngine {
     // next drain resubmits them instead of losing the writes.
     await mutationQueueRepository.resetOrphanedInflight(db, this.storeId);
 
-    // Permission-grant backfill (S-5): if this user's permissions_version grew
-    // since we last synced this store, an entity that was withheld at cold
-    // start would never delta-backfill — so drop the cursor + progress here and
-    // let the cold start below re-dump everything under the new permission set.
-    // Read the version as getState() (not a hook) — this is non-React mechanism
-    // code, same access pattern as the network interceptors.
-    const currentPermissionsVersion = useAuthStore.getState().snapshot?.permissionsVersion ?? null;
-    await rebaseOnPermissionGrant(db, this.storeId, currentPermissionsVersion);
+    // Permission-grant backfill (S-5) + revoke purge: if this user's
+    // permissions_version grew since we last synced this store, an entity that
+    // was withheld at cold start would never delta-backfill — so drop the
+    // cursor + progress here and let the cold start below re-dump everything
+    // under the new permission set; a REVOKED `view` grant additionally purges
+    // that entity's cached rows (see permission-rebase.ts). Read the snapshot
+    // as getState() (not a hook) — this is non-React mechanism code, same
+    // access pattern as the network interceptors.
+    const snapshot = useAuthStore.getState().snapshot;
+    const currentPermissionsVersion = snapshot?.permissionsVersion ?? null;
+    const currentPermissions =
+      snapshot?.stores.find((s) => s.store_id === this.storeId)?.permissions ?? null;
+    await rebaseOnPermissionGrant(db, this.storeId, currentPermissionsVersion, currentPermissions);
 
     const cursor = await syncCursorRepository.get(db, this.storeId);
     if (!cursor) {
       await runColdStart(db, this.storeId);
     }
 
-    // Stamp the version we've now synced this store under, so the next open can
-    // detect a future grant. Runs after cold start so a fresh store is recorded
-    // too. Skipped when the snapshot isn't loaded yet (nothing to compare later).
+    // Stamp the version + permission set we've now synced this store under, so
+    // the next open can detect a future grant/revoke. Runs after cold start so
+    // a fresh store is recorded too. Skipped when the snapshot isn't loaded
+    // yet (nothing to compare later).
     if (currentPermissionsVersion != null) {
       await syncStoreMetaRepository.setPermissionsVersion(
         db,
         this.storeId,
         currentPermissionsVersion,
+        currentPermissions ?? [],
         new Date().toISOString(),
       );
     }

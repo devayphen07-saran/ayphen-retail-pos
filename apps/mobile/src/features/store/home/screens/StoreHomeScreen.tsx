@@ -1,9 +1,10 @@
-import { useMemo } from 'react';
+import { useMemo, useState } from 'react';
 import { Pressable, ScrollView, TouchableOpacity, View } from 'react-native';
 import { router } from 'expo-router';
 import styled from 'styled-components/native';
 import { useMobileTheme, type MobileTheme } from '@ayphen/mobile-theme';
 import { AppLayout, Column, LucideIcon, Row, Typography } from '@ayphen/mobile-ui-components';
+import { useStoreSetupStatusQuery, type StoreSetupStatusResponse } from '@ayphen/api-manager';
 import { useActiveStoreStore, useActiveStoreContext } from '@store';
 
 /**
@@ -14,8 +15,8 @@ import { useActiveStoreStore, useActiveStoreContext } from '@store';
  * situation MoreScreen.tsx already documents), so:
  *  - sales/product-count/recent-products are honest zero-states, not faked
  *    numbers, since POS/Products are still "Coming soon" stubs
- *  - the reference's third metric (offline sync status) is replaced with
- *    real data (location count) since no sync engine exists to report on
+ *  - the reference's third metric (offline sync status) is dropped rather
+ *    than faked, since no sync engine exists to report on
  *  - "Pending payments" is dropped rather than built for permanently-empty
  *    data — the reference itself only renders that section when non-empty
  *  - no PermissionGate / TrialBanner / StorePickerModal — none of that
@@ -25,10 +26,13 @@ import { useActiveStoreStore, useActiveStoreContext } from '@store';
 export function StoreHomeScreen() {
   const { theme } = useMobileTheme();
   const store = useActiveStoreContext();
+  const storeId = useActiveStoreStore((s) => s.storeId);
   const clearActiveStore = useActiveStoreStore((s) => s.clearActiveStore);
+  const { data: setupStatus } = useStoreSetupStatusQuery(storeId ?? '', {
+    enabled: !!storeId,
+  });
 
   const storeName = store?.name || 'Unknown store';
-  const locationCount = store?.locations?.length ?? 0;
 
   const greeting = useMemo(() => {
     const hour = new Date().getHours();
@@ -40,7 +44,7 @@ export function StoreHomeScreen() {
   const openPos = () => router.push('/(store)/(tabs)/pos');
   const openProducts = () => router.push('/(store)/(tabs)/products');
   const openCustomers = () => router.push('/(store)/(tabs)/customer');
-  const openMore = () => router.push('/(store)/(tabs)/more');
+  const openProfile = () => router.push('/(store)/profile');
 
   const openNotifications = () =>
     router.push({
@@ -94,7 +98,7 @@ export function StoreHomeScreen() {
           <LucideIcon name="Bell" size={20} color={theme.colorText} />
         </HeaderIconBtn>
         <HeaderIconBtn
-          onPress={openMore}
+          onPress={openProfile}
           activeOpacity={0.6}
           accessibilityRole="button"
           accessibilityLabel="Profile"
@@ -145,22 +149,13 @@ export function StoreHomeScreen() {
                 Add first →
               </Typography.Caption>
             </HeroMetric>
-
-            <HeroDivider />
-
-            <HeroMetric accessibilityRole="text">
-              <Typography.Caption weight={500} color={theme.colorTextSecondary}>
-                Locations
-              </Typography.Caption>
-              <Typography.H4 color={theme.colorText} style={{ letterSpacing: -0.3 }}>
-                {locationCount}
-              </Typography.H4>
-              <Typography.Caption color={theme.colorTextTertiary}>
-                {locationCount === 1 ? 'location' : 'locations'}
-              </Typography.Caption>
-            </HeroMetric>
           </Row>
         </HeroCard>
+
+        {/* ── Setup checklist — only rendered while genuinely incomplete ── */}
+        {setupStatus && setupStatus.completion_percentage < 100 && (
+          <SetupProgressCard status={setupStatus} theme={theme} />
+        )}
 
         {/* ── Quick actions ──────────────────────────────────────────── */}
         <Section>
@@ -241,6 +236,126 @@ function resolveInfoColor(theme: MobileTheme): string {
   return theme.color?.blue?.main ?? theme.colorPrimary;
 }
 
+// ── Setup checklist card ─────────────────────────────────────────────────────
+
+interface SetupChecklistItem {
+  key: keyof StoreSetupStatusResponse['status_map'];
+  label: string;
+  onPress: () => void;
+}
+
+const SETUP_CHECKLIST: SetupChecklistItem[] = [
+  {
+    key:     'store_profile_complete',
+    label:   'Complete store profile',
+    onPress: () =>
+      router.push({ pathname: '/(store)/more-section', params: { sectionKey: 'store' } }),
+  },
+  {
+    key:     'staff_invited',
+    label:   'Invite your team',
+    onPress: () => router.push('/(store)/invite-staff'),
+  },
+  {
+    key:     'product_added',
+    label:   'Add your first product',
+    onPress: () => router.push('/(store)/(tabs)/products'),
+  },
+  {
+    key:     'payment_configured',
+    label:   'Set up a payment account',
+    onPress: () =>
+      router.push({ pathname: '/(store)/more-section', params: { sectionKey: 'store' } }),
+  },
+  {
+    key:     'device_linked',
+    label:   'Trust a device',
+    onPress: () => router.push('/(store)/my-devices'),
+  },
+];
+
+function SetupProgressCard({
+  status,
+  theme,
+}: {
+  status: StoreSetupStatusResponse;
+  theme: MobileTheme;
+}) {
+  const [expanded, setExpanded] = useState(true);
+
+  return (
+    <Section>
+      <SetupCard>
+        <TouchableOpacity
+          onPress={() => setExpanded((v) => !v)}
+          activeOpacity={0.7}
+          accessibilityRole="button"
+          accessibilityLabel={`Setup checklist, ${status.completion_percentage}% complete. Tap to ${
+            expanded ? 'collapse' : 'expand'
+          }.`}
+        >
+          <Row align="center" justify="space-between">
+            <Row align="center" gap={8} flex={1}>
+              <Typography.Body weight={700} color={theme.colorText}>
+                Finish setting up your store
+              </Typography.Body>
+            </Row>
+            <Row align="center" gap={6}>
+              <Typography.Caption weight={600} color={theme.colorPrimary}>
+                {status.completion_percentage}%
+              </Typography.Caption>
+              <LucideIcon
+                name={expanded ? 'ChevronUp' : 'ChevronDown'}
+                size={16}
+                color={theme.colorTextTertiary}
+              />
+            </Row>
+          </Row>
+
+          <ProgressTrack style={{ marginTop: theme.sizing.small }}>
+            <ProgressFill $percent={status.completion_percentage} $color={theme.colorPrimary} />
+          </ProgressTrack>
+        </TouchableOpacity>
+
+        {expanded && (
+        <Column gap={2}>
+          {SETUP_CHECKLIST.map((item) => {
+            const done = status.status_map[item.key];
+            return (
+              <ChecklistRow
+                key={item.key}
+                onPress={item.onPress}
+                disabled={done}
+                accessibilityRole="button"
+                accessibilityLabel={item.label}
+              >
+                <Row align="center" gap={10} flex={1}>
+                  <LucideIcon
+                    name={done ? 'CheckCircle2' : 'Circle'}
+                    size={18}
+                    color={done ? theme.colorSuccess : theme.colorTextTertiary}
+                  />
+                  <Typography.Caption
+                    weight={500}
+                    color={done ? theme.colorTextTertiary : theme.colorText}
+                    style={done ? { textDecorationLine: 'line-through' } : undefined}
+                  >
+                    {item.label}
+                  </Typography.Caption>
+                </Row>
+                {!done && (
+                  <LucideIcon name="ChevronRight" size={16} color={theme.colorTextTertiary} />
+                )}
+              </ChecklistRow>
+            );
+          })}
+        </Column>
+        )}
+      </SetupCard>
+    </Section>
+  );
+}
+
 // ── Header ────────────────────────────────────────────────────────────────────
 
 const Header = styled(View)`
@@ -295,6 +410,38 @@ const HeroDivider = styled(View)`
   background-color: ${({ theme }) => theme.colorBorderSecondary};
   margin-top: ${({ theme }) => theme.sizing.xxSmall}px;
   margin-bottom: ${({ theme }) => theme.sizing.xxSmall}px;
+`;
+
+// ── Setup checklist card ─────────────────────────────────────────────────────
+
+const SetupCard = styled(View)`
+  background-color: ${({ theme }) => theme.colorBgContainer};
+  border-radius: ${({ theme }) => theme.borderRadius.xLarge}px;
+  border-width: ${({ theme }) => theme.borderWidth.thin}px;
+  border-color: ${({ theme }) => theme.colorBorderSecondary};
+  padding: ${({ theme }) => theme.sizing.regular}px;
+  gap: ${({ theme }) => theme.sizing.small}px;
+`;
+
+const ProgressTrack = styled(View)`
+  height: 6px;
+  border-radius: 3px;
+  background-color: ${({ theme }) => theme.colorFillTertiary};
+  overflow: hidden;
+`;
+
+const ProgressFill = styled(View)<{ $percent: number; $color: string }>`
+  height: 100%;
+  width: ${({ $percent }) => $percent}%;
+  border-radius: 3px;
+  background-color: ${({ $color }) => $color};
+`;
+
+const ChecklistRow = styled(TouchableOpacity)`
+  flex-direction: row;
+  align-items: center;
+  justify-content: space-between;
+  padding: 6px 0;
 `;
 
 // ── Sections ──────────────────────────────────────────────────────────────────

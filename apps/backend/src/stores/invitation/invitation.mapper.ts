@@ -18,7 +18,11 @@ export const InvitationMapper = {
   },
 
   toAcceptInvitationResponse(result: AcceptInvitationResult): AcceptInvitationResponse {
-    return { store_id: result.storeId };
+    return {
+      store_id:           result.storeId,
+      snapshot:           result.snapshot,
+      snapshot_signature: result.snapshotSignature,
+    };
   },
 
   toMyInvitationResponse(r: PendingInvitationRow): MyInvitationResponse {

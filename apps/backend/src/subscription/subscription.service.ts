@@ -15,9 +15,10 @@ import {
 } from './subscription.repository.js';
 import { DowngradeDetectionService } from './downgrade-detection.service.js';
 import { ReconciliationService } from './reconciliation.service.js';
+import { StoreRepository } from '../stores/store/store.repository.js';
 import { subVersionPointerKey } from './subscription-cache.js';
 import { PLAN_PRICING, resolvePlanPrice } from './payment/plan-pricing.js';
-import { resolvePlanMeta } from './plan-meta.js';
+import { resolvePlanMeta, FEATURE_LABELS } from './plan-meta.js';
 
 /** One paid period (subscription §9/§10: 30 days for monthly, 365 for annual). */
 export const BILLING_PERIOD_DAYS = 30;
@@ -28,6 +29,8 @@ export type BannerSeverity = 'none' | 'info' | 'warning' | 'critical';
 export interface SubscriptionView extends SubscriptionWithPlan {
   bannerSeverity:    BannerSeverity;
   showUpgradeBanner: boolean;
+  billingCycle:      'monthly' | 'annual' | null;
+  price:             { amount: number; currency: string } | null;
 }
 
 /** camelCase domain result for cancel/reactivate — exactly what the response mapper needs. */
@@ -57,6 +60,7 @@ export interface PlanCatalogEntryResult {
   pricing:           PlanPricingOptionResult[];
   entitlements:      Record<string, number | null>;
   features:          Record<string, boolean>;
+  featureLabels:     Record<string, string>;
 }
 
 
@@ -78,6 +82,7 @@ export class SubscriptionService {
     private readonly uow: UnitOfWork,
     private readonly downgradeDetection: DowngradeDetectionService,
     private readonly reconciliation: ReconciliationService,
+    private readonly stores: StoreRepository,
     @Inject(REDIS) private readonly redis: Redis,
   ) {}
 
@@ -89,7 +94,17 @@ export class SubscriptionService {
     const withPlan = await this.repo.findWithPlan(accountId);
     if (!withPlan) return null;
     const { bannerSeverity, showUpgradeBanner } = this.computeBanner(withPlan.subscription);
-    return { ...withPlan, bannerSeverity, showUpgradeBanner };
+    // Current list price for the billed cadence — this app doesn't lock in
+    // pricing at subscription time, so this reflects PLAN_PRICING today, not
+    // necessarily what was charged on a past invoice.
+    const price = withPlan.billingPlanCode ? resolvePlanPrice(withPlan.billingPlanCode) : null;
+    return {
+      ...withPlan,
+      bannerSeverity,
+      showUpgradeBanner,
+      billingCycle: price?.billingCycle ?? null,
+      price: price ? { amount: price.amount, currency: price.currency } : null,
+    };
   }
 
   /**
@@ -138,6 +153,7 @@ export class SubscriptionService {
         pricing,
         entitlements: plan.entitlements,
         features:     plan.features,
+        featureLabels: FEATURE_LABELS,
       };
     });
 
@@ -172,6 +188,15 @@ export class SubscriptionService {
     const periodDays = billingCycle === 'annual' ? ANNUAL_BILLING_PERIOD_DAYS : BILLING_PERIOD_DAYS;
     const periodEnd = new Date(now.getTime() + periodDays * 86_400_000);
     await this.transact(accountId, 'SUBSCRIPTION_ACTIVATED', { providerRef }, async (tx) => {
+      // Lock accounts BEFORE writing account_subscriptions — canonical lock
+      // order (accounts → account_subscriptions), matching
+      // ReconciliationService.apply()'s order exactly. Without this, a
+      // webhook activating here and a concurrent reconciliation-resolve for
+      // the same account can lock the two tables in opposite orders and
+      // deadlock (backend-standard review finding). Re-entrant: harmless if
+      // isOverLimit() below re-acquires the same already-held row lock.
+      await this.stores.lockAccount(accountId, tx);
+
       const claimed = await this.repo.claimPaymentEvent(accountId, orderId, providerRef, tx);
       if (!claimed) return null; // already activated by an earlier call — no-op, no outbox row
       const activated = await this.repo.applyTransition(accountId, {
@@ -187,7 +212,7 @@ export class SubscriptionService {
       // path (there's no separate "change plan" endpoint — see class doc).
       // Re-check against the plan that just became active: if the account
       // now exceeds it on any axis, every write is blocked account-wide
-      // until the owner resolves which stores/locations/devices to keep
+      // until the owner resolves which stores/devices to keep
       // (subscription §15D, device-management §19, POST /subscription/reconciliation).
       const overLimit = await this.downgradeDetection.isOverLimit(accountId, tx);
       if (overLimit) {
@@ -202,7 +227,11 @@ export class SubscriptionService {
       // when there was nothing to restore (the common case: first purchase,
       // renewal, or an upgrade that was never preceded by a downgrade).
       if (activated.reconciliationStatus !== 'none') {
-        await this.reconciliation.autoRestore(accountId, tx);
+        // Use autoRestore's own returned row (its own version bump), not the
+        // pre-restore `activated` snapshot — the outbox event this.transact()
+        // logs below must reflect the row's true final version, not one
+        // bump behind it (backend-standard review finding).
+        return this.reconciliation.autoRestore(accountId, tx);
       }
       return activated;
     });
@@ -217,13 +246,25 @@ export class SubscriptionService {
   async cancel(userId: string): Promise<SubscriptionActionResult> {
     const accountId = await this.requireOwnedAccount(userId);
     const sub = await this.transact(accountId, 'SUBSCRIPTION_CANCEL_REQUESTED', {}, async (tx) => {
+      // Atomic compare-and-swap — status='active' AND cancel_at_period_end=false
+      // is re-checked in the same UPDATE, not read-then-branched, so a
+      // double-tap or a race with the lifecycle cron can't both/wrongly apply.
+      const updated = await this.repo.applyTransitionIf(
+        accountId,
+        { status: 'active', cancelAtPeriodEnd: false },
+        { cancelAtPeriodEnd: true },
+        tx,
+      );
+      if (updated) return updated;
+
+      // Zero-match: re-fetch to tell "not found" / "not active" / "already
+      // pending" apart — the last case is the expected idempotent no-op.
       const current = await this.repo.findByAccountId(accountId, tx);
       if (!current) throw new NotFoundError(ErrorCodes.SUBSCRIPTION_NOT_FOUND, 'Subscription not found');
       if (current.status !== 'active') {
         throw new UnprocessableError(ErrorCodes.SUBSCRIPTION_NOT_ACTIVE, 'Subscription is not active');
       }
-      if (current.cancelAtPeriodEnd) return null; // already requested — no-op
-      return this.repo.applyTransition(accountId, { cancelAtPeriodEnd: true }, tx);
+      return null; // already requested — no-op
     });
     return this.toActionResult(sub);
   }
@@ -238,13 +279,21 @@ export class SubscriptionService {
   async reactivate(userId: string): Promise<SubscriptionActionResult> {
     const accountId = await this.requireOwnedAccount(userId);
     const sub = await this.transact(accountId, 'SUBSCRIPTION_REACTIVATED', {}, async (tx) => {
+      // Same atomic compare-and-swap as cancel() above.
+      const updated = await this.repo.applyTransitionIf(
+        accountId,
+        { status: 'active', cancelAtPeriodEnd: true },
+        { cancelAtPeriodEnd: false },
+        tx,
+      );
+      if (updated) return updated;
+
       const current = await this.repo.findByAccountId(accountId, tx);
       if (!current) throw new NotFoundError(ErrorCodes.SUBSCRIPTION_NOT_FOUND, 'Subscription not found');
       if (current.status !== 'active') {
         throw new UnprocessableError(ErrorCodes.SUBSCRIPTION_LAPSED_USE_CHECKOUT, 'Subscription has lapsed; use checkout to resubscribe');
       }
-      if (!current.cancelAtPeriodEnd) return null; // nothing pending — no-op
-      return this.repo.applyTransition(accountId, { cancelAtPeriodEnd: false }, tx);
+      return null; // nothing pending — no-op
     });
     return this.toActionResult(sub);
   }

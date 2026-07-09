@@ -47,20 +47,24 @@ export interface SignupVerifyRequest extends OtpVerifyRequest {
   consent_given: true;
 }
 
-export interface AuthUserResponse {
-  id: string;
-  permissions_version: number;
-}
-
-/** Returned by login/verify and signup/verify. */
+/** Returned by login/verify and signup/verify. Carries the same routing
+ *  fields (snapshot, account mode, invitation count) as `BootstrapResponse`
+ *  so the client never has to make a second round trip after login/signup
+ *  just to route the user. `snapshot`/`snapshot_signature` are nullable: a
+ *  snapshot-build failure doesn't fail the login — fall back to a bootstrap
+ *  call when they're absent. */
 export interface LoginResponse {
   access_token: string;
   refresh_token: string;
-  user: AuthUserResponse;
-  is_new_user: boolean;
-  device_id: string;
   device_session_id: string;
-  is_trusted: boolean;
+  snapshot: PermissionSnapshot | null;
+  snapshot_signature: string | null;
+  last_account_mode: AccountMode | null;
+  pending_invitation_count: number;
+  /** `false` ⇒ no email on file — AppGate redirects to
+   *  `/(onboarding)/complete-profile` on this, same chokepoint as
+   *  `last_account_mode`. */
+  profile_complete: boolean;
 }
 
 // ── Refresh ──────────────────────────────────────────────────────────────────
@@ -84,17 +88,9 @@ export interface PermissionSnapshot {
   userId: string;
   permissionsVersion: number;
   generatedAt: string;
-  storeLocations: {
+  stores: {
     store_id: string;
     name: string;
-    default_location_id: string | null;
-    locations: {
-      id: string;
-      name: string;
-      is_primary: boolean;
-      is_default: boolean;
-      is_locked: boolean;
-    }[];
     /** This user's own `entityCode:action` CRUD grants IN THIS STORE — never
      *  cross-store-flattened (that was the bug: a permission held in one
      *  store leaking into gating for another). */
@@ -106,11 +102,9 @@ export interface RefreshResponse {
   access_token: string;
   refresh_token: string;
   snapshot_version: number;
+  /** Present only when the client's snapshot is stale. */
   snapshot: PermissionSnapshot | null;
   snapshot_signature: string | null;
-  snapshot_changed: boolean;
-  force_bootstrap: boolean;
-  store_access_changed: boolean;
 }
 
 /** Body for REFRESH_CHALLENGE — the refresh token identifies the device. */
@@ -125,20 +119,33 @@ export interface RefreshChallengeRequest {
 export type AccountMode = 'business' | 'personal';
 
 export interface BootstrapResponse {
-  user: AuthUserResponse;
-  device_id: string;
   device_session_id: string;
-  is_trusted: boolean;
-  permissions_version: number;
   snapshot: PermissionSnapshot;
   snapshot_signature: string;
   last_account_mode: AccountMode | null;
-  has_pending_invitations: boolean;
   pending_invitation_count: number;
+  profile_complete: boolean;
 }
 
 export interface AccountModeRequest {
   mode: AccountMode;
+}
+
+/** Display data for GET /me/profile. */
+export interface ProfileResponse {
+  name: string;
+  email: string | null;
+  phone: string | null;
+  phone_verified: boolean;
+  profile_picture_url: string | null;
+}
+
+/** Body for PATCH /me/profile — both fields optional, only supplied keys are
+ *  written. No `phone`: it's the login credential and needs its own
+ *  OTP-reverification flow, not a plain PATCH. */
+export interface UpdateProfileRequest {
+  name?: string;
+  email?: string;
 }
 
 // ── Sessions ─────────────────────────────────────────────────────────────────
