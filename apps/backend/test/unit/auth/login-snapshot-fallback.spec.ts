@@ -98,6 +98,8 @@ function makeService(getOrBuild: SnapshotService['getOrBuild']): AuthLoginServic
     sessionRepo as AuthSessionRepository,
     tokenService as RefreshTokenService,
     snapshot as SnapshotService,
+    {} as never,
+    {} as never,
     crypto as CryptoService,
     config as AppConfigService,
     audit as AuditService,

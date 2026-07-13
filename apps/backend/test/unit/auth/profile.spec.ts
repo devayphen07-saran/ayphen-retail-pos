@@ -25,7 +25,7 @@ function makeService(findProfile: (id: string) => Promise<ProfileResult | null>)
     userRepo as UserRepository,
     {} as never, {} as never, {} as never, {} as never, {} as never,
     {} as never, {} as never, {} as never, {} as never, {} as never,
-    {} as never, {} as never, {} as never,
+    {} as never, {} as never, {} as never, {} as never, {} as never,
   );
 }
 
@@ -34,7 +34,7 @@ function makeServiceWithRepo(userRepo: Partial<UserRepository>): AuthLoginServic
     userRepo as UserRepository,
     {} as never, {} as never, {} as never, {} as never, {} as never,
     {} as never, {} as never, {} as never, {} as never, {} as never,
-    {} as never, {} as never, {} as never,
+    {} as never, {} as never, {} as never, {} as never, {} as never,
   );
 }
 

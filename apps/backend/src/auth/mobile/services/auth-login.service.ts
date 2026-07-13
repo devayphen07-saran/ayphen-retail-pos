@@ -1,4 +1,4 @@
-import { Injectable } from '@nestjs/common';
+import { Injectable, Logger } from '@nestjs/common';
 import { randomUUID } from 'crypto';
 import { UnitOfWork, type DbTransaction } from '#db/db.module.js';
 import { unwrapPgError } from '#db/rethrow-unique-violation.js';
@@ -17,6 +17,8 @@ import { DeviceService, type DeviceInfo } from './device.service.js';
 import { AuthSessionRepository, type DeviceSession } from '../repositories/auth-session.repository.js';
 import { RefreshTokenService } from './refresh-token.service.js';
 import { SnapshotService } from './snapshot.service.js';
+import { PrincipalCacheService } from './principal-cache.service.js';
+import { AuthLogoutService } from './auth-logout.service.js';
 import type {
   StageOneResult,
   LoginResult,
@@ -41,6 +43,8 @@ type LoginExtras = Pick<
 
 @Injectable()
 export class AuthLoginService {
+  private readonly logger = new Logger(AuthLoginService.name);
+
   constructor(
     private readonly userRepo: UserRepository,
     private readonly invitationRepo: InvitationLookupRepository,
@@ -52,6 +56,8 @@ export class AuthLoginService {
     private readonly sessionRepo: AuthSessionRepository,
     private readonly tokenService: RefreshTokenService,
     private readonly snapshot: SnapshotService,
+    private readonly principalCache: PrincipalCacheService,
+    private readonly authLogout: AuthLogoutService,
     private readonly crypto: CryptoService,
     private readonly config: AppConfigService,
     private readonly audit: AuditService,
@@ -427,6 +433,24 @@ export class AuthLoginService {
           Date.now() + this.config.accountLockoutDurationMinutes * 60_000,
         ),
       );
+      // The lockout write above is durable; everything below is best-effort
+      // immediate enforcement so the lockout doesn't just sit in the DB until
+      // caches/sessions happen to expire on their own TTL. A failure here must
+      // not turn an already-decided "too many failed attempts" response into a
+      // 500 — logoutAll() reuses the exact same session/token/blacklist
+      // machinery DeviceAccessService.blockDevice() uses for the equivalent
+      // "kill access now" guarantee.
+      try {
+        await this.principalCache.invalidateUser(userId);
+        await this.authLogout.logoutAll(userId);
+      } catch (err) {
+        this.logger.warn(
+          `Failed to fully enforce lockout for user ${userId} — the lockout itself is` +
+            ` durable, but existing sessions may remain live until their own TTL: ${
+              err instanceof Error ? err.message : String(err)
+            }`,
+        );
+      }
     }
   }
 }

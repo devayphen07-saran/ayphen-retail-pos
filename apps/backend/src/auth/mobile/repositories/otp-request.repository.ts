@@ -89,8 +89,10 @@ export class OtpRequestRepository {
    */
   async incrementAttemptsIfUnderLimit(
     id: string,
+    tx?: DbExecutor,
   ): Promise<{ underLimit: boolean; attempts: number; maxAttempts: number }> {
-    const rows = await this.db
+    const client = tx ?? this.db;
+    const rows = await client
       .update(otpRequests)
       .set({ attempts: sql`${otpRequests.attempts} + 1` })
       .where(and(
@@ -104,15 +106,15 @@ export class OtpRequestRepository {
     // Already at the limit — the WHERE excluded the row, so re-read for the
     // count to report (attempts/maxAttempts are immutable-once-set here, so
     // this can't race with the update above in a way that changes the answer).
-    const [row] = await this.db
+    const [row] = await client
       .select({ attempts: otpRequests.attempts, maxAttempts: otpRequests.maxAttempts })
       .from(otpRequests)
       .where(eq(otpRequests.id, id));
     return { underLimit: false, attempts: row?.attempts ?? 0, maxAttempts: row?.maxAttempts ?? 0 };
   }
 
-  async markConsumed(id: string): Promise<void> {
-    await this.db
+  async markConsumed(id: string, tx?: DbExecutor): Promise<void> {
+    await (tx ?? this.db)
       .update(otpRequests)
       .set({ consumedAt: new Date() })
       .where(eq(otpRequests.id, id));
