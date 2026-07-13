@@ -60,6 +60,26 @@ export class LookupRepository {
       .limit(500);
   }
 
+  /**
+   * Count of live (non-deleted) custom values for a type in this store — the
+   * create-time guard behind LookupService's per-type cap. `listByType`'s
+   * `.limit(500)` above is a read-side truncation backstop, not a real cap;
+   * this is what actually stops unbounded growth at the source.
+   */
+  async countByType(typeId: string, storeId: string, tx?: DbExecutor): Promise<number> {
+    const [row] = await this.client(tx)
+      .select({ n: sql<number>`count(*)::int` })
+      .from(lookup)
+      .where(
+        and(
+          eq(lookup.lookupTypeFk, typeId),
+          eq(lookup.storeFk, storeId),
+          eq(lookup.isActive, true),
+        ),
+      );
+    return row?.n ?? 0;
+  }
+
   async findByGuuid(guuid: string, tx?: DbExecutor): Promise<LookupValueRow | null> {
     const [row] = await this.client(tx).select().from(lookup).where(eq(lookup.guuid, guuid));
     return row ?? null;

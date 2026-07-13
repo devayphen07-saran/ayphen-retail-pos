@@ -26,6 +26,7 @@ export class DeviceRepository {
     return row ?? null;
   }
 
+  /** Unscoped by ownership/tenant — caller MUST verify the caller is authorized to read this id before use. */
   async findById(id: string): Promise<Device | null> {
     const [row] = await this.db.select().from(devices).where(eq(devices.id, id));
     return row ?? null;

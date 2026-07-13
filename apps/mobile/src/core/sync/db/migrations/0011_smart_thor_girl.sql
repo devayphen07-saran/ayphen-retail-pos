@@ -1,0 +1,1 @@
+ALTER TABLE `mutation_queue` ADD `pre_image` text;

@@ -33,6 +33,18 @@ export const ENTITIES = [
     supportsAttachments: true,
   },
   {
+    code: 'Sale',
+    label: 'Sales',
+    isOfflineSafe: true,
+    supportsAttachments: false,
+  },
+  {
+    code: 'Refund',
+    label: 'Refunds',
+    isOfflineSafe: true,
+    supportsAttachments: false,
+  },
+  {
     code: 'Customer',
     label: 'Customers',
     isOfflineSafe: true,

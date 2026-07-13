@@ -33,6 +33,11 @@ export interface UpdateLookupValueCommand {
   expectedRowVersion: number;
 }
 
+/** Create-time cap on custom values per (store, type) — matches the existing
+ *  read-side `.limit(500)` in LookupRepository.listByType, which silently
+ *  truncates rather than actually bounding growth. */
+const MAX_CUSTOM_LOOKUP_VALUES_PER_TYPE = 500;
+
 /**
  * Lookup engine orchestration (lookup-entity-prd.md §6/§9). Enforces the
  * business rules the composite-FK constraint doesn't cover: is_system
@@ -125,6 +130,18 @@ export class LookupService {
     // pre-check, uk_lookup_type_code (schema.ts) is the real guard.
     if (await this.lookups.existsByTypeAndCode(type.id, command.code)) {
       throw new ConflictError(ErrorCodes.LOOKUP_CODE_EXISTS, 'A lookup value with this code already exists');
+    }
+    // listByType's .limit(500) silently truncates the read side rather than
+    // enforcing a real cap — stop unbounded growth at the source instead. A
+    // benign race here (two concurrent adds both passing at 499) can overshoot
+    // the cap by a handful of rows at worst; that's an acceptable soft-limit
+    // trade-off, not worth a row lock for.
+    const existingCount = await this.lookups.countByType(type.id, storeId);
+    if (existingCount >= MAX_CUSTOM_LOOKUP_VALUES_PER_TYPE) {
+      throw new ConflictError(
+        ErrorCodes.CONFLICT,
+        `This store already has the maximum of ${MAX_CUSTOM_LOOKUP_VALUES_PER_TYPE} custom values for "${typeCode}"`,
+      );
     }
     return rethrowUniqueViolationAs(
       this.uow.execute(async (tx) => {

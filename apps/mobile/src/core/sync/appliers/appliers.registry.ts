@@ -3,9 +3,13 @@ import { unitRepository } from '../repositories/unit.repository';
 import { taxRateRepository } from '../repositories/tax-rate.repository';
 import { lookupRepository } from '../repositories/lookup.repository';
 import { paymentMethodRepository } from '../repositories/payment-method.repository';
+import { paymentAccountRepository } from '../repositories/payment-account.repository';
 import { productRepository } from '../repositories/product.repository';
 import { productCaseRepository } from '../repositories/product-case.repository';
 import { customerRepository } from '../repositories/customer.repository';
+import { supplierRepository } from '../repositories/supplier.repository';
+import { cashMovementRepository } from '../repositories/cash-movement.repository';
+import { accountTransactionRepository } from '../repositories/account-transaction.repository';
 import type { SyncApplier } from './applier.types';
 
 function fromRepo(
@@ -25,13 +29,13 @@ function fromRepo(
 }
 
 /**
- * entity_type → applier. ONLY the 8 entities this build has a local table for
+ * entity_type → applier. ONLY the entities this build has a local table for
  * are registered here — this list IS the client's `supported_entity_types`
  * (transport.ts sends `registry.entityTypes()` on every pull), so an entity
  * the mobile app doesn't understand yet is never dumped on it (the backend's
  * `SyncFilterRegistry.supported()` filters accordingly). Adding an entity
- * later (staff, supplier, paymentaccount, store_device_access) is
- * registration here + a repository, never a change to the pull/push pipeline.
+ * later (staff, store_device_access) is registration here + a repository,
+ * never a change to the pull/push pipeline.
  */
 class AppliersRegistry {
   private readonly byType = new Map<string, SyncApplier>();
@@ -60,7 +64,11 @@ export const appliersRegistry = new AppliersRegistry([
   fromRepo('taxrate', taxRateRepository),
   fromRepo('lookup', lookupRepository),
   fromRepo('payment_method', paymentMethodRepository),
+  fromRepo('paymentaccount', paymentAccountRepository),
   fromRepo('product', productRepository),
   fromRepo('product_case', productCaseRepository),
   fromRepo('customer', customerRepository),
+  fromRepo('supplier', supplierRepository),
+  fromRepo('cash_movement', cashMovementRepository),
+  fromRepo('account_transaction', accountTransactionRepository),
 ]);

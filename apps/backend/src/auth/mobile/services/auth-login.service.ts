@@ -1,6 +1,6 @@
 import { Injectable } from '@nestjs/common';
 import { randomUUID } from 'crypto';
-import { UnitOfWork, type DbExecutor, type DbTransaction } from '#db/db.module.js';
+import { UnitOfWork, type DbTransaction } from '#db/db.module.js';
 import { unwrapPgError } from '#db/rethrow-unique-violation.js';
 import { AppException, ConflictError, NotFoundError } from '#common/exceptions/app.exception.js';
 import { ErrorCodes } from '#common/error-codes.js';
@@ -68,7 +68,12 @@ export class AuthLoginService {
     if (!user) {
       // Uniform response — never reveal whether a number is registered
       // (enumeration oracle). No OTP is sent; a follow-up verify fails as
-      // OTP_EXPIRED, identical to a genuine lapsed request.
+      // OTP_EXPIRED, identical to a genuine lapsed request. Still rate-limited
+      // identically to a registered number (mirrors signupStageOne) — otherwise
+      // an attacker could probe unregistered numbers without ever hitting a
+      // throttle, since requestOtp()'s checks are skipped on this branch.
+      await this.rateLimit.checkIpLimit(ip);
+      await this.rateLimit.checkPhoneOtpLimit(phone);
       return {
         otpSent: true,
         expiresIn: this.config.otpTtlSeconds,
@@ -222,7 +227,7 @@ export class AuthLoginService {
     ip: string,
     tx: DbTransaction,
   ): Promise<{ session: DeviceSession; refreshToken: string; accessToken: string }> {
-    await this.handleSuccessfulLogin(user.id, tx);
+    await this.userRepo.markSuccessfulLogin(user.id, tx);
 
     const device = await this.deviceService.upsertDevice(
       user.id,
@@ -423,12 +428,5 @@ export class AuthLoginService {
         ),
       );
     }
-  }
-
-  private async handleSuccessfulLogin(
-    userId: string,
-    tx?: DbExecutor,
-  ): Promise<void> {
-    await this.userRepo.markSuccessfulLogin(userId, tx);
   }
 }

@@ -8,6 +8,7 @@ import { RbacService } from '../../../src/common/rbac/rbac.service';
 import { AuditService } from '../../../src/common/audit/audit.service';
 import { RoleRepository } from '../../../src/stores/role/role.repository';
 import { RoleService } from '../../../src/stores/role/role.service';
+import { RoleAssignmentService } from '../../../src/stores/role/role-assignment.service';
 import { AppException } from '../../../src/common/exceptions/app.exception';
 import { env } from '../../../src/config/env';
 import {
@@ -34,6 +35,7 @@ describe('RoleService — privilege-escalation guards', () => {
   let db: Database;
   let redis: Redis;
   let service: RoleService;
+  let assignment: RoleAssignmentService;
   let rbac: RbacService;
 
   let storeId: string;
@@ -49,6 +51,7 @@ describe('RoleService — privilege-escalation guards', () => {
       providers: [
         RoleRepository,
         RoleService,
+        RoleAssignmentService,
         RbacRepository,
         RbacService,
         AuditService,
@@ -59,6 +62,7 @@ describe('RoleService — privilege-escalation guards', () => {
     db = moduleRef.get(DRIZZLE);
     redis = moduleRef.get(REDIS);
     service = moduleRef.get(RoleService);
+    assignment = moduleRef.get(RoleAssignmentService);
     rbac = moduleRef.get(RbacService);
   });
 
@@ -144,7 +148,7 @@ describe('RoleService — privilege-escalation guards', () => {
 
   it('blocks revoking the store owner\'s own STORE_OWNER assignment', async () => {
     await expect(
-      service.revokeRole(storeId, staffUserId, ownerRoleId, ownerUserId),
+      assignment.revokeRole(storeId, staffUserId, ownerRoleId, ownerUserId),
     ).rejects.toMatchObject({ errorCode: 'ROLE_NOT_REVOCABLE' } satisfies Partial<AppException>);
 
     const [row] = await db
@@ -162,7 +166,7 @@ describe('RoleService — privilege-escalation guards', () => {
     });
 
     await expect(
-      service.revokeRole(storeId, ownerUserId, targetRoleId, staffUserId),
+      assignment.revokeRole(storeId, ownerUserId, targetRoleId, staffUserId),
     ).resolves.toBeUndefined();
   });
 
@@ -197,7 +201,7 @@ describe('RoleService — privilege-escalation guards', () => {
     ]);
 
     await expect(
-      service.assignRole(storeId, staffUserId, targetRoleId, staffUserId),
+      assignment.assignRole(storeId, staffUserId, targetRoleId, staffUserId),
     ).rejects.toMatchObject({ errorCode: 'GRANT_EXCEEDS_ACTOR_PERMISSIONS' } satisfies Partial<AppException>);
 
     const [row] = await db
@@ -213,7 +217,7 @@ describe('RoleService — privilege-escalation guards', () => {
     ]);
 
     await expect(
-      service.assignRole(storeId, staffUserId, targetRoleId, staffUserId),
+      assignment.assignRole(storeId, staffUserId, targetRoleId, staffUserId),
     ).resolves.toBeUndefined();
   });
 
@@ -224,7 +228,7 @@ describe('RoleService — privilege-escalation guards', () => {
     ]);
 
     await expect(
-      service.assignRole(storeId, ownerUserId, targetRoleId, staffUserId),
+      assignment.assignRole(storeId, ownerUserId, targetRoleId, staffUserId),
     ).resolves.toBeUndefined();
   });
 });

@@ -47,17 +47,23 @@ export class OtpRequestService {
         429,
       );
 
-    if (resendOf) {
-      const prev = await this.otpRepo.findById(resendOf);
-      if (prev) {
-        const elapsed = (Date.now() - prev.createdAt.getTime()) / 1000;
-        if (elapsed < this.config.otpResendCooldownSeconds) {
-          throw new AppException(
-            ErrorCodes.RATE_LIMIT_EXCEEDED,
-            'Resend not yet available — please wait before requesting another OTP',
-            429,
-          );
-        }
+    // Cooldown must be enforced unconditionally, keyed off server-known
+    // state — a caller that simply omits `resendOf` previously skipped this
+    // check entirely. When `resendOf` is supplied it's looked up scoped to
+    // `phone` (defense against a guessed/foreign id); either way, absent a
+    // usable `resendOf` row, fall back to the latest request for this
+    // phone+purpose so the cooldown can't be bypassed by dropping the field.
+    const prev = resendOf
+      ? await this.otpRepo.findById(resendOf, phone)
+      : await this.otpRepo.findLatestForPhone(phone, purpose);
+    if (prev) {
+      const elapsed = (Date.now() - prev.createdAt.getTime()) / 1000;
+      if (elapsed < this.config.otpResendCooldownSeconds) {
+        throw new AppException(
+          ErrorCodes.RATE_LIMIT_EXCEEDED,
+          'Resend not yet available — please wait before requesting another OTP',
+          429,
+        );
       }
     }
 
@@ -71,7 +77,10 @@ export class OtpRequestService {
       expiresAt,
     });
 
-    await this.otpService.generateAndSend(phone, purpose, ttl);
+    // Redis key is scoped by this row's id (not phone+purpose) — see
+    // otp.service.ts's otpKey — so sibling live requests for the same
+    // phone+purpose never share a brute-forceable code/attempt budget.
+    await this.otpService.generateAndSend(request.id, phone, ttl);
 
     await this.rateLimitService.recordAttempt({
       ip,

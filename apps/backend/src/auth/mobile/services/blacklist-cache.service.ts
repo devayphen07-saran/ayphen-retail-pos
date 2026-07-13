@@ -65,10 +65,14 @@ export class BlacklistCacheService {
       .values(entries.map((e) => ({ jti: e.jti, expiresAt: e.exp })))
       .onConflictDoNothing();
 
+    // Compute each entry's TTL once and reuse it for both the Redis pipeline
+    // and the LRU-set loop below, instead of recomputing `secondsUntil` twice
+    // per entry.
+    const withTtl = entries.map((e) => ({ ...e, ttl: this.secondsUntil(e.exp) }));
+
     const pipeline = this.redis.pipeline();
-    for (const { jti } of entries) pipeline.del(negKey(jti));
-    for (const { jti, exp } of entries) {
-      const ttl = this.secondsUntil(exp);
+    for (const { jti } of withTtl) pipeline.del(negKey(jti));
+    for (const { jti, ttl } of withTtl) {
       if (ttl > 0) pipeline.setex(jtiKey(jti), ttl, '1');
     }
     try {
@@ -77,8 +81,7 @@ export class BlacklistCacheService {
       this.logger.warn(`Failed to pipeline blacklisted JTIs to Redis: ${this.errorMessage(err)}`);
     }
 
-    for (const { jti, exp } of entries) {
-      const ttl = this.secondsUntil(exp);
+    for (const { jti, ttl } of withTtl) {
       if (ttl > 0) this.lru.set(jti, true, { ttl: ttl * 1000 });
     }
   }

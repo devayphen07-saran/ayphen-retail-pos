@@ -23,6 +23,7 @@ import { EntityTypesModule } from '../entity-types/entity-types.module.js';
 import { LookupModule } from '../lookup/lookup.module.js';
 import { ReferenceDataModule } from '../reference-data/reference-data.module.js';
 import { SyncModule } from '../sync/sync.module.js';
+import { PaymentsModule } from '../payments/payments.module.js';
 import { FilesModule } from '../files/files.module.js';
 
 @Module({
@@ -47,6 +48,7 @@ import { FilesModule } from '../files/files.module.js';
     LookupModule,
     ReferenceDataModule,
     SyncModule,
+    PaymentsModule,
     FilesModule,
     RouteCoverageModule,   // last — runs route-config validation after all routes wired
   ],

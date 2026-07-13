@@ -19,6 +19,7 @@ import {
   CRUD_ACTIONS,
   isEntityCode,
   type CrudAction,
+  type PartialCrudMatrixMap,
 } from './permission-matrix.constants.js';
 
 // ─── Redis cache keys + TTLs ──────────────────────────────────────────────────
@@ -141,8 +142,8 @@ export class RbacService {
     }
 
     const [crudRows, specialRows] = await Promise.all([
-      this.repo.fetchCrudPermissions(roleIds),
-      this.repo.fetchSpecialPermissions(roleIds),
+      this.repo.findCrudPermissions(roleIds),
+      this.repo.findSpecialPermissions(roleIds),
     ]);
 
     const crud: EffectivePermissions['crud'] = new Map();
@@ -239,18 +240,6 @@ export class RbacService {
     return ids;
   }
 
-  // ─── Point-in-time authorization ───────────────────────────────────────────
-
-  async wasCrudAuthorizedAt(params: {
-    userId: string;
-    storeId: string;
-    entity: string;
-    action: CrudAction;
-    asOf: Date;
-  }): Promise<boolean> {
-    return this.repo.wasCrudAuthorizedAt(params);
-  }
-
   // ─── Cache invalidation ────────────────────────────────────────────────────
 
   async invalidateUserStoreCache(
@@ -302,14 +291,20 @@ export class RbacService {
   // ─── Lifecycle helpers ─────────────────────────────────────────────────────
 
   /**
-   * Seed default CRUD grants for a new custom role.
-   * Must be called inside the caller's transaction.
+   * Build `{roleFk, entityCode, action, grantedBy}` grant rows from a CRUD
+   * matrix (DEFAULT_ROLE_CRUD / STORE_OWNER_CRUD), shared by
+   * `seedDefaultPermissions` and `seedStoreOwnerPermissions`.
    */
-  async seedDefaultPermissions(
+  private buildCrudGrants(
     roleId: string,
+    matrix: PartialCrudMatrixMap,
     grantedBy: string | null,
-    tx: DbExecutor,
-  ): Promise<void> {
+  ): Array<{
+    roleFk: string;
+    entityCode: string;
+    action: CrudAction;
+    grantedBy: string | null;
+  }> {
     const grants: Array<{
       roleFk: string;
       entityCode: string;
@@ -317,12 +312,12 @@ export class RbacService {
       grantedBy: string | null;
     }> = [];
 
-    for (const [entityCode, matrix] of Object.entries(DEFAULT_ROLE_CRUD)) {
-      // Defense-in-depth: DEFAULT_ROLE_CRUD is validated at startup, but never
+    for (const [entityCode, entityMatrix] of Object.entries(matrix)) {
+      // Defense-in-depth: matrices are validated at startup, but never
       // insert a grant for a code that isn't a real entity.
-      if (!isEntityCode(entityCode) || !matrix) continue;
+      if (!isEntityCode(entityCode) || !entityMatrix) continue;
       for (const action of CRUD_ACTIONS) {
-        if (matrix[action]) {
+        if (entityMatrix[action]) {
           grants.push({
             roleFk: roleId,
             entityCode,
@@ -333,6 +328,19 @@ export class RbacService {
       }
     }
 
+    return grants;
+  }
+
+  /**
+   * Seed default CRUD grants for a new custom role.
+   * Must be called inside the caller's transaction.
+   */
+  async seedDefaultPermissions(
+    roleId: string,
+    grantedBy: string | null,
+    tx: DbExecutor,
+  ): Promise<void> {
+    const grants = this.buildCrudGrants(roleId, DEFAULT_ROLE_CRUD, grantedBy);
     await this.repo.insertCrudGrants(grants, tx);
   }
 
@@ -347,20 +355,7 @@ export class RbacService {
     grantedBy: string | null,
     tx: DbExecutor,
   ): Promise<void> {
-    const crudGrants: Array<{
-      roleFk: string;
-      entityCode: string;
-      action: CrudAction;
-      grantedBy: string | null;
-    }> = [];
-    for (const [entityCode, matrix] of Object.entries(STORE_OWNER_CRUD)) {
-      if (!isEntityCode(entityCode) || !matrix) continue;
-      for (const action of CRUD_ACTIONS) {
-        if (matrix[action]) {
-          crudGrants.push({ roleFk: roleId, entityCode, action, grantedBy });
-        }
-      }
-    }
+    const crudGrants = this.buildCrudGrants(roleId, STORE_OWNER_CRUD, grantedBy);
     await this.repo.insertCrudGrants(crudGrants, tx);
 
     const specialGrants: Array<{

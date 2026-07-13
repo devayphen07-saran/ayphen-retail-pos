@@ -1,12 +1,12 @@
 import {
   CanActivate,
   ExecutionContext,
-  ForbiddenException,
   Injectable,
-  UnauthorizedException,
 } from '@nestjs/common';
 import { Reflector } from '@nestjs/core';
 import type { Request } from 'express';
+import { ForbiddenError, UnauthorizedError } from '#common/exceptions/app.exception.js';
+import { ErrorCodes } from '#common/error-codes.js';
 import {
   IS_PUBLIC_KEY,
   STEP_UP_AUTH_KEY,
@@ -46,12 +46,12 @@ export class StepUpAuthGuard implements CanActivate {
 
     const req = ctx.switchToHttp().getRequest<Request>();
     const principal = req.user;
-    if (!principal) throw new UnauthorizedException('MISSING_AUTH');
+    if (!principal) throw new UnauthorizedError(ErrorCodes.MISSING_AUTH);
 
     const withinMs = parseDurationMs(meta.within);
     const stepUpAt = principal.stepUpAt;
     if (!stepUpAt || Date.now() - stepUpAt.getTime() > withinMs) {
-      throw new ForbiddenException('STEP_UP_AUTH_REQUIRED');
+      throw new ForbiddenError(ErrorCodes.STEP_UP_AUTH_REQUIRED, 'Step-up authentication required');
     }
     return true;
   }

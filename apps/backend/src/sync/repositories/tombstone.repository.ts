@@ -3,6 +3,7 @@ import { and, asc, eq, sql } from 'drizzle-orm';
 import type { DbExecutor } from '#db/db.module.js';
 import { syncTombstones } from '#db/schema.js';
 import { assertMicroIso, microIso } from '../us-timestamp.js';
+import { readLagPredicate } from '../pull/read-cutoff.js';
 import type { EntityWatermark } from '../cursor/sync-cursor.service.js';
 import { ZERO_UUID } from '../registry/entity-filter.js';
 
@@ -70,8 +71,15 @@ export class TombstoneRepository {
     storeId: string,
     after: EntityWatermark,
     limit: number,
+    // Read-safety cutoff (B3). `deleted_at` is stamped at tx-START like
+    // `modified_at`, so without this a delete transaction open longer than the
+    // lag can drop a tombstone behind an already-advanced watermark →
+    // permanently undelivered → resurrected row. This path previously had NO
+    // lag at all, asymmetric with the upsert filter; the predicate closes it.
+    cutoff: string | null,
   ): Promise<TombstonePage> {
     const keyset = sql`(${syncTombstones.deletedAt} > ${after.ts}::timestamptz OR (${syncTombstones.deletedAt} = ${after.ts}::timestamptz AND ${syncTombstones.id} > ${after.id || ZERO_UUID}::uuid))`;
+    const lag = readLagPredicate(syncTombstones.deletedAt, cutoff);
 
     const rows = await db
       .select({
@@ -83,7 +91,7 @@ export class TombstoneRepository {
         __deletedAtUs: microIso(syncTombstones.deletedAt),
       })
       .from(syncTombstones)
-      .where(and(eq(syncTombstones.storeFk, storeId), keyset))
+      .where(and(eq(syncTombstones.storeFk, storeId), keyset, lag))
       .orderBy(asc(syncTombstones.deletedAt), asc(syncTombstones.id))
       .limit(limit + 1);
 

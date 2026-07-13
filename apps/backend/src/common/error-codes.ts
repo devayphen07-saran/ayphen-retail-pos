@@ -30,6 +30,7 @@ export const ErrorCodes = {
   OTP_EXPIRED:                        'OTP_EXPIRED',
   OTP_INVALID:                        'OTP_INVALID',
   OTP_MAX_ATTEMPTS:                   'OTP_MAX_ATTEMPTS',
+  OTP_SEND_FAILED:                    'OTP_SEND_FAILED',
   STEP_UP_REQUIRED:                   'STEP_UP_REQUIRED',
   STEP_UP_AUTH_REQUIRED:              'STEP_UP_AUTH_REQUIRED',
   STEP_UP_LOCKED:                     'STEP_UP_LOCKED',
@@ -87,6 +88,11 @@ export const ErrorCodes = {
   INVALID_ENTITY_CODE:                'INVALID_ENTITY_CODE',
   GRANT_EXCEEDS_ACTOR_PERMISSIONS:    'GRANT_EXCEEDS_ACTOR_PERMISSIONS',
 
+  // ── Tax rates ──────────────────────────────────────────────────────────
+  TAXRATE_NOT_FOUND:                  'TAXRATE_NOT_FOUND',
+  TAXRATE_ALREADY_EXISTS:             'TAXRATE_ALREADY_EXISTS',
+  TAXRATE_VERSION_CONFLICT:           'TAXRATE_VERSION_CONFLICT',
+
   // ── Invitations ────────────────────────────────────────────────────────
   INVITATION_NOT_FOUND:               'INVITATION_NOT_FOUND',
   INVITATION_ALREADY_PENDING:         'INVITATION_ALREADY_PENDING',
@@ -137,7 +143,20 @@ export const ErrorCodes = {
   LOOKUP_CODE_EXISTS:                 'LOOKUP_CODE_EXISTS',
   LOOKUP_VALUE_PROTECTED:             'LOOKUP_VALUE_PROTECTED',
   LOOKUP_VALUE_VERSION_CONFLICT:      'LOOKUP_VALUE_VERSION_CONFLICT',
+  // Seeded Cash/Bank payment accounts (is_system) cannot be deleted or
+  // deactivated (PRD payment-accounts-mobile §BR-4).
+  PAYMENT_ACCOUNT_PROTECTED:          'PAYMENT_ACCOUNT_PROTECTED',
   ENTITY_TYPE_NOT_FOUND:              'ENTITY_TYPE_NOT_FOUND',
+
+  // ── Ledger (docs/prd/accounts-and-ledger.md) ───────────────────────────
+  ACCOUNT_INACTIVE:                   'ACCOUNT_INACTIVE',
+  // Server always recomputes sale.total_paise from lines (BR-1) — the client
+  // never sends one, so there is no "mismatch" case to report there. What CAN
+  // mismatch is the payments against that computed total:
+  PAYMENT_MISMATCH:                   'PAYMENT_MISMATCH',
+  SALE_NOT_FOUND:                     'SALE_NOT_FOUND',
+  SALE_LINE_NOT_FOUND:                'SALE_LINE_NOT_FOUND',
+  REFUND_EXCEEDS_SALE:                'REFUND_EXCEEDS_SALE',
 
   // ── Sync engine (sync-engine.md) ───────────────────────────────────────
   SYNC_HORIZON_EXCEEDED:              'SYNC_HORIZON_EXCEEDED',
@@ -145,6 +164,7 @@ export const ErrorCodes = {
   SYNC_MISSING_ROW_VERSION:           'SYNC_MISSING_ROW_VERSION',
   UNKNOWN_MUTATION:                   'UNKNOWN_MUTATION',
   PARENT_FAILED:                      'PARENT_FAILED',
+  PARENT_CYCLE:                       'PARENT_CYCLE',
   SHIFT_NOT_OPEN:                     'SHIFT_NOT_OPEN',
   MUTATION_PAYLOAD_TOO_LARGE:         'MUTATION_PAYLOAD_TOO_LARGE',
   SYNC_CONFLICT_NOT_FOUND:            'SYNC_CONFLICT_NOT_FOUND',
@@ -163,6 +183,8 @@ export const ErrorCodes = {
   FILE_CONFIG_NOT_FOUND:              'FILE_CONFIG_NOT_FOUND',
   ENTITY_DOES_NOT_SUPPORT_ATTACHMENTS:'ENTITY_DOES_NOT_SUPPORT_ATTACHMENTS',
   STORAGE_UNAVAILABLE:                'STORAGE_UNAVAILABLE',
+  FILE_PARENT_NOT_FOUND:              'FILE_PARENT_NOT_FOUND',
+  FILE_PARENT_VERIFICATION_UNAVAILABLE:'FILE_PARENT_VERIFICATION_UNAVAILABLE',
 
   // ── General ────────────────────────────────────────────────────────────
   NOT_FOUND:                          'NOT_FOUND',

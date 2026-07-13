@@ -1,9 +1,15 @@
 import { Injectable } from '@nestjs/common';
 import { randomBytes } from 'crypto';
 import { type DbTransaction } from '#db/db.module.js';
+import { unwrapPgError } from '#db/rethrow-unique-violation.js';
 import { AppException } from '#common/exceptions/app.exception.js';
 import { ErrorCodes } from '#common/error-codes.js';
 import { AccountBootstrapRepository } from '../repositories/account-bootstrap.repository.js';
+
+/** account_number collisions are astronomically rare (6 chars from a
+ *  32-symbol alphabet) but not impossible — a couple of regenerate-and-retry
+ *  attempts are far cheaper than letting a raw 23505 abort the whole signup. */
+const ACCOUNT_NUMBER_MAX_ATTEMPTS = 3;
 
 /** Every new signup starts on this plan; the trial window opens at first store-create. */
 const TRIAL_PLAN_NAME = 'free';
@@ -43,14 +49,7 @@ export class AccountBootstrapService {
       );
     }
 
-    const account = await this.repo.insertAccount(
-      {
-        accountNumber: this.generateAccountNumber(),
-        name: 'My Business', // internal label; user renames later
-        ownerUserFk: userId,
-      },
-      tx,
-    );
+    const account = await this.insertAccountWithRetry(userId, tx);
 
     await this.repo.insertMembership({ accountFk: account.id, userFk: userId }, tx);
 
@@ -67,6 +66,41 @@ export class AccountBootstrapService {
       accountNumber: account.accountNumber,
       subscriptionId: subscription.id,
     };
+  }
+
+  /**
+   * Insert the account, regenerating account_number and retrying on a
+   * collision (up to ACCOUNT_NUMBER_MAX_ATTEMPTS times). Each attempt runs in
+   * its own SAVEPOINT (nested tx) — a plain retry-in-place would fail because
+   * a Postgres transaction is aborted for all subsequent commands once any
+   * statement in it errors; the nested tx confines that abort to just this
+   * attempt, same pattern as delta.service.ts's runHandlerInSavepoint.
+   */
+  private async insertAccountWithRetry(
+    userId: string,
+    tx: DbTransaction,
+  ): Promise<{ id: string; accountNumber: string }> {
+    for (let attempt = 1; attempt <= ACCOUNT_NUMBER_MAX_ATTEMPTS; attempt++) {
+      try {
+        return await tx.transaction((inner) =>
+          this.repo.insertAccount(
+            {
+              accountNumber: this.generateAccountNumber(),
+              name: 'My Business', // internal label; user renames later
+              ownerUserFk: userId,
+            },
+            inner,
+          ),
+        );
+      } catch (err) {
+        const pgErr = unwrapPgError(err);
+        const isCollision =
+          pgErr?.code === '23505' && pgErr.constraint_name === 'accounts_account_number_unique';
+        if (!isCollision || attempt === ACCOUNT_NUMBER_MAX_ATTEMPTS) throw err;
+      }
+    }
+    // Unreachable — the loop always either returns or throws.
+    throw new AppException(ErrorCodes.INTERNAL_ERROR, 'ACCOUNT_NUMBER_GENERATION_FAILED', 500);
   }
 
   /** 'ACC-XXXXXX' — 6 uppercase alphanumerics. account_number is UNIQUE. */

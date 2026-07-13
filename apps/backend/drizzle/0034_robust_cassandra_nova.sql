@@ -1,0 +1,1 @@
+ALTER TABLE "payment_accounts" ADD CONSTRAINT "ck_payment_accounts_default_active" CHECK (NOT ("payment_accounts"."is_default" AND NOT "payment_accounts"."is_active"));

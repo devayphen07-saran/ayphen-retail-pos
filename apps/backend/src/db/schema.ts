@@ -854,9 +854,7 @@ export const rateLimitFallbackCounters = pgTable(
     windowStart: timestamp('window_start', { withTimezone: true }).notNull(),
     count: integer('count').notNull().default(0),
   },
-  (t) => [
-    primaryKey({ columns: [t.key, t.windowStart] }),
-  ],
+  (t) => [primaryKey({ columns: [t.key, t.windowStart] })],
 );
 
 // ─── Auth Audit Logs (append-only — INSERT only, no UPDATE/DELETE) ───────────
@@ -1057,6 +1055,13 @@ export const files = pgTable(
     // No DB FK on recordId/recordGuuid (polymorphic) — enforce in app + orphan-cleanup job.
     index('idx_files_entity_record').on(t.entityTypeFk, t.recordGuuid),
     index('idx_files_store').on(t.storeFk),
+    // Dedupe (image-offline-architecture.md P1-13): the same bytes committed to
+    // the same record twice — a retried commit or a double-tap of the *same*
+    // photo — collapse to one live row instead of a duplicate. Scoped to live
+    // rows so a delete frees the pair, and to non-null hashes.
+    uniqueIndex('uk_files_record_sha')
+      .on(t.entityTypeFk, t.recordGuuid, t.sha256)
+      .where(sql`${t.deletedAt} IS NULL AND ${t.sha256} IS NOT NULL`),
   ],
 );
 
@@ -1210,7 +1215,16 @@ export const taxRates = pgTable(
     ...syncColumns(),
     ...auditColumns,
   },
-  (t) => [index('idx_taxrates_sync').on(t.storeFk, t.modifiedAt, t.id)],
+  (t) => [
+    index('idx_taxrates_sync').on(t.storeFk, t.modifiedAt, t.id),
+    // Tax rates are online-only, server-authoritative writes (no offline push),
+    // so uniqueness can be enforced in the DB — a duplicate 'GST 18%' is
+    // impossible instead of merely discouraged. Name unique per store,
+    // case-insensitive, scoped to live rows so a soft-delete frees the name.
+    uniqueIndex('uk_taxrates_store_name')
+      .on(t.storeFk, sql`lower(${t.name})`)
+      .where(sql`${t.deletedAt} IS NULL`),
+  ],
 );
 
 // ─── Payment methods (order 5) — pull-only for now ───────────────────────────
@@ -1251,17 +1265,161 @@ export const paymentAccounts = pgTable(
       .notNull()
       .references(() => stores.id, { onDelete: 'cascade' }),
     name: text('name').notNull(), // 'Counter cash', 'HDFC current'
-    paymentMethodFk: uuid('payment_method_fk').references(
-      () => paymentMethods.id,
-    ),
-    // Method-specific settlement details (UPI id, account number tail, …).
+    // The channel this account represents. Replaces the old optional
+    // payment_method link — `kind` is carried directly on the account so
+    // checkout can group by channel without a join.
+    kind: text('kind', {
+      enum: ['cash', 'bank', 'upi', 'card', 'wallet', 'other'],
+    })
+      .notNull()
+      .default('other'),
+    // Free-form settlement details (structured per-kind capture is deferred).
     details: jsonb('details'),
     isDefault: boolean('is_default').notNull().default(false),
     isActive: boolean('is_active').notNull().default(true),
+    // Seeded, locked accounts (Cash/Bank): cannot be renamed, deactivated, or
+    // deleted (BR-4). `systemKey` is a stable discriminator so checkout/reporting
+    // can find "the cash account" independent of the user-facing name (OQ-1).
+    // The server owns both flags — the sync push create schema never accepts them.
+    isSystem: boolean('is_system').notNull().default(false),
+    systemKey: text('system_key'), // 'cash' | 'bank' | null
     ...syncColumns(),
     ...auditColumns,
   },
-  (t) => [index('idx_payment_accounts_sync').on(t.storeFk, t.modifiedAt, t.id)],
+  (t) => [
+    index('idx_payment_accounts_sync').on(t.storeFk, t.modifiedAt, t.id),
+    // BR-3: at most one active account per store per case-insensitive name.
+    uniqueIndex('uk_payment_accounts_store_name')
+      .on(t.storeFk, sql`lower(${t.name})`)
+      .where(sql`${t.deletedAt} IS NULL AND ${t.isActive}`),
+    // BR-8: at most one default account per store (backstop for the atomic
+    // clear-then-set in the push handler).
+    uniqueIndex('uk_payment_accounts_one_default')
+      .on(t.storeFk)
+      .where(sql`${t.isDefault} AND ${t.deletedAt} IS NULL`),
+    // BR-1: exactly one Cash and one Bank seed per store (idempotent seeding).
+    uniqueIndex('uk_payment_accounts_system_key')
+      .on(t.storeFk, t.systemKey)
+      .where(sql`${t.systemKey} IS NOT NULL`),
+    // An inactive account can never be the default (deactivating the default is
+    // rejected — reassign first). Backstops the app-layer rule.
+    check('ck_payment_accounts_default_active', sql`NOT (${t.isDefault} AND NOT ${t.isActive})`),
+  ],
+);
+
+// ─── Ledger (docs/prd/accounts-and-ledger.md) ────────────────────────────────
+// Money truth lives in EVENTS, pushed append-only (D1) — never through
+// MasterDataSyncHandler's optimistic lock (a concurrent cash movement is not a
+// row_version conflict, sync-engine.md master-data.handler.ts ~L78).
+// `account_transactions` is the DERIVED projection those events fold into; the
+// server is its only writer (BR-3) — it has a pull filter but no push handler.
+// Both tables are insert-only: no UPDATE ever happens, so `modified_at` is
+// simply `defaultNow()` at insert time — no sync_touch_row trigger needed
+// (that trigger exists to catch a forgotten bump on UPDATE, which can't happen
+// here). `row_version` from `syncColumns()` is vestigial (always 1) — kept
+// only so every synced table shares one column shape.
+
+export const cashMovements = pgTable(
+  'cash_movements',
+  {
+    id: uuid('id').primaryKey().defaultRandom(),
+    storeFk: uuid('store_fk')
+      .notNull()
+      .references(() => stores.id, { onDelete: 'cascade' }),
+    accountFk: uuid('account_fk')
+      .notNull()
+      .references(() => paymentAccounts.id),
+    // shift_session_fk deferred to the shift-ceremony phase (F7) — no
+    // shift_sessions table exists yet. Movements are unscoped until then.
+    type: text('type', { enum: ['payin', 'payout', 'drop', 'tip'] }).notNull(),
+    // Required for payout/drop (BR-7) — enforced in the create schema
+    // (cash-movement.handler.ts), not here: a DB CHECK can't see `type` and
+    // `reason` together without a trigger, and offline mutations only reach
+    // this constraint at sync time anyway.
+    reason: text('reason'),
+    amountPaise: integer('amount_paise').notNull(),
+    byUserFk: uuid('by_user_fk').notNull(),
+    ...syncColumns(),
+    createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+    createdBy: uuid('created_by'),
+    deviceFk: uuid('device_fk'),
+  },
+  (t) => [
+    index('idx_cash_movements_sync').on(t.storeFk, t.modifiedAt, t.id),
+    index('idx_cash_movements_account').on(t.accountFk, t.createdAt),
+    check('ck_cash_movements_amount_positive', sql`${t.amountPaise} > 0`),
+  ],
+);
+
+export const accountTransactions = pgTable(
+  'account_transactions',
+  {
+    id: uuid('id').primaryKey().defaultRandom(),
+    storeFk: uuid('store_fk')
+      .notNull()
+      .references(() => stores.id, { onDelete: 'cascade' }),
+    accountFk: uuid('account_fk')
+      .notNull()
+      .references(() => paymentAccounts.id),
+    direction: text('direction', { enum: ['credit', 'debit'] }).notNull(), // credit = money IN, debit = OUT
+    amountPaise: integer('amount_paise').notNull(),
+    reason: text('reason', {
+      enum: [
+        'opening_balance',
+        'float',
+        'payin',
+        'payout',
+        'drop',
+        'tip',
+        'count',
+        'variance',
+        'sale',
+        'refund',
+        'vendor_payment',
+        'credit_payment',
+      ],
+    }).notNull(),
+    sourceType: text('source_type', {
+      enum: ['sale', 'refund', 'cash_movement', 'opening', 'shift'],
+    }).notNull(),
+    sourceFk: uuid('source_fk').notNull(), // the event row this posting was derived from
+    shiftSessionFk: uuid('shift_session_fk'), // deferred FK — no shift_sessions table yet (F7)
+    note: text('note'),
+    ...syncColumns(),
+    createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+    createdBy: uuid('created_by'),
+    deviceFk: uuid('device_fk'),
+  },
+  (t) => [
+    index('idx_account_transactions_sync').on(t.storeFk, t.modifiedAt, t.id),
+    index('idx_account_transactions_account').on(t.accountFk, t.createdAt),
+    check('ck_account_transactions_amount_positive', sql`${t.amountPaise} > 0`),
+  ],
+);
+
+// F1: the opening-balance event a store's seeded accounts are posted from at
+// create time. Server-authored only (StoreService.createStore) — never
+// touches the mobile sync pipeline, so unlike the tables above it carries no
+// `guuid`/`row_version`/`device_fk`: those exist purely for the sync wire
+// protocol, and nothing ever pushes or pulls this table.
+export const openingBalances = pgTable(
+  'opening_balances',
+  {
+    id: uuid('id').primaryKey().defaultRandom(),
+    storeFk: uuid('store_fk')
+      .notNull()
+      .references(() => stores.id, { onDelete: 'cascade' }),
+    accountFk: uuid('account_fk')
+      .notNull()
+      .references(() => paymentAccounts.id),
+    amountPaise: integer('amount_paise').notNull(),
+    createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+    createdBy: uuid('created_by'),
+  },
+  (t) => [
+    index('idx_opening_balances_account').on(t.accountFk),
+    check('ck_opening_balances_amount_positive', sql`${t.amountPaise} > 0`),
+  ],
 );
 
 // ─── Products (order 10) — writable via sync ─────────────────────────────────
@@ -1339,6 +1497,148 @@ export const productCases = pgTable(
   ],
 );
 
+// ─── Sales & Refunds (docs/prd/accounts-and-ledger.md F2/F3) ─────────────────
+// `sale`/`refund` are the only PUSHED mutation entities here — each is a
+// single composite create (header + lines + payments in one call, one DB
+// transaction), not three independently-pushed mutations. This sidesteps a
+// real sequencing problem: `sale.total_paise` must be server-recomputed from
+// its lines (BR-1), but the sync pipeline's wave/parent_guuid ordering would
+// only guarantee a child row lands in a LATER wave than its parent — there's
+// no mechanism to validate a parent AFTER its children arrive. Embedding
+// lines/payments in the sale's own payload avoids needing one.
+// `sale_lines`/`sale_payments`/`refund_lines` are pull-only (like
+// `account_transactions`): a pull filter so devices can read them, no push
+// handler — the composite handler above is their only writer.
+
+export const sales = pgTable(
+  'sales',
+  {
+    id: uuid('id').primaryKey().defaultRandom(),
+    storeFk: uuid('store_fk')
+      .notNull()
+      .references(() => stores.id, { onDelete: 'cascade' }),
+    // shift_session_fk deferred to F7 — no shift_sessions table yet.
+    // customer_fk / on-credit tender deferred to Phase 3 (F5) — every Phase 2
+    // sale is paid in full by a real account at completion time.
+    totalPaise: integer('total_paise').notNull(), // server-recomputed from lines (BR-1)
+    status: text('status', {
+      enum: ['completed', 'partially_refunded', 'refunded'],
+    })
+      .notNull()
+      .default('completed'), // server-internal only — never client-updated; see refund handler
+    invoiceNo: text('invoice_no'),
+    soldAt: timestamp('sold_at', { withTimezone: true }).notNull().defaultNow(),
+    ...syncColumns(),
+    createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+    createdBy: uuid('created_by'),
+    deviceFk: uuid('device_fk'),
+  },
+  (t) => [
+    index('idx_sales_sync').on(t.storeFk, t.modifiedAt, t.id),
+    check('ck_sales_total_positive', sql`${t.totalPaise} > 0`),
+  ],
+);
+
+export const saleLines = pgTable(
+  'sale_lines',
+  {
+    id: uuid('id').primaryKey().defaultRandom(),
+    saleFk: uuid('sale_fk')
+      .notNull()
+      .references(() => sales.id, { onDelete: 'cascade' }),
+    productFk: uuid('product_fk')
+      .notNull()
+      .references(() => products.id),
+    qty: numeric('qty', { precision: 12, scale: 3 }).notNull(),
+    unitPricePaise: integer('unit_price_paise').notNull(),
+    discountPaise: integer('discount_paise').notNull().default(0),
+    lineTotalPaise: integer('line_total_paise').notNull(), // server-computed = qty*unitPrice - discount
+    guuid: uuid('guuid').notNull().defaultRandom().unique(),
+    modifiedAt: timestamp('modified_at', { withTimezone: true }).notNull().defaultNow(),
+    createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [
+    index('idx_sale_lines_sale').on(t.saleFk),
+    check('ck_sale_lines_qty_positive', sql`${t.qty} > 0`),
+    check('ck_sale_lines_line_total_nonnegative', sql`${t.lineTotalPaise} >= 0`),
+  ],
+);
+
+export const salePayments = pgTable(
+  'sale_payments',
+  {
+    id: uuid('id').primaryKey().defaultRandom(),
+    saleFk: uuid('sale_fk')
+      .notNull()
+      .references(() => sales.id, { onDelete: 'cascade' }),
+    accountFk: uuid('account_fk')
+      .notNull()
+      .references(() => paymentAccounts.id),
+    tender: text('tender', {
+      enum: ['cash', 'card', 'upi', 'wallet', 'other'],
+    }).notNull(),
+    amountPaise: integer('amount_paise').notNull(),
+    guuid: uuid('guuid').notNull().defaultRandom().unique(),
+    modifiedAt: timestamp('modified_at', { withTimezone: true }).notNull().defaultNow(),
+    createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [
+    index('idx_sale_payments_sale').on(t.saleFk),
+    check('ck_sale_payments_amount_positive', sql`${t.amountPaise} > 0`),
+  ],
+);
+
+export const refunds = pgTable(
+  'refunds',
+  {
+    id: uuid('id').primaryKey().defaultRandom(),
+    storeFk: uuid('store_fk')
+      .notNull()
+      .references(() => stores.id, { onDelete: 'cascade' }),
+    saleFk: uuid('sale_fk')
+      .notNull()
+      .references(() => sales.id),
+    accountFk: uuid('account_fk')
+      .notNull()
+      .references(() => paymentAccounts.id),
+    amountPaise: integer('amount_paise').notNull(), // server-computed = Σ refund_lines
+    reason: text('reason'),
+    refundedAt: timestamp('refunded_at', { withTimezone: true }).notNull().defaultNow(),
+    ...syncColumns(),
+    createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+    createdBy: uuid('created_by'),
+    deviceFk: uuid('device_fk'),
+  },
+  (t) => [
+    index('idx_refunds_sync').on(t.storeFk, t.modifiedAt, t.id),
+    index('idx_refunds_sale').on(t.saleFk),
+    check('ck_refunds_amount_positive', sql`${t.amountPaise} > 0`),
+  ],
+);
+
+export const refundLines = pgTable(
+  'refund_lines',
+  {
+    id: uuid('id').primaryKey().defaultRandom(),
+    refundFk: uuid('refund_fk')
+      .notNull()
+      .references(() => refunds.id, { onDelete: 'cascade' }),
+    saleLineFk: uuid('sale_line_fk')
+      .notNull()
+      .references(() => saleLines.id),
+    qty: numeric('qty', { precision: 12, scale: 3 }).notNull(),
+    amountPaise: integer('amount_paise').notNull(),
+    guuid: uuid('guuid').notNull().defaultRandom().unique(),
+    modifiedAt: timestamp('modified_at', { withTimezone: true }).notNull().defaultNow(),
+    createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [
+    index('idx_refund_lines_refund').on(t.refundFk),
+    check('ck_refund_lines_qty_positive', sql`${t.qty} > 0`),
+    check('ck_refund_lines_amount_positive', sql`${t.amountPaise} > 0`),
+  ],
+);
+
 // ─── Customers (order 20) — writable via sync ────────────────────────────────
 
 export const customers = pgTable(
@@ -1351,11 +1651,37 @@ export const customers = pgTable(
     name: text('name').notNull(),
     phone: text('phone'),
     email: text('email'),
+    website: text('website'),
+    logoUri: text('logo_uri'),
+    // Tax (Indian B2B) — GSTIN 15-char, PAN 10-char; format enforced in the
+    // sync handler zod, not the DB (offline mutations can't hit a CHECK early).
     gstNumber: text('gst_number'),
+    panNumber: text('pan_number'),
     customerTypeLookupFk: uuid('customer_type_lookup_fk').references(
       () => lookup.id,
     ),
+    // Credit & payment. creditLimit null/0 = unlimited (BR-CUS-020);
+    // overrideCreditLimit skips the POS check entirely (BR-CUS-025).
     creditLimit: numeric('credit_limit', { precision: 12, scale: 2 }),
+    overrideCreditLimit: boolean('override_credit_limit')
+      .notNull()
+      .default(false),
+    paymentTermLookupFk: uuid('payment_term_lookup_fk').references(
+      () => lookup.id,
+    ),
+    paymentTermDays: integer('payment_term_days'), // for Net (custom), 1–999
+    // Address (denormalised primary). state is a STATE lookup FK (globalOrStore);
+    // district/city are free text (BR-CUS-062 clears them when state changes).
+    addressLine1: text('address_line_1'),
+    addressLine2: text('address_line_2'),
+    city: text('city'),
+    district: text('district'),
+    stateLookupFk: uuid('state_lookup_fk').references(() => lookup.id),
+    pinCode: text('pin_code'), // 6-digit Indian PIN
+    // Relationship management (Indian retail) — ISO YYYY-MM-DD, year optional.
+    birthday: text('birthday'),
+    anniversary: text('anniversary'),
+    notes: text('notes'), // 0–250 chars
     isActive: boolean('is_active').notNull().default(true),
     ...syncColumns(),
     ...auditColumns,
@@ -1366,9 +1692,11 @@ export const customers = pgTable(
     // BR-CUS-001/BR-CUS-004 (customers spec): name/email unique per store,
     // case-insensitive. Previously stated in the spec as "checked at sync"
     // but never actually backed by anything.
-    uniqueIndex('uk_customers_store_name').on(t.storeFk, sql`lower(${t.name})`)
+    uniqueIndex('uk_customers_store_name')
+      .on(t.storeFk, sql`lower(${t.name})`)
       .where(sql`${t.deletedAt} IS NULL`),
-    uniqueIndex('uk_customers_store_email').on(t.storeFk, sql`lower(${t.email})`)
+    uniqueIndex('uk_customers_store_email')
+      .on(t.storeFk, sql`lower(${t.email})`)
       .where(sql`${t.email} IS NOT NULL AND ${t.deletedAt} IS NULL`),
   ],
 );
@@ -1383,9 +1711,31 @@ export const suppliers = pgTable(
       .notNull()
       .references(() => stores.id, { onDelete: 'cascade' }),
     name: text('name').notNull(),
+    displayName: text('display_name'), // optional short name (e.g. "HUL")
     phone: text('phone'),
     email: text('email'),
+    website: text('website'),
+    logoUri: text('logo_uri'),
     gstNumber: text('gst_number'),
+    panNumber: text('pan_number'),
+    // Payment configuration (suppliers owe-side). creditLimit = amount the
+    // store may owe before new purchases block; null/0 = no limit.
+    paymentTermLookupFk: uuid('payment_term_lookup_fk').references(
+      () => lookup.id,
+    ),
+    paymentTermDays: integer('payment_term_days'),
+    creditLimit: numeric('credit_limit', { precision: 12, scale: 2 }),
+    overrideCreditLimit: boolean('override_credit_limit')
+      .notNull()
+      .default(false),
+    // Address (denormalised primary) — same shape as customers.
+    addressLine1: text('address_line_1'),
+    addressLine2: text('address_line_2'),
+    city: text('city'),
+    district: text('district'),
+    stateLookupFk: uuid('state_lookup_fk').references(() => lookup.id),
+    pinCode: text('pin_code'),
+    notes: text('notes'),
     isActive: boolean('is_active').notNull().default(true),
     ...syncColumns(),
     ...auditColumns,
@@ -1394,9 +1744,11 @@ export const suppliers = pgTable(
     index('idx_suppliers_sync').on(t.storeFk, t.modifiedAt, t.id),
     // BR-SUP-003/BR-SUP-006 (suppliers spec): name/email unique per store,
     // case-insensitive — same backstop gap as customers.
-    uniqueIndex('uk_suppliers_store_name').on(t.storeFk, sql`lower(${t.name})`)
+    uniqueIndex('uk_suppliers_store_name')
+      .on(t.storeFk, sql`lower(${t.name})`)
       .where(sql`${t.deletedAt} IS NULL`),
-    uniqueIndex('uk_suppliers_store_email').on(t.storeFk, sql`lower(${t.email})`)
+    uniqueIndex('uk_suppliers_store_email')
+      .on(t.storeFk, sql`lower(${t.email})`)
       .where(sql`${t.email} IS NOT NULL AND ${t.deletedAt} IS NULL`),
   ],
 );
@@ -1563,7 +1915,11 @@ export const syncConflicts = pgTable(
   (t) => [
     // Store-scoped — see sync_mutation_idempotency above for why (mutation_id,
     // user_fk) alone isn't a safe dedupe key for a multi-store user.
-    uniqueIndex('uk_sync_conflicts_mutation').on(t.mutationId, t.userFk, t.storeFk),
+    uniqueIndex('uk_sync_conflicts_mutation').on(
+      t.mutationId,
+      t.userFk,
+      t.storeFk,
+    ),
     index('idx_sync_conflicts_store_status').on(t.storeFk, t.status),
   ],
 );

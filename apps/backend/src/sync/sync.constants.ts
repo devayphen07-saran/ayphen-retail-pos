@@ -4,6 +4,7 @@
  * (S-22: retention < horizon → silently resurrected rows) happened because the
  * two constants lived in different files with no encoded dependency.
  */
+import { MS_PER_DAY } from '#common/time.js';
 
 // ─── Cursor horizon & retention (§4/§8/§19) ──────────────────────────────────
 
@@ -20,7 +21,7 @@ export const TOMBSTONE_RETENTION_BUFFER_DAYS = 15;
 export const TOMBSTONE_RETENTION_DAYS =
   SYNC_HORIZON_DAYS + TOMBSTONE_RETENTION_BUFFER_DAYS;
 
-export const SYNC_HORIZON_MS = SYNC_HORIZON_DAYS * 24 * 60 * 60 * 1000;
+export const SYNC_HORIZON_MS = SYNC_HORIZON_DAYS * MS_PER_DAY;
 
 // ─── Page sizes (§2) ─────────────────────────────────────────────────────────
 
@@ -69,12 +70,25 @@ export const MAX_MUTATION_PAYLOAD_BYTES = 64 * 1024;
 // ─── Idempotency TTLs (§10) ──────────────────────────────────────────────────
 
 /**
- * Applied/rejected results must outlive the client DLQ's max dwell (S-35) —
- * a DLQ'd sale retried after its idempotency row is purged re-executes as a
- * double sale. 45 d > max(refresh-token 30 d, DLQ dwell 30 d) + margin.
+ * Applied/rejected idempotency rows must OUTLIVE the longest interval after
+ * which a client can still legitimately replay a mutation_id (S-35, C2). If the
+ * row is purged first, the replay is no longer recognised as a duplicate and
+ * the business write RE-EXECUTES → double sale. The TTL is therefore DERIVED
+ * from the two client replay bounds, never set as a bare magic number:
+ *   - CLIENT_DLQ_MAX_DWELL_DAYS: how long a mutation may sit dead/quarantined
+ *     on the client before a manual retry (the mobile client mirrors this and
+ *     REFUSES to replay a mutation_id older than IDEMPOTENCY_TTL_DAYS, closing
+ *     the window from the other side — belt and suspenders).
+ *   - REFRESH_TOKEN_LIFE_DAYS: a client with an expired refresh token can't
+ *     authenticate to replay at all (REFRESH_TOKEN_TTL_SECONDS = 30 d, env.ts).
+ * Drift-proof: bump a bound and the TTL moves with it.
  */
-export const IDEMPOTENCY_TTL_DAYS = 45;
-export const IDEMPOTENCY_TTL_MS = IDEMPOTENCY_TTL_DAYS * 24 * 60 * 60 * 1000;
+export const CLIENT_DLQ_MAX_DWELL_DAYS = 30;
+export const REFRESH_TOKEN_LIFE_DAYS = 30;
+export const IDEMPOTENCY_TTL_MARGIN_DAYS = 15;
+export const IDEMPOTENCY_TTL_DAYS =
+  Math.max(CLIENT_DLQ_MAX_DWELL_DAYS, REFRESH_TOKEN_LIFE_DAYS) + IDEMPOTENCY_TTL_MARGIN_DAYS; // 45
+export const IDEMPOTENCY_TTL_MS = IDEMPOTENCY_TTL_DAYS * MS_PER_DAY;
 
 /** Conflicts expire fast so a post-merge resubmit isn't wrongly deduped as stale. */
 export const IDEMPOTENCY_CONFLICT_TTL_MS = 5 * 60 * 1000;
@@ -131,6 +145,13 @@ export const SYNC_ENTITY_TYPES = [
   'customer',
   'supplier',
   'staff',
+  'cash_movement',
+  'account_transaction',
+  'sale',
+  'sale_line',
+  'sale_payment',
+  'refund',
+  'refund_line',
 ] as const;
 
 export type SyncEntityType = (typeof SYNC_ENTITY_TYPES)[number];

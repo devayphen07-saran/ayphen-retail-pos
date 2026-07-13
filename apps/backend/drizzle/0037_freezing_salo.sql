@@ -1,0 +1,1 @@
+CREATE UNIQUE INDEX "uk_taxrates_store_name" ON "taxrates" USING btree ("store_fk",lower("name")) WHERE "taxrates"."deleted_at" IS NULL;

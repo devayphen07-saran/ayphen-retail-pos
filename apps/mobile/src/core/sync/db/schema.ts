@@ -4,7 +4,9 @@ import {
   integer,
   primaryKey,
   uniqueIndex,
+  index,
 } from 'drizzle-orm/sqlite-core';
+import { sql } from 'drizzle-orm';
 
 /**
  * Local mirror of the backend sync registry (sync-engine.md §3, verified against
@@ -116,6 +118,26 @@ export const paymentMethods = sqliteTable('payment_methods', {
   modifiedAt: text('modified_at').notNull(),
 });
 
+// Read cache for payment accounts (Cash/Bank seeds + user-created). Pull-only —
+// writes go straight to the server (PRD payment-accounts-mobile §0/BR-13); the
+// pull applier is the sole writer of this table. `isSystem` marks the locked
+// seeds (only their default status is editable); `systemKey` ('cash'|'bank') is
+// the stable discriminator. `kind` is the channel (cash|bank|upi|card|wallet|other).
+export const paymentAccounts = sqliteTable('payment_accounts', {
+  id: text('id').primaryKey(),
+  storeId: text('store_id').notNull(),
+  guuid: text('guuid').notNull(),
+  name: text('name').notNull(),
+  kind: text('kind'), // cash | bank | upi | card | wallet | other
+  details: text('details', { mode: 'json' }),
+  isDefault: bool('is_default'),
+  isActive: bool('is_active'),
+  isSystem: bool('is_system'),
+  systemKey: text('system_key'),
+  rowVersion: integer('row_version').notNull(),
+  modifiedAt: text('modified_at').notNull(),
+});
+
 // ─── A2. Catalog / master — writable offline ────────────────────────────────
 
 export const products = sqliteTable('products', {
@@ -159,10 +181,89 @@ export const customers = sqliteTable('customers', {
   name: text('name').notNull(),
   phone: text('phone'),
   email: text('email'),
+  website: text('website'),
+  logoUri: text('logo_uri'),
   gstNumber: text('gst_number'),
+  panNumber: text('pan_number'),
   customerTypeLookupFk: text('customer_type_lookup_fk'),
   creditLimit: text('credit_limit'),
+  overrideCreditLimit: bool('override_credit_limit'),
+  paymentTermLookupFk: text('payment_term_lookup_fk'),
+  paymentTermDays: integer('payment_term_days'),
+  addressLine1: text('address_line_1'),
+  addressLine2: text('address_line_2'),
+  city: text('city'),
+  district: text('district'),
+  stateLookupFk: text('state_lookup_fk'),
+  pinCode: text('pin_code'),
+  birthday: text('birthday'),
+  anniversary: text('anniversary'),
+  notes: text('notes'),
   isActive: bool('is_active'),
+  rowVersion: integer('row_version').notNull(),
+  modifiedAt: text('modified_at').notNull(),
+});
+
+export const suppliers = sqliteTable('suppliers', {
+  id: text('id').primaryKey(),
+  storeId: text('store_id').notNull(),
+  guuid: text('guuid').notNull(),
+  name: text('name').notNull(),
+  displayName: text('display_name'),
+  phone: text('phone'),
+  email: text('email'),
+  website: text('website'),
+  logoUri: text('logo_uri'),
+  gstNumber: text('gst_number'),
+  panNumber: text('pan_number'),
+  paymentTermLookupFk: text('payment_term_lookup_fk'),
+  paymentTermDays: integer('payment_term_days'),
+  creditLimit: text('credit_limit'),
+  overrideCreditLimit: bool('override_credit_limit'),
+  addressLine1: text('address_line_1'),
+  addressLine2: text('address_line_2'),
+  city: text('city'),
+  district: text('district'),
+  stateLookupFk: text('state_lookup_fk'),
+  pinCode: text('pin_code'),
+  notes: text('notes'),
+  isActive: bool('is_active'),
+  rowVersion: integer('row_version').notNull(),
+  modifiedAt: text('modified_at').notNull(),
+});
+
+// ─── A3. Ledger (docs/prd/accounts-and-ledger.md) — writable/pull-only mix ──
+// `cash_movements` is the client-writable EVENT (manual cash in/out);
+// `account_transactions` is the server-DERIVED projection those events (plus
+// sale/refund/etc., once built) fold into — pull-only, the client never
+// writes it directly (BR-3). Both are append-only: no update/delete applier
+// path exists for either.
+
+export const cashMovements = sqliteTable('cash_movements', {
+  id: text('id').primaryKey(),
+  storeId: text('store_id').notNull(),
+  guuid: text('guuid').notNull(),
+  accountFk: text('account_fk').notNull(),
+  type: text('type'), // payin | payout | drop | tip
+  reason: text('reason'),
+  amountPaise: integer('amount_paise').notNull(),
+  byUserFk: text('by_user_fk'),
+  rowVersion: integer('row_version').notNull(),
+  modifiedAt: text('modified_at').notNull(),
+});
+
+export const accountTransactions = sqliteTable('account_transactions', {
+  id: text('id').primaryKey(),
+  storeId: text('store_id').notNull(),
+  guuid: text('guuid').notNull(),
+  accountFk: text('account_fk').notNull(),
+  direction: text('direction'), // credit (money IN) | debit (OUT)
+  amountPaise: integer('amount_paise').notNull(),
+  reason: text('reason'),
+  sourceType: text('source_type'), // sale | refund | cash_movement | opening | shift
+  sourceFk: text('source_fk'),
+  shiftSessionFk: text('shift_session_fk'),
+  note: text('note'),
   rowVersion: integer('row_version').notNull(),
   modifiedAt: text('modified_at').notNull(),
 });
@@ -212,6 +313,10 @@ export const mutationQueue = sqliteTable('mutation_queue', {
   attempts: integer('attempts').notNull().default(0),
   nextAttemptAt: text('next_attempt_at'),
   serverRow: text('server_row'), // JSON — populated on status='conflict'
+  // JSON of the row's prior state, captured at enqueue for action='update'/'delete'
+  // so a terminal server rejection can restore it (C5). Null for 'create' (there
+  // was no prior row — rollback deletes the temp row instead).
+  preImage: text('pre_image'),
   firstFailureAt: text('first_failure_at'),
   lastFailureAt: text('last_failure_at'),
   errorCode: text('error_code'),
@@ -268,3 +373,62 @@ export const syncStoreMeta = sqliteTable('sync_store_meta', {
   permissions: text('permissions'),
   updatedAt: text('updated_at').notNull(),
 });
+
+/**
+ * Device-local image-upload bookkeeping (image-offline-architecture.md C3). NOT a
+ * synced table — it never rides `/sync/delta`; the server `files` row is the
+ * shared truth. It is the durable work-list for the background uploader, so an
+ * app-kill mid-capture/mid-upload is recoverable. A photo captured offline lands
+ * here as `pending_upload` and is staged→committed over the online file pipeline
+ * when connectivity and the parent product allow.
+ *
+ * `status` governs the upload lifecycle; `deletedAt` governs existence — deletion
+ * is never expressed via `status`.
+ */
+export const attachment = sqliteTable(
+  'attachment',
+  {
+    guuid: text('guuid').primaryKey(), // client-generated attachment id
+    storeFk: text('store_fk').notNull(),
+    entityType: text('entity_type').notNull(), // 'Product'
+    recordGuuid: text('record_guuid').notNull(), // parent product's client guuid
+    kind: text('kind').notNull(), // 'image'
+    status: text('status', {
+      enum: [
+        'pending_upload',
+        'staging',
+        'staged',
+        'committing',
+        'committed',
+        'failed',
+        'blocked', // subscription/permission gated — bulk-requeued on reactivation
+        'orphaned', // parent gone/dead — local files cleaned
+      ],
+    })
+      .notNull()
+      .default('pending_upload'),
+    localPath: text('local_path'), // file:// original — deleted after commit
+    localThumbPath: text('local_thumb_path'), // retained thumb = the offline read cache
+    fileGuuid: text('file_guuid'), // server files.guuid after commit → stable expo-image cacheKey (P1-9)
+    tempGuuid: text('temp_guuid'), // server temp handle returned by STAGE, before commit
+    mimeType: text('mime_type'),
+    sizeBytes: integer('size_bytes'),
+    sha256: text('sha256'),
+    attemptCount: integer('attempt_count').notNull().default(0), // upload attempts (backoff)
+    deferCount: integer('defer_count').notNull().default(0), // parent-not-synced deferrals — BOUNDED (P1-11)
+    nextAttemptAt: integer('next_attempt_at'), // epoch ms, backoff gate
+    lastError: text('last_error'),
+    lastErrorCode: text('last_error_code'), // e.g. SUBSCRIPTION_LAPSED → drives bulk requeue (P1-14)
+    createdBy: text('created_by').notNull(),
+    createdAt: integer('created_at').notNull(), // epoch ms
+    deletedAt: integer('deleted_at'), // epoch ms; soft delete
+  },
+  (t) => [
+    // Uploader drain: the pending work-list ordered by its backoff gate.
+    index('idx_att_pending')
+      .on(t.status, t.nextAttemptAt)
+      .where(sql`${t.deletedAt} IS NULL`),
+    // Display + orphan resolution by parent product.
+    index('idx_att_parent').on(t.recordGuuid).where(sql`${t.deletedAt} IS NULL`),
+  ],
+);

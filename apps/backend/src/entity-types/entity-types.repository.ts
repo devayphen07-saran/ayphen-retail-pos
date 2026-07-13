@@ -36,6 +36,16 @@ export class EntityTypesRepository {
     return row ?? null;
   }
 
+  /** Reverse lookup by id — resolves an `entity_type_fk` (e.g. from a `files`
+   *  row) back to its code, used for per-parent-entity permission checks. */
+  async findById(id: string, tx?: DbExecutor): Promise<EntityTypeRow | null> {
+    const [row] = await this.client(tx)
+      .select()
+      .from(entityTypes)
+      .where(eq(entityTypes.id, id));
+    return row ?? null;
+  }
+
   async listAll(tx?: DbExecutor): Promise<EntityTypeRow[]> {
     return this.client(tx).select().from(entityTypes);
   }

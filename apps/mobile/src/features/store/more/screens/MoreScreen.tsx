@@ -15,7 +15,8 @@ import {
 import { useActiveStoreStore, useActiveStoreContext } from '@store';
 import { useAuth } from '@core/providers/AuthProvider';
 import { MORE_SECTIONS, type MoreSectionConfig, MenuRowList } from '@features/more';
-import { useSyncIssueCount } from '@features/sync';
+import { useSyncIssueCount, usePendingSyncCount } from '@features/sync';
+import { useNetInfo } from '@react-native-community/netinfo';
 
 /**
  * More tab. Visually modeled on the reference app's MoreScreen (gradient
@@ -35,6 +36,9 @@ export function MoreScreen() {
   const store = useActiveStoreContext();
   const clearActiveStore = useActiveStoreStore((s) => s.clearActiveStore);
   const syncIssueCount = useSyncIssueCount();
+  const { total: pendingCount } = usePendingSyncCount();
+  const net = useNetInfo();
+  const isOffline = net.isConnected === false || net.isInternetReachable === false;
 
   const storeName = store?.name || 'Unknown store';
   // Debug-only tooling (raw SQLite table browser) has no place in a build a
@@ -61,9 +65,26 @@ export function MoreScreen() {
   };
 
   const handleLogout = () => {
+    // Logging out wipes local data (re-login re-syncs from scratch). Offline with
+    // unsynced writes = real data loss, so warn hard; online, logout() flushes
+    // them first, so a normal confirm is enough.
+    const n = pendingCount;
+    const plural = n === 1 ? '' : 's';
+    if (n > 0 && isOffline) {
+      Alert.confirm(
+        'Unsynced changes will be lost',
+        `You have ${n} change${plural} that haven't synced yet, and you're offline — they can't be saved and will be lost if you log out now.`,
+        () => void logout(),
+        'Log out anyway',
+        'destructive',
+      );
+      return;
+    }
     Alert.confirm(
       'Log out',
-      'You will need to sign in again to access your stores.',
+      n > 0
+        ? `Your ${n} unsynced change${plural} will be synced before you're logged out. You'll need to sign in again to access your stores.`
+        : 'You will need to sign in again to access your stores.',
       // logout() → clearSession() now clears the active-store context centrally,
       // so no manual clearActiveStore() here (single source of teardown).
       () => void logout(),
@@ -157,7 +178,13 @@ export function MoreScreen() {
             items={visibleSections.map((section) => ({
               key: section.key,
               title: section.title,
-              description: section.description,
+              // Surface "waiting to sync" as a subtitle on the System row —
+              // distinct from the badgeCount below, which is for issues (a
+              // problem) not normal in-flight work.
+              description:
+                section.key === 'system' && pendingCount > 0
+                  ? `${section.description} · ${pendingCount} waiting to sync`
+                  : section.description,
               iconName: section.iconName,
               iconColor: section.iconColor,
               onPress: () => openSection(section),

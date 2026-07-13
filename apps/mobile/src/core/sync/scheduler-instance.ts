@@ -1,91 +1,241 @@
-import NetInfo from '@react-native-community/netinfo';
-import { AppState, type AppStateStatus } from 'react-native';
+import NetInfo, {
+  type NetInfoSubscription,
+} from '@react-native-community/netinfo';
+import {
+  AppState,
+  type AppStateStatus,
+  type NativeEventSubscription,
+} from 'react-native';
 import { SyncScheduler } from './engine/sync-scheduler';
 import { useStoreOpenStatus } from './store-open-status';
-
-/** Foreground heartbeat cadence — steady-state polling while the app is open
- *  and a store is active. Not aggressive: most freshness comes from the
- *  push-then-pull that happens on every mutation drain, not this timer. */
-const SYNC_INTERVAL_MS = 5 * 60 * 1000;
-
-let current: { storeId: string; scheduler: SyncScheduler } | null = null;
+import { ImageUploader } from './image-uploader';
+import {
+  setImageUploader,
+  requestImageUpload,
+} from './image-uploader-instance';
 
 /**
- * Start (or rebind) the sync scheduler for a store. Idempotent for the same
- * store — calling this again while already bound to `storeId` is a no-op,
- * so effect re-runs / duplicate calls from re-navigation are harmless.
- *
- * `current` is only assigned AFTER the initial open succeeds (navigation-agent
- * §4/golden rule 8 — the store-open state machine). On failure, `current`
- * stays whatever `stopSync()` left it as (null), so a later retry call to
- * this same function re-enters fully rather than short-circuiting on the
- * `current?.storeId === storeId` guard above.
+ * Foreground heartbeat cadence while the app is open and a store is active.
+ * Most freshness still comes from mutation-triggered push/pull cycles.
  */
-export async function startSyncForStore(storeId: string): Promise<void> {
-  if (current?.storeId === storeId) return;
-  stopSync();
-  useStoreOpenStatus.getState().setOpening(storeId);
+const SYNC_INTERVAL_MS = 5 * 60 * 1000;
 
-  const scheduler = new SyncScheduler(storeId);
-  try {
-    await scheduler.openStoreOnce();
-  } catch (err) {
-    const message = err instanceof Error ? err.message : 'Could not open this store.';
-    useStoreOpenStatus.getState().setError(storeId, message);
-    return;
-  }
+type CurrentSync = {
+  storeId: string;
+  scheduler: SyncScheduler;
+  generation: number;
+};
 
-  current = { storeId, scheduler };
-  useStoreOpenStatus.getState().setReady(storeId);
-  // `start()`'s own internal open call is now a no-op (cursor already set by
-  // openStoreOnce above) — this just begins the periodic heartbeat.
-  void scheduler.start(SYNC_INTERVAL_MS);
-}
+let current: CurrentSync | null = null;
+let opening: {
+  storeId: string;
+  generation: number;
+  scheduler: SyncScheduler;
+} | null = null;
 
-export function stopSync(): void {
-  current?.scheduler.stop();
-  current = null;
-  useStoreOpenStatus.getState().reset();
-}
+let generation = 0;
 
 let listenersStarted = false;
+let netInfoUnsubscribe: NetInfoSubscription | null = null;
+let appStateSubscription: NativeEventSubscription | null = null;
+
 let wasConnected = true;
 let appState: AppStateStatus = AppState.currentState;
 
+function isStillOpening(storeId: string, startedGeneration: number): boolean {
+  return (
+    opening?.storeId === storeId &&
+    opening.generation === startedGeneration &&
+    generation === startedGeneration
+  );
+}
+
+function isCurrent(storeId: string, startedGeneration: number): boolean {
+  return (
+    current?.storeId === storeId &&
+    current.generation === startedGeneration &&
+    generation === startedGeneration
+  );
+}
+
+function stopScheduler(scheduler: SyncScheduler | undefined): void {
+  try {
+    scheduler?.stop();
+  } catch {
+    // Best effort. Stop must not block rebinding to another store.
+  }
+}
+
 /**
- * Reconnect/background triggers (mobile-11 §10) — registered ONCE, globally,
- * not per-store. Both handlers read the live `current` module variable at
- * fire time rather than closing over a specific scheduler instance, so a
- * store switch never needs matching subscribe/unsubscribe calls here:
- * `startSyncForStore`/`stopSync` only ever swap `current`, they never touch
- * these listeners.
+ * Start or rebind sync for a store.
+ *
+ * Idempotent for the same active/opening store. Uses a generation token so a
+ * slow previous open cannot become current after the user switches stores or
+ * logs out.
+ */
+export async function startSyncForStore(storeId: string): Promise<void> {
+  if (current?.storeId === storeId) return;
+  if (opening?.storeId === storeId) return;
+
+  stopSync();
+
+  const startedGeneration = generation + 1;
+  generation = startedGeneration;
+
+  const scheduler = new SyncScheduler(storeId);
+  opening = {
+    storeId,
+    generation: startedGeneration,
+    scheduler,
+  };
+
+  useStoreOpenStatus.getState().setOpening(storeId);
+
+  try {
+    await scheduler.openStoreOnce();
+  } catch (err) {
+    if (!isStillOpening(storeId, startedGeneration)) {
+      stopScheduler(scheduler);
+      return;
+    }
+
+    opening = null;
+
+    const message =
+      err instanceof Error ? err.message : 'Could not open this store.';
+
+    useStoreOpenStatus.getState().setError(storeId, message);
+    stopScheduler(scheduler);
+    return;
+  }
+
+  if (!isStillOpening(storeId, startedGeneration)) {
+    stopScheduler(scheduler);
+    return;
+  }
+
+  opening = null;
+  current = {
+    storeId,
+    scheduler,
+    generation: startedGeneration,
+  };
+
+  setImageUploader(new ImageUploader(storeId));
+  requestImageUpload();
+
+  useStoreOpenStatus.getState().setReady(storeId);
+
+  void scheduler.start(SYNC_INTERVAL_MS).catch((err) => {
+    if (!isCurrent(storeId, startedGeneration)) return;
+
+    const message =
+      err instanceof Error ? err.message : 'Store sync failed to start.';
+
+    useStoreOpenStatus.getState().setError(storeId, message);
+  });
+}
+
+export function stopSync(): void {
+  generation += 1;
+
+  stopScheduler(opening?.scheduler);
+  stopScheduler(current?.scheduler);
+
+  opening = null;
+  current = null;
+
+  setImageUploader(null);
+  useStoreOpenStatus.getState().reset();
+}
+
+/**
+ * Recover a store whose initial open failed.
+ *
+ * Reconnect/foreground handlers can resume only a bound scheduler. If the
+ * initial open failed, no scheduler is bound, so retry the open from the store
+ * recorded in the store-open status.
+ */
+function retryStrandedStoreOpen(): void {
+  if (current || opening) return;
+
+  const { storeId, phase } = useStoreOpenStatus.getState();
+
+  if (storeId && phase === 'error') {
+    void startSyncForStore(storeId);
+  }
+}
+
+function handleReconnectOrForeground(): void {
+  retryStrandedStoreOpen();
+  // Wake the uploader now AND once the reconnect sync lands (same rationale as
+  // requestImmediateSync): the immediate wake races ahead of the queued creates
+  // being pushed/applied, so a record created offline would have its image stay
+  // deferred until some later unrelated wake without the post-cycle re-wake.
+  void current?.scheduler.onNetworkRestored().then(() => requestImageUpload());
+  requestImageUpload();
+}
+
+/**
+ * Reconnect/background triggers.
+ *
+ * Registered once globally. Handlers read the live module-level `current`
+ * reference, so switching stores does not require per-store listener churn.
  */
 export function initSyncListeners(): void {
   if (listenersStarted) return;
+
   listenersStarted = true;
 
-  NetInfo.addEventListener((state) => {
-    const isConnected = Boolean(state.isConnected) && state.isInternetReachable !== false;
+  netInfoUnsubscribe = NetInfo.addEventListener((state) => {
+    const isConnected =
+      Boolean(state.isConnected) && state.isInternetReachable !== false;
+
     if (isConnected && !wasConnected) {
-      void current?.scheduler.onNetworkRestored();
+      handleReconnectOrForeground();
     }
+
     wasConnected = isConnected;
   });
 
-  AppState.addEventListener('change', (next) => {
+  appStateSubscription = AppState.addEventListener('change', (next) => {
     if (next === 'active' && appState !== 'active') {
-      void current?.scheduler.onNetworkRestored();
+      handleReconnectOrForeground();
     } else if (next === 'background') {
       void current?.scheduler.onBackground();
     }
+
     appState = next;
   });
 }
 
-/** Fire a push+pull cycle immediately (e.g. right after enqueueing a local
- *  write) instead of waiting for the next heartbeat tick — best-effort, UI
- *  should never depend on this succeeding since the periodic tick is the
- *  durable fallback. */
+/**
+ * Optional test/dev cleanup for the global listeners. Normal app runtime should
+ * call `initSyncListeners` once and leave them installed.
+ */
+export function disposeSyncListeners(): void {
+  netInfoUnsubscribe?.();
+  appStateSubscription?.remove();
+
+  netInfoUnsubscribe = null;
+  appStateSubscription = null;
+  listenersStarted = false;
+}
+
+/**
+ * Fire a push+pull cycle immediately, e.g. right after enqueueing a local write.
+ * Best effort: UI should not depend on this succeeding because the periodic
+ * heartbeat remains the durable fallback.
+ */
 export function requestImmediateSync(): void {
-  void current?.scheduler.onNetworkRestored();
+  // Wake the image uploader BOTH now and again once the sync cycle finishes.
+  // The immediate wake covers images whose parent was already synced; the
+  // post-cycle wake is what lets a just-created record's image commit promptly:
+  // enqueueing a create + calling this fires the push and this wake concurrently,
+  // so the first wake races AHEAD of the create being marked `applied` and the
+  // uploader defers — without re-waking after the push lands, the image would
+  // sit deferred until the next unrelated wake (foreground / next mutation).
+  // Optional chaining short-circuits the whole chain when no store is bound.
+  void current?.scheduler.onNetworkRestored().then(() => requestImageUpload());
+  requestImageUpload();
 }

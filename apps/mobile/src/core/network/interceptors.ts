@@ -42,6 +42,7 @@ import {
 import { signChallenge } from '../auth/device-key';
 import { useAuthStore } from '@store';
 import { observeSubscriptionVersion } from './subscription-freshness';
+import { requeueBlockedImages } from '@core/sync/image-uploader-instance';
 import { observePermissionsVersion } from './permission-freshness';
 import { logger } from '../../utils/logger';
 
@@ -395,6 +396,10 @@ function readSubscriptionHeaders(
     // advanced — dedupes duplicate/out-of-order headers so we refetch once.
     if (Number.isFinite(n) && observeSubscriptionVersion(n)) {
       onSubscriptionStale();
+      // A subscription change (reactivation included) — retry any image uploads
+      // parked as `blocked` on a lapse (P1-14). Best-effort: if still lapsed they
+      // re-block after one attempt; no tight spin. No-op when nothing is blocked.
+      requeueBlockedImages();
     }
   }
 }

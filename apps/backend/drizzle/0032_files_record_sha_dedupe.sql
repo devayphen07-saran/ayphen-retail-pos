@@ -1,0 +1,1 @@
+CREATE UNIQUE INDEX "uk_files_record_sha" ON "files" USING btree ("entity_type_fk","record_guuid","sha256") WHERE "files"."deleted_at" IS NULL AND "files"."sha256" IS NOT NULL;

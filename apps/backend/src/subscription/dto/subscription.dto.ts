@@ -1,12 +1,12 @@
 import { z } from 'zod';
 
-/** POST /me/account/subscription/checkout */
+/** POST /me/subscription/checkout */
 export const CheckoutDtoSchema = z.object({
   plan_code: z.string().min(1).max(60),
 });
 export type CheckoutDto = z.infer<typeof CheckoutDtoSchema>;
 
-/** POST /me/account/subscription/verify */
+/** POST /me/subscription/verify */
 export const VerifyPaymentDtoSchema = z.object({
   order_id:   z.string().min(1).max(100),
   payment_id: z.string().min(1).max(100),

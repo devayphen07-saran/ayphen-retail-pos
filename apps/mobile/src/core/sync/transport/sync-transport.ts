@@ -2,7 +2,6 @@ import { API } from '@ayphen/api-manager';
 import { rethrowIfRateLimited } from './rate-limit-error';
 import type {
   ChangesResult,
-  ConflictListResponse,
   ConflictResponse,
   InitialResult,
   SyncDeltaResult,
@@ -90,19 +89,12 @@ export async function pushDelta(storeId: string, body: PushDeltaBody): Promise<S
   }
 }
 
-export async function listConflicts(
-  storeId: string,
-  filter: { status?: 'open' | 'resolved' | 'discarded'; conflictType?: 'MASTER_DATA' | 'VALIDATION' | 'BUSINESS_RULE' },
-): Promise<ConflictListResponse> {
-  try {
-    const res = await API.get<ConflictListResponse>(`${syncBase(storeId)}/conflicts`, {
-      params: { status: filter.status, conflict_type: filter.conflictType },
-    });
-    return res.data;
-  } catch (err) {
-    rethrowIfRateLimited(err);
-  }
-}
+// NB: the backend also exposes `GET /sync/conflicts` (list). The mobile client
+// deliberately does NOT call it — ConflictsScreen renders the local
+// mutation_queue via useLiveQuery (offline-first; no redundant round trip), and
+// resolveConflict below reports resolutions back best-effort. The list endpoint
+// remains for a future admin/web surface; there is intentionally no client
+// transport for it, rather than a dead unused one.
 
 export async function resolveConflict(
   storeId: string,

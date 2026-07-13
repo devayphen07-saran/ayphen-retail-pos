@@ -2,6 +2,7 @@ import {
   Body,
   Controller,
   Get,
+  HttpCode,
   Param,
   ParseUUIDPipe,
   Post,
@@ -66,6 +67,7 @@ export class InvitationController {
   constructor(private readonly invitations: InvitationService) {}
 
   @Post('accept')
+  @HttpCode(200)
   async accept(
     @CurrentUser() user: MobilePrincipal,
     @Req() req: Request,
@@ -80,9 +82,10 @@ export class InvitationController {
    * Accept in-app from GET /me/invitations — by id, no token echoed. Authorized
    * because the invite is addressed to the caller's own verified contact.
    */
-  @Post(':id/accept')
+  @Post(':invitationId/accept')
+  @HttpCode(200)
   async acceptById(
-    @Param('id', ParseUUIDPipe) invitationId: string,
+    @Param('invitationId', ParseUUIDPipe) invitationId: string,
     @CurrentUser() user: MobilePrincipal,
     @Req() req: Request,
   ): Promise<AcceptInvitationResponse> {
@@ -91,6 +94,7 @@ export class InvitationController {
   }
 
   @Post('reject')
+  @HttpCode(200)
   async reject(@Req() req: Request, @Body() body: unknown): Promise<InvitationActionResponse> {
     const dto = parse(body, RejectInvitationDtoSchema);
     await this.invitations.reject(dto.token, getRequestIp(req));
@@ -98,9 +102,10 @@ export class InvitationController {
   }
 
   /** Decline in-app from GET /me/invitations — by id, contact-authorized. */
-  @Post(':id/reject')
+  @Post(':invitationId/reject')
+  @HttpCode(200)
   async rejectById(
-    @Param('id', ParseUUIDPipe) invitationId: string,
+    @Param('invitationId', ParseUUIDPipe) invitationId: string,
     @CurrentUser() user: MobilePrincipal,
     @Req() req: Request,
   ): Promise<InvitationActionResponse> {

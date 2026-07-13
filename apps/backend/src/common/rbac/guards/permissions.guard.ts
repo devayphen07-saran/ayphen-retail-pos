@@ -1,13 +1,13 @@
 import {
   CanActivate,
   ExecutionContext,
-  ForbiddenException,
   Injectable,
   Logger,
-  UnauthorizedException,
 } from '@nestjs/common';
 import { Reflector } from '@nestjs/core';
 import type { Request } from 'express';
+import { ForbiddenError, UnauthorizedError } from '#common/exceptions/app.exception.js';
+import { ErrorCodes } from '#common/error-codes.js';
 import { RbacService } from '../rbac.service.js';
 import { AuditService } from '#common/audit/audit.service.js';
 import type { MobilePrincipal } from '#common/types/principal.js';
@@ -58,11 +58,11 @@ export class PermissionsGuard implements CanActivate {
 
     const req = ctx.switchToHttp().getRequest<Request>();
     const principal = req.user;
-    if (!principal) throw new UnauthorizedException('MISSING_AUTH');
+    if (!principal) throw new UnauthorizedError(ErrorCodes.MISSING_AUTH);
 
     // @OnlineOnly: reject offline-replay requests (§10C).
     if (meta.onlineOnly && req.headers['x-client-mode'] === 'offline_replay') {
-      throw new ForbiddenException('ONLINE_REQUIRED');
+      throw new ForbiddenError(ErrorCodes.ONLINE_REQUIRED, 'This action requires being online');
     }
 
     // Store must be resolved by TenantGuard. Missing → fail closed, not 500,
@@ -73,7 +73,7 @@ export class PermissionsGuard implements CanActivate {
         `[SECURITY] PermissionsGuard reached without a resolved store context ` +
           `(user ${principal.userId}, route ${req.method} ${req.url}). Is @StoreContext missing?`,
       );
-      throw new ForbiddenException('STORE_CONTEXT_MISSING');
+      throw new ForbiddenError(ErrorCodes.STORE_CONTEXT_MISSING, 'A store context is required');
     }
     const storeId = context.storeId;
 
@@ -156,7 +156,7 @@ export class PermissionsGuard implements CanActivate {
       action: permission.action,
       code: 'PERMISSION_DENIED',
     });
-    throw new ForbiddenException('PERMISSION_DENIED');
+    throw new ForbiddenError(ErrorCodes.PERMISSION_DENIED, 'You do not have permission to perform this action');
   }
 
   /** Special-action check (stacks on top of CRUD). */
@@ -174,10 +174,10 @@ export class PermissionsGuard implements CanActivate {
       action: special.actionCode,
       code: 'SPECIAL_PERMISSION_DENIED',
     });
-    throw new ForbiddenException('SPECIAL_PERMISSION_DENIED');
+    throw new ForbiddenError(ErrorCodes.SPECIAL_PERMISSION_DENIED, 'You do not have permission to perform this action');
   }
 
-  /** SOC2 CC6.3 denial audit — written before the ForbiddenException (§20). */
+  /** SOC2 CC6.3 denial audit — written before the ForbiddenError (§20). */
   private async denyAudit(
     userId: string,
     storeId: string,

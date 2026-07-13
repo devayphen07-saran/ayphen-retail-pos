@@ -1,5 +1,5 @@
-import { Injectable, Logger } from '@nestjs/common';
-import { createHmac } from 'node:crypto';
+import { Injectable } from '@nestjs/common';
+import { createHmac, timingSafeEqual } from 'node:crypto';
 import { promises as fs } from 'node:fs';
 import { dirname, join, resolve, sep } from 'node:path';
 import { AppConfigService } from '#config/app-config.service.js';
@@ -19,14 +19,10 @@ import type { PutObjectResult, StorageProvider } from './storage.provider.js';
  */
 @Injectable()
 export class LocalStorageProvider implements StorageProvider {
-  private readonly log = new Logger(LocalStorageProvider.name);
   private readonly root: string;
 
   constructor(private readonly config: AppConfigService) {
     this.root = resolve(this.config.storageLocalDir);
-    this.log.warn(
-      `Object storage not configured — using on-disk LocalStorageProvider at ${this.root} (dev only).`,
-    );
   }
 
   /** Resolve a storage key to an absolute path, refusing any path-traversal escape. */
@@ -48,8 +44,11 @@ export class LocalStorageProvider implements StorageProvider {
   verify(key: string, exp: number, sig: string): boolean {
     if (!Number.isFinite(exp) || exp * 1000 < Date.now()) return false;
     const expected = this.sign(key, exp);
-    // Constant-time-ish compare via length + HMAC equality.
-    return expected.length === sig.length && expected === sig;
+    // Constant-time compare so a mismatch can't be timed byte-by-byte. Lengths
+    // must match first — timingSafeEqual throws on differing-length buffers.
+    const a = Buffer.from(expected);
+    const b = Buffer.from(sig);
+    return a.length === b.length && timingSafeEqual(a, b);
   }
 
   async readObject(key: string): Promise<Buffer> {

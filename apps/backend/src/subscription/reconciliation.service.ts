@@ -1,6 +1,5 @@
 import { Inject, Injectable } from '@nestjs/common';
 import {
-  ForbiddenError,
   UnprocessableError,
 } from '#common/exceptions/app.exception.js';
 import { ErrorCodes } from '#common/error-codes.js';
@@ -100,7 +99,7 @@ export class ReconciliationService {
     userId: string,
     currentDeviceId: string,
   ): Promise<ReconciliationContext> {
-    const accountId = await this.requireOwnedAccountId(userId);
+    const accountId = await this.subscriptions.requireOwnedAccountId(userId);
     return this.getContext(accountId, currentDeviceId);
   }
 
@@ -166,7 +165,7 @@ export class ReconciliationService {
     currentDeviceId: string,
     selection: ReconciliationSelection,
   ): Promise<void> {
-    const accountId = await this.requireOwnedAccountId(userId);
+    const accountId = await this.subscriptions.requireOwnedAccountId(userId);
     return this.apply(accountId, userId, currentDeviceId, selection);
   }
 
@@ -297,7 +296,7 @@ export class ReconciliationService {
     currentDeviceId: string,
     swap: ActiveStoreSwap,
   ): Promise<void> {
-    const accountId = await this.requireOwnedAccountId(userId);
+    const accountId = await this.subscriptions.requireOwnedAccountId(userId);
 
     await this.uow.execute(async (tx) => {
       // Lock the account first (same row StoreService.createStore locks) so a
@@ -488,6 +487,23 @@ export class ReconciliationService {
 
     if (selection.keepDeviceIds.some((id) => !deviceIds.has(id))) {
       fieldErrors.keepDeviceIds = "One or more selected devices don't exist.";
+    } else {
+      // A kept device whose store isn't itself kept is silently permissive
+      // otherwise — the store-lock loop in apply() only ever locks a whole
+      // store, so a device left here would just be revoked along with the
+      // rest of its (dropped) store, contradicting the caller's own
+      // selection instead of erroring on it.
+      const keepStores = new Set(selection.keepStoreIds);
+      const deviceById = new Map(ctx.devices.map((d) => [d.id, d]));
+      if (
+        selection.keepDeviceIds.some((id) => {
+          const device = deviceById.get(id);
+          return device !== undefined && !keepStores.has(device.storeId);
+        })
+      ) {
+        fieldErrors.keepDeviceIds =
+          "One or more selected devices belong to a store you're not keeping.";
+      }
     }
 
     if (!fieldErrors.keepStoreIds) {
@@ -543,17 +559,5 @@ export class ReconciliationService {
         { fieldErrors },
       );
     }
-  }
-
-  /** Resolving/resolving-a-downgrade is an owner-only billing action, same
-   *  gate as SubscriptionService.cancel/reactivate. */
-  private async requireOwnedAccountId(userId: string): Promise<string> {
-    const accountId = await this.subscriptions.findOwnedAccountId(userId);
-    if (!accountId)
-      throw new ForbiddenError(
-        ErrorCodes.NOT_ACCOUNT_OWNER,
-        'You are not the account owner',
-      );
-    return accountId;
   }
 }

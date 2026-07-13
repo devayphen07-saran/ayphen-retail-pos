@@ -1,7 +1,9 @@
 import { createTestDb } from '../db/__testing__/create-test-db';
 import { syncCursorRepository } from '../repositories/sync-cursor.repository';
 import { failedAppliesRepository } from '../repositories/failed-applies.repository';
+import { mutationQueueRepository } from '../repositories/mutation-queue.repository';
 import { applyChangesPage, type ApplierLookup } from './apply-changes';
+import type { SyncApplier } from '../appliers/applier.types';
 import type { SyncDb } from '../db/types';
 import type { EntityChanges } from '../transport/sync-wire-types';
 
@@ -15,9 +17,10 @@ describe('applyChangesPage — cursor-commit-ordering invariant (INV-9)', () => 
   const storeId = 'store-1';
   const noopApplier = { entityType: 'noop', upsertAll: async () => undefined, applyDeletes: async () => undefined };
 
-  function registryWith(applier: { entityType: string; upsertAll: (db: SyncDb, storeId: string, rows: unknown[]) => Promise<void>; applyDeletes: (db: SyncDb, guuids: string[]) => Promise<void> }): ApplierLookup {
+  function registryWith(applier: { entityType: string; upsertAll: (db: SyncDb, storeId: string, rows: unknown[]) => Promise<void>; applyDeletes: (db: SyncDb, storeId: string, guuids: string[]) => Promise<void> }): ApplierLookup {
     return {
-      get: (entityType) => (entityType === applier.entityType ? applier : undefined),
+      // Cast: these test doubles never invoke deleteAllForStore, so they omit it.
+      get: (entityType) => (entityType === applier.entityType ? (applier as SyncApplier) : undefined),
       entityTypes: () => [applier.entityType],
     };
   }
@@ -125,5 +128,51 @@ describe('applyChangesPage — cursor-commit-ordering invariant (INV-9)', () => 
 
     expect(upsertCalls).toBe(1); // the applier DID run...
     expect(await syncCursorRepository.get(db, storeId)).toBe('cursor-token-v1'); // ...but its effect was rolled back
+  });
+
+  it('shadows a pulled upsert whose guuid has a live local mutation, but not a delete (B1/INV-11)', async () => {
+    const db = createTestDb();
+
+    // A local optimistic edit to 'g1' is queued and not yet pushed.
+    await mutationQueueRepository.enqueue(db, {
+      mutationId: '01HZZZZZZZZZZZZZZZZZZZZZZZZ',
+      storeId,
+      entityType: 'widget',
+      entityGuuid: 'g1',
+      action: 'update',
+      payload: { guuid: 'g1', name: 'local edit' },
+      expectedRowVersion: 3,
+      clientModifiedAt: '2026-01-01T00:00:00.000000Z',
+      now: '2026-01-01T00:00:00.000000Z',
+    });
+
+    const upserted: string[] = [];
+    const deleted: string[] = [];
+    const applier = {
+      entityType: 'widget',
+      upsertAll: async (_db: SyncDb, _storeId: string, rows: unknown[]) => {
+        upserted.push(...(rows as { guuid: string }[]).map((r) => r.guuid));
+      },
+      applyDeletes: async (_db: SyncDb, _storeId: string, guuids: string[]) => {
+        deleted.push(...guuids);
+      },
+    };
+
+    const changes: Record<string, EntityChanges> = {
+      widget: {
+        // server sends an older version of 'g1' (would clobber the local edit)
+        // plus an unrelated 'g2'.
+        upserts: [{ guuid: 'g1', name: 'server stale' }, { guuid: 'g2', name: 'other' }],
+        // and a delete for 'g1' — this MUST still apply (a skipped delete
+        // resurrects the row; the pending mutation will reject NOT_FOUND).
+        deletes: [{ guuid: 'g1' } as never],
+      },
+    };
+
+    await applyChangesPage(db, storeId, changes, 'cursor-shadow', '2026-01-02T00:00:00.000000Z', registryWith(applier));
+
+    expect(upserted).toEqual(['g2']); // 'g1' upsert shadowed; 'g2' applied
+    expect(deleted).toEqual(['g1']); // delete NOT shadowed
+    expect(await syncCursorRepository.get(db, storeId)).toBe('cursor-shadow');
   });
 });

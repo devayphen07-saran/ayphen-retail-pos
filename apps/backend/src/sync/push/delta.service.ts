@@ -30,25 +30,7 @@ import {
   REVOCATION_GRACE_WINDOW_MS,
   WAVE_CONCURRENCY,
 } from '../sync.constants.js';
-
-/**
- * Runs `fn` over `items` with at most `limit` in flight at once — unlike
- * `Promise.all(items.map(fn))`, which fans out unboundedly and (for
- * per-mutation transactions) can claim the entire shared DB pool from one
- * wave. Order of `results` matches `items`.
- */
-async function runBounded<T, R>(items: T[], limit: number, fn: (item: T) => Promise<R>): Promise<R[]> {
-  const results: R[] = new Array(items.length);
-  let next = 0;
-  const workers = Array.from({ length: Math.min(limit, items.length) }, async () => {
-    while (next < items.length) {
-      const i = next++;
-      results[i] = await fn(items[i]!);
-    }
-  });
-  await Promise.all(workers);
-  return results;
-}
+import { runBounded } from '../bounded.js';
 
 // ─── Wire shapes (§9 response) ────────────────────────────────────────────────
 
@@ -93,6 +75,8 @@ interface MutationEnv {
   userId: string;
   deviceId: string;
   sessionCreatedAt: Date;
+  /** This device's PRIOR sync (C1) — floors the subscription write-gate below. */
+  deviceLastSyncAt: Date | null;
   permissions: EffectivePermissions;
   subscription: SubscriptionSyncState | null;
   failedGuuids: Set<string>;
@@ -167,6 +151,10 @@ export class SyncDeltaService {
 
     const sub = await this.subscriptions.findSyncStateByAccount(accountId);
 
+    // Read BEFORE buildResult's touch() stamps the new value — this is the
+    // device's prior server contact, the C1 subscription-gate floor.
+    const deviceLastSyncAt = await this.health.getLastSyncAt(principal.deviceId);
+
     const permissions = await this.rbac.getCachedPermissions(userId, storeId, true);
 
     return {
@@ -175,6 +163,7 @@ export class SyncDeltaService {
       userId,
       deviceId: principal.deviceId,
       sessionCreatedAt,
+      deviceLastSyncAt,
       permissions,
       subscription: sub,
       failedGuuids: new Set<string>(),
@@ -196,8 +185,30 @@ export class SyncDeltaService {
     mutations: SyncMutation[],
     env: MutationEnv,
   ): Promise<Map<string, MutationResultWire>> {
-    const sorted = topoSort(mutations);
     const results = new Map<string, MutationResultWire>();
+
+    // Reject parent_guuid cycles deterministically (C3) BEFORE sorting, so a
+    // dependency loop can't silently apply a child before its parent. Each
+    // cycle member's guuid also joins failedGuuids, so any non-cyclic child
+    // hanging off the loop cascades to PARENT_FAILED below.
+    const cyclic = findParentCycleMutationIds(mutations);
+    for (const m of mutations) {
+      if (!cyclic.has(m.mutation_id)) continue;
+      results.set(m.mutation_id, {
+        mutation_id: m.mutation_id,
+        status: 'rejected',
+        // Uncached (unlike terminalReject): a cycle is a property of THIS
+        // batch's shape — resubmitting the same mutation without the loop must
+        // be free to succeed, not replay a stale `duplicate`.
+        code: ErrorCodes.PARENT_CYCLE,
+        message: 'parent_guuid forms a dependency cycle — resubmit without the loop',
+        conflict_type: 'VALIDATION',
+      });
+      const guuid = typeof m.payload.guuid === 'string' ? m.payload.guuid : undefined;
+      if (guuid) env.failedGuuids.add(guuid);
+    }
+
+    const sorted = topoSort(mutations.filter((m) => !cyclic.has(m.mutation_id)));
 
     // Duplicate mutation_id in one batch — first occurrence wins; later ones
     // are pure resubmits and resolve to the same Map entry with no extra work.
@@ -401,15 +412,25 @@ export class SyncDeltaService {
         'a plan downgrade is awaiting reconciliation',
       );
     }
-    // A mutation cannot predate its own device session (mirrors §12 layer 3 in
-    // checkGrace above). Without this floor, a raw API client (bypassing the
-    // app's own local lapse gating) could pin client_modified_at to any
-    // instant before access_valid_until forever, permanently evading
-    // SUBSCRIPTION_LAPSED_AT_WRITE regardless of how long ago access actually
-    // lapsed. This still trusts client_modified_at within the session's
-    // lifetime — closing that fully needs the signed access_valid_until
-    // hardening already tracked as planned (subscription.md §23, Rec7).
-    const subAsOf = effectiveAsOf > env.sessionCreatedAt ? effectiveAsOf : env.sessionCreatedAt;
+    // Floor the effective stamp (C1). Two server-trusted lower bounds neither of
+    // which a client can forge:
+    //  - sessionCreatedAt: a mutation cannot predate its own device session
+    //    (mirrors §12 layer 3 in checkGrace).
+    //  - deviceLastSyncAt: this device's PRIOR server contact. A device that was
+    //    demonstrably online (synced) after the subscription lapsed cannot then
+    //    claim writes stamped before the lapse — the app's local gate blocks new
+    //    sales once access_valid_until passes, so no legitimately-unpushed
+    //    pre-lapse write survives a later sync. Genuine offline sales are always
+    //    stamped AFTER the device's last sync, so this floor never rejects them.
+    // Together these stop a raw API client (bypassing the app) from pinning
+    // client_modified_at before access_valid_until to evade the gate forever.
+    // The residual — pinning within the window between last sync and lapse —
+    // needs the signed access_valid_until hardening tracked as planned
+    // (subscription.md §23, Rec7).
+    let subAsOf = effectiveAsOf > env.sessionCreatedAt ? effectiveAsOf : env.sessionCreatedAt;
+    if (env.deviceLastSyncAt && env.deviceLastSyncAt > subAsOf) {
+      subAsOf = env.deviceLastSyncAt;
+    }
     if (
       sub.accessValidUntil &&
       env.now > sub.accessValidUntil &&
@@ -662,8 +683,53 @@ export class SyncDeltaService {
 // ─── Utilities ────────────────────────────────────────────────────────────────
 
 /**
+ * Mutation_ids that sit on a `parent_guuid` cycle (C3). The parent graph is
+ * functional (each mutation has at most one parent), so a cycle is found by
+ * walking the parent chain and detecting a revisit of a node already on the
+ * current path — every node from the revisit point onward is on the cycle
+ * (self-parent = a cycle of one). These are rejected up front with
+ * PARENT_CYCLE instead of topoSort silently breaking the loop and applying a
+ * child before its parent.
+ */
+export function findParentCycleMutationIds(mutations: SyncMutation[]): Set<string> {
+  const byGuuid = new Map<string, SyncMutation>();
+  for (const m of mutations) {
+    const guuid = typeof m.payload.guuid === 'string' ? m.payload.guuid : undefined;
+    if (guuid && !byGuuid.has(guuid)) byGuuid.set(guuid, m);
+  }
+
+  const settled = new Set<string>();
+  const inCycle = new Set<string>();
+
+  for (const start of mutations) {
+    if (settled.has(start.mutation_id)) continue;
+    const path: SyncMutation[] = [];
+    const onPath = new Set<string>();
+    let cur: SyncMutation | undefined = start;
+    while (cur && !settled.has(cur.mutation_id)) {
+      if (onPath.has(cur.mutation_id)) {
+        // Revisit → cycle. Capture from the revisited node to the path tail.
+        let capture = false;
+        for (const node of path) {
+          if (node.mutation_id === cur.mutation_id) capture = true;
+          if (capture) inCycle.add(node.mutation_id);
+        }
+        break;
+      }
+      path.push(cur);
+      onPath.add(cur.mutation_id);
+      cur = cur.parent_guuid ? byGuuid.get(cur.parent_guuid) : undefined;
+    }
+    for (const node of path) settled.add(node.mutation_id);
+  }
+  return inCycle;
+}
+
+/**
  * Stable dependency sort by parent_guuid (S-3a): parents before children
- * whatever order the client sent; cycles fall back to request order.
+ * whatever order the client sent. Assumes cycle members have already been
+ * removed (findParentCycleMutationIds / C3); the stack guard below is a
+ * belt-and-suspenders against re-entry, not the cycle policy.
  */
 export function topoSort(mutations: SyncMutation[]): SyncMutation[] {
   const byGuuid = new Map<string, SyncMutation>();

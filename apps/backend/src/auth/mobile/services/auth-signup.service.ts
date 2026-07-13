@@ -227,7 +227,12 @@ export class AuthSignupService {
         return { user, device, session, refreshToken, accessToken };
       });
     } catch (err) {
-      if (unwrapPgError(err)?.code === '23505') {
+      const pgErr = unwrapPgError(err);
+      // Only users.phone's own uniqueness maps to USER_ALREADY_EXISTS — the
+      // same transaction can also violate account_number, refresh-token-hash,
+      // or device-key-hash uniqueness, which are unrelated failures and would
+      // be mislabeled by a blanket "any 23505 ⇒ already exists" check.
+      if (pgErr?.code === '23505' && pgErr.constraint_name === 'users_phone_unique') {
         throw new AppException(
           ErrorCodes.DUPLICATE_ENTRY,
           'USER_ALREADY_EXISTS',

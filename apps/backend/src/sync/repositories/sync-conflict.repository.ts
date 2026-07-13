@@ -1,5 +1,5 @@
 import { Inject, Injectable } from '@nestjs/common';
-import { and, desc, eq, sql } from 'drizzle-orm';
+import { and, desc, eq, notInArray, sql } from 'drizzle-orm';
 import { DRIZZLE, type Database, type DbExecutor } from '#db/db.module.js';
 import { syncConflicts } from '#db/schema.js';
 
@@ -53,7 +53,16 @@ export class SyncConflictRepository {
 
   async list(
     storeId: string,
-    filter: { status?: ConflictStatus; conflictType?: ConflictType },
+    filter: {
+      status?: ConflictStatus;
+      conflictType?: ConflictType;
+      // Known-but-not-viewable entity types (per the caller's RBAC `view`
+      // grants), excluded here so the `.limit(200)` cutoff below applies
+      // AFTER permission filtering, not before — otherwise a caller could see
+      // an artificially short/empty page while older, visible conflicts sit
+      // beyond the DB-side cutoff.
+      excludeEntityTypes?: string[];
+    },
   ): Promise<SyncConflictRow[]> {
     return this.db
       .select()
@@ -62,6 +71,9 @@ export class SyncConflictRepository {
         eq(syncConflicts.storeFk, storeId),
         filter.status ? eq(syncConflicts.status, filter.status) : undefined,
         filter.conflictType ? eq(syncConflicts.conflictType, filter.conflictType) : undefined,
+        filter.excludeEntityTypes?.length
+          ? notInArray(syncConflicts.entityType, filter.excludeEntityTypes)
+          : undefined,
       ))
       .orderBy(desc(syncConflicts.createdAt))
       .limit(200);
@@ -95,6 +107,10 @@ export class SyncConflictRepository {
       .where(and(
         eq(syncConflicts.storeFk, storeId),
         eq(syncConflicts.mutationId, mutationId),
+        // Optimistic guard (C4): only an OPEN conflict transitions. Two
+        // concurrent resolves therefore can't both win LWW on status — the
+        // second matches zero rows and the service treats it idempotently.
+        eq(syncConflicts.status, 'open'),
       ))
       .returning();
     return row ?? null;

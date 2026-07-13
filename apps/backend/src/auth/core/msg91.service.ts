@@ -27,8 +27,8 @@ export class Msg91Service {
       );
     } catch {
       throw new AppException(
-        ErrorCodes.INTERNAL_ERROR,
-        'OTP_SEND_FAILED',
+        ErrorCodes.OTP_SEND_FAILED,
+        'Failed to send OTP',
         500,
       );
     }

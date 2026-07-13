@@ -1,5 +1,5 @@
 import { Inject, Injectable } from '@nestjs/common';
-import { and, eq, gt, isNull, sql } from 'drizzle-orm';
+import { and, desc, eq, gt, isNull, sql } from 'drizzle-orm';
 import type { PostgresJsDatabase } from 'drizzle-orm/postgres-js';
 import { DRIZZLE, type DbExecutor } from '#db/db.module.js';
 import { requireRow } from '#db/require-row.js';
@@ -50,11 +50,33 @@ export class OtpRequestRepository {
     return row ?? null;
   }
 
-  async findById(id: string): Promise<OtpRequest | null> {
+  /**
+   * Looked up by id for the resend-cooldown check. `phone` is optional so
+   * existing unscoped call sites keep working, but callers that already know
+   * the expected phone should pass it — otherwise a caller-supplied id from
+   * another phone's OTP flow would still resolve here.
+   */
+  async findById(id: string, phone?: string): Promise<OtpRequest | null> {
     const [row] = await this.db
       .select()
       .from(otpRequests)
-      .where(eq(otpRequests.id, id));
+      .where(phone ? and(eq(otpRequests.id, id), eq(otpRequests.phone, phone)) : eq(otpRequests.id, id));
+    return row ?? null;
+  }
+
+  /**
+   * Most recent OTP request row for this phone+purpose. Used to enforce the
+   * resend cooldown unconditionally — a caller that simply omits `resendOf`
+   * must not skip the cooldown check, so the server looks up the latest row
+   * itself instead of trusting a (missing or client-supplied) id.
+   */
+  async findLatestForPhone(phone: string, purpose: OtpPurpose): Promise<OtpRequest | null> {
+    const [row] = await this.db
+      .select()
+      .from(otpRequests)
+      .where(and(eq(otpRequests.phone, phone), eq(otpRequests.purpose, purpose)))
+      .orderBy(desc(otpRequests.createdAt))
+      .limit(1);
     return row ?? null;
   }
 

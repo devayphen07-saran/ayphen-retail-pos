@@ -20,6 +20,13 @@ import type {
 
 const MAX_BATCH = 100; // server Zod cap (sync.constants.ts MAX_MUTATIONS_PER_BATCH)
 
+// A mutation older than the server's idempotency TTL must NOT be replayed: its
+// idempotency row may have been purged, so a re-push would re-execute the
+// business write (double sale — C2/S-35). Mirror sync.constants.ts
+// IDEMPOTENCY_TTL_DAYS (45 d); the client closes the window from its side by
+// refusing to resend and dead-lettering instead.
+const IDEMPOTENCY_TTL_MS = 45 * 24 * 60 * 60 * 1000;
+
 function toWireMutation(row: MutationQueueRow): SyncMutationInput {
   return {
     mutation_id: row.mutationId,
@@ -70,7 +77,7 @@ async function reconcileOneResult(
           // replacing the temp one. Delete the temp row by guuid first;
           // guuid itself is stable across the swap.
           if (queueRow.action === 'create') {
-            await applier.applyDeletes(tx, [queueRow.entityGuuid]);
+            await applier.applyDeletes(tx, storeId, [queueRow.entityGuuid]);
           }
           await applier.upsertAll(tx, storeId, [action.data as WireRow]);
         }
@@ -94,15 +101,19 @@ async function reconcileOneResult(
     case 'rollback': {
       // Terminal server rejection — revert the optimistic local write so it
       // doesn't linger as a phantom row (duplicate SKU, business-rule denial
-      // the client Zod can't catch). A create optimistically inserted a local
-      // row keyed by guuid (enqueue-*.ts); delete it by guuid, mirroring
-      // commit-applied's temp-row cleanup. update/delete rollback needs the
-      // pre-image the enqueue must capture — none are enqueued yet, so when
-      // enqueueUpdate*/enqueueDelete* land they MUST snapshot the prior row.
-      if (queueRow?.action === 'create') {
-        await appliersRegistry
-          .get(queueRow.entityType)
-          ?.applyDeletes(tx, [queueRow.entityGuuid]);
+      // the client Zod can't catch).
+      //  - create: no prior row existed → delete the temp row by guuid,
+      //    mirroring commit-applied's temp-row cleanup.
+      //  - update/delete: restore the captured pre-image (C5) so the local row
+      //    returns EXACTLY to its pre-write state. If no pre-image was captured
+      //    (legacy/unknown), leave the row as-is; a later pull reconciles it.
+      const applier = queueRow ? appliersRegistry.get(queueRow.entityType) : undefined;
+      if (queueRow && applier) {
+        if (queueRow.action === 'create') {
+          await applier.applyDeletes(tx, storeId, [queueRow.entityGuuid]);
+        } else if (queueRow.preImage) {
+          await applier.upsertAll(tx, storeId, [JSON.parse(queueRow.preImage) as WireRow]);
+        }
       }
       await mutationQueueRepository.markRejected(
         tx,
@@ -140,11 +151,24 @@ export async function drainMutationQueueOnce(
   db: SyncDb,
   storeId: string,
 ): Promise<DrainResult> {
-  const batch = await mutationQueueRepository.takeDrainable(
+  const drainable = await mutationQueueRepository.takeDrainable(
     db,
     storeId,
     MAX_BATCH,
   );
+  if (drainable.length === 0) return { drained: 0, hasMorePulled: false };
+
+  // Refuse to replay a mutation older than the server idempotency window (C2):
+  // its idempotency row may be gone, so a resend risks a double-apply. Such
+  // rows are dead-lettered (surfaced to the owner), never pushed.
+  const staleCutoff = Date.now() - IDEMPOTENCY_TTL_MS;
+  const batch = drainable.filter((m) => Date.parse(m.createdAt) >= staleCutoff);
+  const expiredIds = drainable
+    .filter((m) => Date.parse(m.createdAt) < staleCutoff)
+    .map((m) => m.mutationId);
+  if (expiredIds.length > 0) {
+    await mutationQueueRepository.markExpiredBatch(db, expiredIds, new Date().toISOString());
+  }
   if (batch.length === 0) return { drained: 0, hasMorePulled: false };
 
   const ids = batch.map((m) => m.mutationId);

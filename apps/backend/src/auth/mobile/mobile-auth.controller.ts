@@ -172,6 +172,7 @@ export class MobileAuthController {
    */
   @Public()
   @Post('refresh/challenge')
+  @Throttle({ global: { limit: 30, ttl: 60_000 } })
   @HttpCode(200)
   async refreshChallenge(@Body() body: unknown): Promise<ChallengeResponse> {
     const dto: RefreshChallengeDto = parse(body, RefreshChallengeDtoSchema);
@@ -183,6 +184,7 @@ export class MobileAuthController {
 
   @Public()
   @Post('refresh')
+  @Throttle({ global: { limit: 30, ttl: 60_000 } })
   @HttpCode(200)
   async refresh(@Body() body: unknown): Promise<RefreshResponse> {
     const dto: RefreshDto = parse(body, RefreshDtoSchema);
@@ -234,11 +236,11 @@ export class MobileAuthController {
     return SessionMapper.toSessionListResponse(page, p.deviceSessionId);
   }
 
-  @Delete('sessions/:id')
+  @Delete('sessions/:sessionId')
   @HttpCode(204)
   @UseGuards(MobileJwtGuard)
   async revokeSession(
-    @Param('id', ParseUUIDPipe) sessionId: string,
+    @Param('sessionId', ParseUUIDPipe) sessionId: string,
     @CurrentUser() user: MobilePrincipal,
   ): Promise<void> {
     await this.logoutService.revokeSession(sessionId, user.userId);

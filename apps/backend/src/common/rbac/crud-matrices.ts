@@ -10,11 +10,6 @@ import type { EntityCode } from './entity-catalogue.js';
 export const CRUD_ACTIONS = ['view', 'create', 'edit', 'delete'] as const;
 export type CrudAction = (typeof CRUD_ACTIONS)[number];
 
-/** Narrow a raw DB string to a known CRUD action (drops decommissioned values). */
-export function isCrudAction(value: string): value is CrudAction {
-  return (CRUD_ACTIONS as readonly string[]).includes(value);
-}
-
 export interface CrudMatrix {
   view: boolean;
   create: boolean;

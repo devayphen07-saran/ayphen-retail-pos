@@ -16,6 +16,7 @@ import { SyncInitProgressRepository } from '../../../src/sync/repositories/sync-
 import { SyncIdempotencyRepository } from '../../../src/sync/repositories/sync-idempotency.repository';
 import { SyncMutationFailureRepository } from '../../../src/sync/repositories/sync-mutation-failure.repository';
 import { SyncConflictRepository } from '../../../src/sync/repositories/sync-conflict.repository';
+import { DeviceSyncHealthRepository } from '../../../src/sync/repositories/device-sync-health.repository';
 import { SyncChangesService } from '../../../src/sync/pull/changes.service';
 import { InitialSyncService } from '../../../src/sync/pull/initial-sync.service';
 import { SyncDeltaService } from '../../../src/sync/push/delta.service';
@@ -32,7 +33,8 @@ import type { RbacService } from '../../../src/common/rbac/rbac.service';
 import type { RbacRepository } from '../../../src/common/rbac/rbac.repository';
 import type { AuthSessionRepository } from '../../../src/auth/mobile/repositories/auth-session.repository';
 import type { SnapshotService } from '../../../src/auth/mobile/services/snapshot.service';
-import type { MobilePrincipal } from '../../../src/auth/mobile/types/mobile-principal';
+import type { MobilePrincipal } from '../../../src/common/types/principal';
+import type { SubscriptionRepository } from '../../../src/subscription/subscription.repository';
 
 /**
  * Two-device sync round trip against the real Postgres container (triggers
@@ -82,6 +84,8 @@ describe('sync engine — two-device round trip', () => {
     devicePlatform: 'ios',
     permissionsVersion: 1,
     jwtPv: 1,
+    currentJti: uuid(),
+    currentJtiExp: new Date(Date.now() + 3_600_000),
   });
 
   beforeAll(async () => {
@@ -97,9 +101,10 @@ describe('sync engine — two-device round trip', () => {
     const idempotency = new SyncIdempotencyRepository(db);
     const failures = new SyncMutationFailureRepository(db);
     const conflicts = new SyncConflictRepository(db);
+    const health = new DeviceSyncHealthRepository(db);
 
-    initial = new InitialSyncService(db, registry, cursors, rbacStub, progress);
-    changes = new SyncChangesService(db, registry, cursors, rbacStub, tombstones);
+    initial = new InitialSyncService(db, registry, cursors, rbacStub, progress, health);
+    changes = new SyncChangesService(db, registry, cursors, rbacStub, tombstones, health);
 
     const handlers = new MutationHandlerRegistry([
       new LookupMutationHandler(tombstones),
@@ -116,9 +121,20 @@ describe('sync engine — two-device round trip', () => {
     const snapshotsStub = {
       getOrBuild: async () => null,
     } as unknown as SnapshotService;
+    // Active subscription with no access_valid_until — the write-gate is a
+    // no-op for these sync-mechanics tests (C1's lapse path is exercised in the
+    // subscription suite, not here).
+    const subscriptionsStub = {
+      findSyncStateByAccount: async () => ({
+        status: 'active',
+        accessValidUntil: null,
+        reconciliationStatus: 'none',
+        reconciliationEffectiveAt: null,
+      }),
+    } as unknown as SubscriptionRepository;
 
     delta = new SyncDeltaService(
-      db,
+      subscriptionsStub,
       new UnitOfWork(db),
       handlers,
       idempotency,
@@ -130,6 +146,7 @@ describe('sync engine — two-device round trip', () => {
       snapshotsStub,
       changes,
       cursors,
+      health,
     );
   });
 

@@ -1,11 +1,12 @@
-import { and, asc, eq, isNull, or, sql, getTableColumns, type SQL } from 'drizzle-orm';
+import { and, asc, eq, isNull, or, sql, type SQL } from 'drizzle-orm';
 import type { PgTable } from 'drizzle-orm/pg-core';
 import type { AnyPgColumn } from 'drizzle-orm/pg-core';
 import type { DbExecutor } from '#db/db.module.js';
 import type { EntityCode } from '#common/rbac/permission-matrix.constants.js';
 import type { EffectivePermissions } from '#common/rbac/effective-permissions.js';
-import { READ_SAFETY_LAG_MS, type SyncEntityType } from '../sync.constants.js';
+import { type SyncEntityType } from '../sync.constants.js';
 import { assertMicroIso, microIso } from '../us-timestamp.js';
+import { readLagPredicate } from '../pull/read-cutoff.js';
 import type { EntityWatermark } from '../cursor/sync-cursor.service.js';
 
 /** Floor id for a fresh keyset — every real uuid sorts after it. */
@@ -44,7 +45,13 @@ export interface SyncEntityFilter {
   dependencyOrder: number;
   /** RBAC gate — a user without `view` on this gets an empty page (§18). */
   permissionEntity: EntityCode;
-  pullChanges(ctx: SyncPullContext, after: EntityWatermark, limit: number): Promise<DeltaPage>;
+  pullChanges(
+    ctx: SyncPullContext,
+    after: EntityWatermark,
+    limit: number,
+    /** Read-safety cutoff (B2) — see `computeReadCutoff`; `null` → inline fixed lag. */
+    cutoff: string | null,
+  ): Promise<DeltaPage>;
   pullInitial(ctx: SyncPullContext, afterId: string | null, limit: number): Promise<InitialPage>;
   estimateCount(ctx: SyncPullContext): Promise<number>;
 }
@@ -84,8 +91,12 @@ interface GenericFilterConfig {
   scopeWhere: (ctx: SyncPullContext) => SQL | undefined;
   /** Exclude soft-deleted rows — deletes travel as tombstones, not upserts. */
   aliveWhere?: SQL;
-  /** Optional projection; defaults to all table columns. Keys stay camelCase. */
-  columns?: Record<string, AnyPgColumn>;
+  /**
+   * REQUIRED explicit wire projection (keys stay camelCase). Security by
+   * omission (§3.7): a new sensitive column is invisible to synced clients until
+   * it's deliberately added here — never a `SELECT *` that ships every column.
+   */
+  columns: Record<string, AnyPgColumn>;
 }
 
 /**
@@ -109,14 +120,18 @@ export class GenericSyncFilter implements SyncEntityFilter {
   }
 
   private selection() {
-    const cols = this.cfg.columns ?? getTableColumns(this.cfg.table);
-    return { ...cols, __modifiedAtUs: microIso(this.cfg.modifiedAtColumn) };
+    return { ...this.cfg.columns, __modifiedAtUs: microIso(this.cfg.modifiedAtColumn) };
   }
 
-  async pullChanges(ctx: SyncPullContext, after: EntityWatermark, limit: number): Promise<DeltaPage> {
+  async pullChanges(
+    ctx: SyncPullContext,
+    after: EntityWatermark,
+    limit: number,
+    cutoff: string | null,
+  ): Promise<DeltaPage> {
     const { modifiedAtColumn: mod, idColumn: id } = this.cfg;
     const keyset = sql`(${mod} > ${after.ts}::timestamptz OR (${mod} = ${after.ts}::timestamptz AND ${id} > ${after.id || ZERO_UUID}::uuid))`;
-    const lag = sql`${mod} < now() - make_interval(secs => ${READ_SAFETY_LAG_MS / 1000})`;
+    const lag = readLagPredicate(mod, cutoff);
 
     const rows = await ctx.db
       .select(this.selection())
@@ -176,8 +191,7 @@ export class GenericSyncFilter implements SyncEntityFilter {
 
   /** The camelCase key `idColumn` lands under in the selection. */
   private idKey(): string {
-    const cols = this.cfg.columns ?? getTableColumns(this.cfg.table);
-    for (const [key, col] of Object.entries(cols)) {
+    for (const [key, col] of Object.entries(this.cfg.columns)) {
       if (col === this.cfg.idColumn) return key;
     }
     return 'id';

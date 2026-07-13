@@ -1,6 +1,8 @@
 import { Injectable } from '@nestjs/common';
 import { createHash } from 'crypto';
 import type { DbExecutor } from '#db/db.module.js';
+import { AppException } from '#common/exceptions/app.exception.js';
+import { ErrorCodes } from '#common/error-codes.js';
 import {
   DeviceRepository,
   type Device,
@@ -21,11 +23,11 @@ export interface DeviceInfo {
 export class DeviceService {
   constructor(private readonly deviceRepo: DeviceRepository) {}
 
-  async findById(id: string): Promise<Device | null> {
-    return this.deviceRepo.findById(id);
-  }
-
-  async upsertDevice(userFk: string, info: DeviceInfo, tx?: DbExecutor): Promise<Device> {
+  async upsertDevice(
+    userFk: string,
+    info: DeviceInfo,
+    tx?: DbExecutor,
+  ): Promise<Device> {
     const publicKeyHash = createHash('sha256')
       .update(info.publicKey)
       .digest('hex');
@@ -36,6 +38,20 @@ export class DeviceService {
     );
 
     if (existing) {
+      // Re-authentication must not resurrect a device the owner explicitly
+      // blocked (e.g. "report device stolen" — DeviceAccessService.blockDevice).
+      // Login/signup are @Public() routes with no JWT for MobileJwtGuard to
+      // reject on, so this is the only checkpoint on that path — without it,
+      // a blocked device can simply re-run phone+OTP login/signup and mint a
+      // brand-new valid session, defeating the block entirely.
+      if (existing.isBlocked) {
+        throw new AppException(
+          ErrorCodes.DEVICE_BLOCKED,
+          'This device has been blocked',
+          403,
+        );
+      }
+
       const patch = {
         lastSeenAt: new Date(),
         appVersion: info.appVersion,
@@ -53,24 +69,24 @@ export class DeviceService {
         ...existing,
         lastSeenAt: patch.lastSeenAt,
         appVersion: patch.appVersion ?? existing.appVersion,
-        osVersion:  patch.osVersion  ?? existing.osVersion,
-        model:      patch.model      ?? existing.model,
-        lastIp:     patch.lastIp     ?? existing.lastIp,
-        pushToken:  patch.pushToken  ?? existing.pushToken,
+        osVersion: patch.osVersion ?? existing.osVersion,
+        model: patch.model ?? existing.model,
+        lastIp: patch.lastIp ?? existing.lastIp,
+        pushToken: patch.pushToken ?? existing.pushToken,
       };
     }
 
     return this.deviceRepo.insert(
       {
         userFk,
-        publicKey:           info.publicKey,
+        publicKey: info.publicKey,
         publicKeyHash,
-        platform:            info.platform,
-        model:               info.model,
-        osVersion:           info.osVersion,
-        appVersion:          info.appVersion,
-        lastIp:              info.lastIp,
-        pushToken:           info.pushToken,
+        platform: info.platform,
+        model: info.model,
+        osVersion: info.osVersion,
+        appVersion: info.appVersion,
+        lastIp: info.lastIp,
+        pushToken: info.pushToken,
         // Flag is stored for future enforcement; not blocked in Phase 1
         attestationVerified: !!info.attestation,
         // Devices start untrusted. Refresh proves device possession via a signed

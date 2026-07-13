@@ -2,6 +2,7 @@ import {
   BadRequestError,
   ForbiddenError,
   NotFoundError,
+  ConflictError,
   AppException,
 } from '#common/exceptions/app.exception.js';
 import { ErrorCodes } from '#common/error-codes.js';
@@ -97,6 +98,40 @@ export class EntityDoesNotSupportAttachmentsError extends ForbiddenError {
     super(
       ErrorCodes.ENTITY_DOES_NOT_SUPPORT_ATTACHMENTS,
       `Entity "${entityType}" does not support attachments`,
+      { entityType },
+    );
+  }
+}
+
+/**
+ * Commit was asked to link files to a parent record that does not exist (or was
+ * deleted, or belongs to another store). Because the offline uploader defers
+ * until the parent has synced, a live commit hitting this means the parent's
+ * create was rejected/dead-lettered — the client maps this to `orphaned` and
+ * cleans up. 409 (Conflict), not 404: the file object was staged fine; it's the
+ * *linkage target* that's gone. (image-offline-architecture.md P1-12a.)
+ */
+export class ParentRecordNotFoundError extends ConflictError {
+  constructor(entityType: string, recordGuuid: string) {
+    super(ErrorCodes.FILE_PARENT_NOT_FOUND, 'The record to attach this file to no longer exists', {
+      entityType,
+      recordGuuid,
+    });
+  }
+}
+
+/**
+ * Commit targeted an entity whose existence can't be verified — no record
+ * resolver is registered for it (RecordExistenceService). Fail-closed: we never
+ * create a `files` row we can't tie to a real parent. A misconfiguration signal,
+ * not a client error.
+ */
+export class ParentVerificationUnavailableError extends AppException {
+  constructor(entityType: string) {
+    super(
+      ErrorCodes.FILE_PARENT_VERIFICATION_UNAVAILABLE,
+      `No record resolver registered for entity "${entityType}" — cannot verify the attachment's parent`,
+      HttpStatus.INTERNAL_SERVER_ERROR,
       { entityType },
     );
   }

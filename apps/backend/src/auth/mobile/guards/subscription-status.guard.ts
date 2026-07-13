@@ -32,35 +32,31 @@ export const ALLOW_EXPIRED_SUBSCRIPTION_KEY = 'allowExpiredSubscription';
 export const AllowExpiredSubscription = () =>
   Reflect.metadata(ALLOW_EXPIRED_SUBSCRIPTION_KEY, true);
 
-/**
- * `paused` (admin/abuse suspension) blocks writes regardless of the cached
- * access window — subscription.md §4/§7. Wire code `subscription_suspended`, 403.
- */
-const SUSPENDED_STATUSES = new Set(['paused']);
+/** The `account_subscriptions.status` / `reconciliation_status` enums (schema.ts).
+ *  The write-gate switches exhaustively over these, so adding a status is a
+ *  compile error at the gate rather than a silent fall-through that opens it. */
+const SUBSCRIPTION_STATUSES = ['trialing', 'active', 'past_due', 'paused', 'cancelled', 'expired'] as const;
+type SubscriptionStatus = (typeof SUBSCRIPTION_STATUSES)[number];
 
-/**
- * Definitively inactive regardless of the access window (grace-over / cancelled
- * period-over reuse `expired` per this codebase's status enum — no separate
- * `lapsed` value exists). Wire code `subscription_payment_required`, 402.
- */
-const PAYMENT_REQUIRED_STATUSES = new Set(['expired']);
+const RECONCILIATION_STATUSES = ['none', 'pending', 'applied'] as const;
+type ReconciliationStatus = (typeof RECONCILIATION_STATUSES)[number];
 
 /** HTTP methods that never touch the write-gate (reads are never blocked). */
 const READ_METHODS = new Set(['GET', 'HEAD', 'OPTIONS']);
 
 /** Snapshot of the fields the guard needs — cached in Redis, keyed per account. */
 interface SubscriptionSnapshot {
-  status:               string;
+  status:               SubscriptionStatus;
   accessValidUntil:     string | null; // ISO
   subscriptionVersion:  number;
-  reconciliationStatus: string;
+  reconciliationStatus: ReconciliationStatus;
 }
 
 const SubscriptionSnapshotSchema: ZodType<SubscriptionSnapshot> = z.object({
-  status: z.string(),
+  status: z.enum(SUBSCRIPTION_STATUSES),
   accessValidUntil: z.string().nullable(),
   subscriptionVersion: z.number(),
-  reconciliationStatus: z.string(),
+  reconciliationStatus: z.enum(RECONCILIATION_STATUSES),
 });
 
 /**
@@ -143,14 +139,29 @@ export class SubscriptionStatusGuard implements CanActivate {
     const isRead = READ_METHODS.has(req.method);
     if (isRead || allowExpired) return true;
 
-    // Suspended (admin/abuse) — always blocked, regardless of access window.
-    if (SUSPENDED_STATUSES.has(sub.status)) {
-      throw new ForbiddenException(ErrorCodes.SUBSCRIPTION_SUSPENDED);
-    }
-
-    // Definitively inactive (grace-over / cancelled period-over).
-    if (PAYMENT_REQUIRED_STATUSES.has(sub.status)) {
-      throw new HttpException(ErrorCodes.SUBSCRIPTION_PAYMENT_REQUIRED, HttpStatus.PAYMENT_REQUIRED);
+    // Status gate — exhaustive over the enum so a newly-added status is a
+    // compile error here, never a silent fall-through that opens the write-gate.
+    switch (sub.status) {
+      // Admin/abuse suspension blocks writes regardless of the access window
+      // (subscription.md §4/§7). Wire code `subscription_suspended`, 403.
+      case 'paused':
+        throw new ForbiddenException(ErrorCodes.SUBSCRIPTION_SUSPENDED);
+      // Definitively inactive — grace-over / cancelled-period-over collapse to
+      // `expired`. Wire code `subscription_payment_required`, 402.
+      case 'expired':
+        throw new HttpException(ErrorCodes.SUBSCRIPTION_PAYMENT_REQUIRED, HttpStatus.PAYMENT_REQUIRED);
+      // Still within (or possibly within) the access window — fall through to
+      // the window / reconciliation / store-lock checks below. `cancelled`
+      // stays usable until its period end via the accessValidUntil check.
+      case 'trialing':
+      case 'active':
+      case 'past_due':
+      case 'cancelled':
+        break;
+      default: {
+        const unreachable: never = sub.status;
+        throw new Error(`Unhandled subscription status: ${String(unreachable)}`);
+      }
     }
 
     // Soft block: access window closed (trial ended / paid period over) but the

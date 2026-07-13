@@ -11,20 +11,20 @@ import { APIData, APIMethod } from '../api-handler';
 export const GET_SUBSCRIPTION = new APIData('me/subscription', APIMethod.GET);
 
 /** Cheap poll target — just the version counter. */
-export const GET_SUBSCRIPTION_VERSION = new APIData('me/subscription/sv', APIMethod.GET);
+export const GET_SUBSCRIPTION_VERSION = new APIData('me/subscription/version', APIMethod.GET);
 
 /** Purchasable plan catalog. Static config — cache ~24h client-side (§22B). */
 export const GET_SUBSCRIPTION_PLANS = new APIData('me/subscription/plans', APIMethod.GET);
 
 /** Create a payment order for a plan (§9). Owner + step-up required server-side. */
 export const CREATE_SUBSCRIPTION_CHECKOUT = new APIData(
-  'me/account/subscription/checkout',
+  'me/subscription/checkout',
   APIMethod.POST,
 );
 
 /** Verify a client-reported payment → activate (§9). Owner + step-up required server-side. */
 export const VERIFY_SUBSCRIPTION_PAYMENT = new APIData(
-  'me/account/subscription/verify',
+  'me/subscription/verify',
   APIMethod.POST,
 );
 

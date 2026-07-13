@@ -23,8 +23,27 @@ export interface IncomingFile {
  * real gate — client checks are UX only. Runs in two phases:
  *  - `validateAtIngestion`: extension + per-file size + magic-byte content sniff
  *    (a spoofed Content-Type or a renamed executable is rejected here).
- *  - `validateAtCommit`: record-scoped rules (consolidated size, attachment
- *    count) that need the parent record's existing files.
+ *  - `validateAtCommit`: re-validates extension + per-file size against the
+ *    rule resolved at COMMIT time, plus the record-scoped rules (consolidated
+ *    size, attachment count) that need the parent record's existing files.
+ *
+ * Why re-validate extension/size at commit: a temp row's extension/size were
+ * only checked once, at stage time, against whichever (entityTypeFk, kind)
+ * rule was active then. `FilesService.commit` lets the caller target a
+ * *different* (entityTypeFk, kind) than the one used to stage the file — so
+ * without this re-check, a file staged under a lenient rule could be
+ * committed under a stricter one and bypass its extension/size limits
+ * entirely. This re-check is metadata-only (extension string + byte count),
+ * not a content-sniff: the actual staged bytes aren't available at this layer
+ * (StorageProvider is a write/copy/sign port with no "read back the bytes"
+ * method), so a magic-byte re-sniff at commit would need a storage-layer
+ * change out of scope here. The ingestion-time sniff already ran once when
+ * the bytes first arrived, and commit only ever copies the same staged
+ * object — it can't introduce new bytes — so the residual gap is narrow: an
+ * extension allowed by the ingestion-time rule but disallowed by the
+ * commit-time rule, where both rules would have passed the sniff (e.g.
+ * staged as .pdf under a rule permitting PDFs, committed as .pdf under a
+ * rule that doesn't). Extension + size fully close that gap.
  */
 @Injectable()
 export class FileValidationService {
@@ -34,14 +53,8 @@ export class FileValidationService {
   validateAtIngestion(file: IncomingFile, rule: FileConfigRule): void {
     if (file.size <= 0 || file.buffer.length === 0) throw new EmptyFileError();
 
-    // Hard ceiling from the rule AND the global env cap (defence in depth).
-    const maxBytes = Math.min(rule.maxFileSizeBytes, this.config.uploadMaxFileSizeBytes);
-    if (file.size > maxBytes) throw new FileTooLargeError(file.size, maxBytes);
-
-    const extension = this.extensionOf(file.originalName);
-    if (!extension || !rule.validExtensions.includes(extension)) {
-      throw new FileTypeNotAllowedError(extension ?? '', rule.validExtensions);
-    }
+    this.validateExtensionAndSize(file, rule);
+    const extension = this.extensionOf(file.originalName)!; // validated above
 
     // Content sniff: the declared extension must be consistent with the actual
     // bytes. Blocks stored-XSS via a script disguised as an image and renamed
@@ -56,12 +69,19 @@ export class FileValidationService {
     }
   }
 
-  /** Phase 2 — at commit/link, once the parent record and its existing files are known. */
+  /**
+   * Phase 2 — at commit/link, once the parent record and its existing files
+   * are known. Re-validates extension + size against the COMMIT-time rule
+   * (see class doc), then the record-scoped attachment-count/consolidated-
+   * size budget.
+   */
   validateAtCommit(
-    file: { size: number },
+    file: { size: number; originalName: string },
     rule: FileConfigRule,
     existing: { count: number; totalBytes: number },
   ): void {
+    this.validateExtensionAndSize(file, rule);
+
     if (existing.count + 1 > rule.maxAttachmentsAllowed) {
       throw new AttachmentLimitExceededError(rule.maxAttachmentsAllowed);
     }
@@ -71,6 +91,21 @@ export class FileValidationService {
         incomingBytes: file.size,
         maxBytes: rule.maxConsolidatedSizeBytes,
       });
+    }
+  }
+
+  /** Shared by both phases: hard size ceiling + extension allow-list against `rule`. */
+  private validateExtensionAndSize(
+    file: { size: number; originalName: string },
+    rule: FileConfigRule,
+  ): void {
+    // Hard ceiling from the rule AND the global env cap (defence in depth).
+    const maxBytes = Math.min(rule.maxFileSizeBytes, this.config.uploadMaxFileSizeBytes);
+    if (file.size > maxBytes) throw new FileTooLargeError(file.size, maxBytes);
+
+    const extension = this.extensionOf(file.originalName);
+    if (!extension || !rule.validExtensions.includes(extension)) {
+      throw new FileTypeNotAllowedError(extension ?? '', rule.validExtensions);
     }
   }
 

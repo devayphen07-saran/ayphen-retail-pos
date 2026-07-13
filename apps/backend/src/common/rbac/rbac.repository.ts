@@ -117,7 +117,7 @@ export class RbacRepository {
   /**
    * Active CRUD grants across the supplied role IDs.
    */
-  async fetchCrudPermissions(
+  async findCrudPermissions(
     roleIds: string[],
     tx?: DbExecutor,
   ): Promise<CrudGrantRow[]> {
@@ -147,7 +147,7 @@ export class RbacRepository {
   /**
    * Active special-action grants across the supplied role IDs.
    */
-  async fetchSpecialPermissions(
+  async findSpecialPermissions(
     roleIds: string[],
     tx?: DbExecutor,
   ): Promise<SpecialGrantRow[]> {
@@ -336,6 +336,7 @@ export class RbacRepository {
           isNull(roles.deletedAt),
 
           // assignment active at asOf
+          lte(userRoleMappings.assignedAt, asOf),
           or(isNull(userRoleMappings.revokedAt), gt(userRoleMappings.revokedAt, asOf)),
           or(isNull(userRoleMappings.expiresAt), gt(userRoleMappings.expiresAt, asOf)),
 

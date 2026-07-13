@@ -58,7 +58,7 @@ export function SessionsScreen() {
   const runRevoke = async (sessionId: string) => {
     setBusyId(sessionId);
     try {
-      await revoke.mutateAsync({ pathParam: { id: sessionId } });
+      await revoke.mutateAsync({ pathParam: { sessionId } });
     } catch {
       Alert.info('Error', "Couldn't log out that device.");
     } finally {

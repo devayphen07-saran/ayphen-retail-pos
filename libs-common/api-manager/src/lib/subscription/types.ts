@@ -30,7 +30,7 @@ export interface SubscriptionResponse {
   };
 }
 
-/** GET /me/subscription/sv. */
+/** GET /me/subscription/version. */
 export interface SubscriptionVersionResponse {
   subscription_version: number;
 }
@@ -64,12 +64,12 @@ export interface PlanCatalogEntry {
   feature_labels:     Record<string, string>;
 }
 
-/** POST /me/account/subscription/checkout body. */
+/** POST /me/subscription/checkout body. */
 export interface CheckoutSubscriptionRequest {
   plan_code: string;
 }
 
-/** POST /me/account/subscription/checkout response. Provider-specific fields
+/** POST /me/subscription/checkout response. Provider-specific fields
  *  (Razorpay key/order id/amount/currency) are intentionally open-ended —
  *  read them off this object by name, don't destructure-assume every key. */
 export interface CheckoutSubscriptionResponse {
@@ -77,14 +77,14 @@ export interface CheckoutSubscriptionResponse {
   [key: string]: unknown;
 }
 
-/** POST /me/account/subscription/verify body. */
+/** POST /me/subscription/verify body. */
 export interface VerifySubscriptionPaymentRequest {
   order_id:   string;
   payment_id: string;
   signature:  string;
 }
 
-/** POST /me/account/subscription/verify response. */
+/** POST /me/subscription/verify response. */
 export interface VerifySubscriptionPaymentResponse {
   activated: boolean;
 }

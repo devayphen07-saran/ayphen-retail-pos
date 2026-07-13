@@ -11,7 +11,6 @@ import {
   VIEW_EDIT,
   VIEW_CREATE,
   VIEW_ONLY,
-  NONE,
   type CrudMatrix,
   type CrudMatrixMap,
   type PartialCrudMatrixMap,
@@ -28,6 +27,11 @@ import {
 export const STORE_OWNER_CRUD: CrudMatrixMap = Object.freeze({
   Product: FULL,
   Order: FULL,
+  // Sales/refunds are financial audit history — no delete, matches CashMovement
+  // (docs/prd/accounts-and-ledger.md: a sale is voided/refunded via a new
+  // event, never deleted).
+  Sale: NO_DELETE,
+  Refund: NO_DELETE,
   Customer: FULL,
   Supplier: FULL,
   Inventory: FULL,
@@ -96,6 +100,10 @@ export const SUPER_ADMIN_CRUD: CrudMatrixMap = buildSuperAdminCrud();
 export const DEFAULT_ROLE_CRUD: PartialCrudMatrixMap = Object.freeze({
   Product: VIEW_ONLY,
   Order: VIEW_CREATE,
+  // A cashier rings up sales by default; refunds are absent (explicit grant
+  // only) — same "financial/destructive actions come through explicit grants"
+  // policy as this file's own comment above already states.
+  Sale: VIEW_CREATE,
   Customer: VIEW_ONLY,
   Supplier: VIEW_ONLY,
   Inventory: VIEW_ONLY,
@@ -123,12 +131,6 @@ export const DEFAULT_ROLE_CRUD: PartialCrudMatrixMap = Object.freeze({
 export const DEFAULT_ROLE_ABSENT = ENTITY_CODES.filter(
   (code) => !(code in DEFAULT_ROLE_CRUD),
 ) as readonly EntityCode[];
-
-export function getDefaultCrudForEntity(
-  entity: EntityCode,
-): Readonly<CrudMatrix> {
-  return DEFAULT_ROLE_CRUD[entity] ?? NONE;
-}
 
 /**
  * Role codes that are system-managed, not custom roles a store owner creates.

@@ -28,4 +28,21 @@ export class DeviceSyncHealthRepository {
       this.logger.warn(`failed to stamp devices.last_sync_at for ${deviceId}: ${String(error)}`);
     }
   }
+
+  /**
+   * This device's last server-observed sync (C1). Read at preflight, BEFORE the
+   * per-request `touch()` in buildResult stamps the new value, so it reflects
+   * the device's PRIOR contact. The subscription write-gate floors its check at
+   * this instant: a device demonstrably online after a lapse can't then submit
+   * writes stamped before the lapse, while genuine offline sales (always stamped
+   * after the last sync) are unaffected. Returns null if never synced.
+   */
+  async getLastSyncAt(deviceId: string): Promise<Date | null> {
+    const [row] = await this.db
+      .select({ lastSyncAt: devices.lastSyncAt })
+      .from(devices)
+      .where(eq(devices.id, deviceId))
+      .limit(1);
+    return row?.lastSyncAt ?? null;
+  }
 }

@@ -1,8 +1,10 @@
 import { Inject, Injectable } from '@nestjs/common';
-import { and, eq, inArray, lt, sql } from 'drizzle-orm';
+import { MS_PER_DAY } from '#common/time.js';
+import { and, eq, inArray, lt, sql, type SQL } from 'drizzle-orm';
 import type { PostgresJsDatabase } from 'drizzle-orm/postgres-js';
+import type { PgUpdateSetSource } from 'drizzle-orm/pg-core';
 import { DRIZZLE, type DbExecutor } from '#db/db.module.js';
-import { NotFoundError } from '#common/exceptions/app.exception.js';
+import { ForbiddenError, NotFoundError } from '#common/exceptions/app.exception.js';
 import { ErrorCodes } from '#common/error-codes.js';
 import * as schema from '#db/schema.js';
 import {
@@ -29,13 +31,13 @@ export interface SubscriptionSyncState {
 
 export interface SubscriptionWithPlan {
   subscription: AccountSubscription;
-  planCode:     string;
-  planName:     string;
+  planCode: string;
+  planName: string;
   // Billing cadence code (e.g. 'starter_annual') from account_subscriptions.plan_code —
   // distinct from `planCode` above, which is actually the plan *name* ('starter').
   billingPlanCode: string | null;
   entitlements: Record<string, number | null>;
-  features:     Record<string, boolean>;
+  features: Record<string, boolean>;
 }
 
 /**
@@ -56,12 +58,26 @@ export class SubscriptionRepository {
   }
 
   /** Resolve the account a user owns, or null. Billing actions are owner-gated. */
-  async findOwnedAccountId(userId: string, tx?: DbExecutor): Promise<string | null> {
+  async findOwnedAccountId(
+    userId: string,
+    tx?: DbExecutor,
+  ): Promise<string | null> {
     const [row] = await this.client(tx)
       .select({ id: accounts.id })
       .from(accounts)
       .where(eq(accounts.ownerUserFk, userId));
     return row?.id ?? null;
+  }
+
+  /** Owner-gate for billing/reconciliation actions: the owned account id, or a
+   *  403 NOT_ACCOUNT_OWNER. One shared gate so every owner-scoped action rejects
+   *  identically (SubscriptionService / BillingService / ReconciliationService). */
+  async requireOwnedAccountId(userId: string, tx?: DbExecutor): Promise<string> {
+    const accountId = await this.findOwnedAccountId(userId, tx);
+    if (!accountId) {
+      throw new ForbiddenError(ErrorCodes.NOT_ACCOUNT_OWNER, 'You are not the account owner');
+    }
+    return accountId;
   }
 
   /** Raw entitlement row for an account+key, or null when no such row exists.
@@ -76,7 +92,10 @@ export class SubscriptionRepository {
     const [row] = await this.client(tx)
       .select({ value: planEntitlements.value })
       .from(accountSubscriptions)
-      .innerJoin(planEntitlements, eq(planEntitlements.planFk, accountSubscriptions.planFk))
+      .innerJoin(
+        planEntitlements,
+        eq(planEntitlements.planFk, accountSubscriptions.planFk),
+      )
       .where(
         and(
           eq(accountSubscriptions.accountFk, accountId),
@@ -97,7 +116,8 @@ export class SubscriptionRepository {
         status: accountSubscriptions.status,
         accessValidUntil: accountSubscriptions.accessValidUntil,
         reconciliationStatus: accountSubscriptions.reconciliationStatus,
-        reconciliationEffectiveAt: accountSubscriptions.reconciliationEffectiveAt,
+        reconciliationEffectiveAt:
+          accountSubscriptions.reconciliationEffectiveAt,
       })
       .from(accountSubscriptions)
       .where(eq(accountSubscriptions.accountFk, accountId));
@@ -105,7 +125,10 @@ export class SubscriptionRepository {
   }
 
   /** The account owner's user id (for account-level billing audit). */
-  async findAccountOwnerUserId(accountId: string, tx?: DbExecutor): Promise<string | null> {
+  async findAccountOwnerUserId(
+    accountId: string,
+    tx?: DbExecutor,
+  ): Promise<string | null> {
     const [row] = await this.client(tx)
       .select({ ownerUserFk: accounts.ownerUserFk })
       .from(accounts)
@@ -114,7 +137,10 @@ export class SubscriptionRepository {
   }
 
   /** Resolve the (single) account a user belongs to, for the read model. */
-  async findMemberAccountId(userId: string, tx?: DbExecutor): Promise<string | null> {
+  async findMemberAccountId(
+    userId: string,
+    tx?: DbExecutor,
+  ): Promise<string | null> {
     const [row] = await this.client(tx)
       .select({ accountFk: accountUsers.accountFk })
       .from(accountUsers)
@@ -123,7 +149,10 @@ export class SubscriptionRepository {
   }
 
   /** Just the version counter — the cheap poll target for `GET /me/subscription/sv`. */
-  async findVersionByAccountId(accountId: string, tx?: DbExecutor): Promise<number | null> {
+  async findVersionByAccountId(
+    accountId: string,
+    tx?: DbExecutor,
+  ): Promise<number | null> {
     const [row] = await this.client(tx)
       .select({ subscriptionVersion: accountSubscriptions.subscriptionVersion })
       .from(accountSubscriptions)
@@ -132,7 +161,10 @@ export class SubscriptionRepository {
   }
 
   /** Resolve a plan's id from its name (plans.name), or null. */
-  async findPlanIdByName(planName: string, tx?: DbExecutor): Promise<string | null> {
+  async findPlanIdByName(
+    planName: string,
+    tx?: DbExecutor,
+  ): Promise<string | null> {
     const [row] = await this.client(tx)
       .select({ id: plans.id })
       .from(plans)
@@ -145,24 +177,50 @@ export class SubscriptionRepository {
    * endpoint (GET /me/subscription/plans). Static config, cheap to fetch in
    * full — the controller layer merges in pricing from `PLAN_PRICING`.
    */
-  async findActivePlansWithEntitlementsAndFeatures(tx?: DbExecutor): Promise<
-    Array<{ id: string; name: string; displayName: string; entitlements: Record<string, number | null>; features: Record<string, boolean> }>
+  async findActivePlansWithEntitlementsAndFeatures(
+    tx?: DbExecutor,
+  ): Promise<
+    Array<{
+      id: string;
+      name: string;
+      displayName: string;
+      entitlements: Record<string, number | null>;
+      features: Record<string, boolean>;
+    }>
   > {
     const client = this.client(tx);
     const [planRows, entRows, featRows] = await Promise.all([
-      client.select({ id: plans.id, name: plans.name, displayName: plans.displayName })
-        .from(plans).where(eq(plans.isActive, true)),
-      client.select({ planFk: planEntitlements.planFk, key: planEntitlements.key, value: planEntitlements.value })
+      client
+        .select({
+          id: plans.id,
+          name: plans.name,
+          displayName: plans.displayName,
+        })
+        .from(plans)
+        .where(eq(plans.isActive, true)),
+      client
+        .select({
+          planFk: planEntitlements.planFk,
+          key: planEntitlements.key,
+          value: planEntitlements.value,
+        })
         .from(planEntitlements),
-      client.select({ planFk: planFeatures.planFk, key: planFeatures.key, enabled: planFeatures.enabled })
+      client
+        .select({
+          planFk: planFeatures.planFk,
+          key: planFeatures.key,
+          enabled: planFeatures.enabled,
+        })
         .from(planFeatures),
     ]);
 
     return planRows.map((plan) => {
       const entitlements: Record<string, number | null> = {};
-      for (const r of entRows) if (r.planFk === plan.id) entitlements[r.key] = r.value;
+      for (const r of entRows)
+        if (r.planFk === plan.id) entitlements[r.key] = r.value;
       const features: Record<string, boolean> = {};
-      for (const r of featRows) if (r.planFk === plan.id) features[r.key] = r.enabled;
+      for (const r of featRows)
+        if (r.planFk === plan.id) features[r.key] = r.enabled;
       return { ...plan, entitlements, features };
     });
   }
@@ -179,7 +237,10 @@ export class SubscriptionRepository {
     return { name: row?.name ?? '', contact: row?.phone ?? '' };
   }
 
-  async findByAccountId(accountId: string, tx?: DbExecutor): Promise<AccountSubscription | null> {
+  async findByAccountId(
+    accountId: string,
+    tx?: DbExecutor,
+  ): Promise<AccountSubscription | null> {
     const [row] = await this.client(tx)
       .select()
       .from(accountSubscriptions)
@@ -188,17 +249,26 @@ export class SubscriptionRepository {
   }
 
   /** Full read model: subscription joined with its plan's entitlements + features. */
-  async findWithPlan(accountId: string, tx?: DbExecutor): Promise<SubscriptionWithPlan | null> {
+  async findWithPlan(
+    accountId: string,
+    tx?: DbExecutor,
+  ): Promise<SubscriptionWithPlan | null> {
     const sub = await this.findByAccountId(accountId, tx);
     if (!sub) return null;
 
     const [[plan], entRows, featRows] = await Promise.all([
-      this.client(tx).select({ code: plans.name, name: plans.displayName })
-        .from(plans).where(eq(plans.id, sub.planFk)),
-      this.client(tx).select({ key: planEntitlements.key, value: planEntitlements.value })
-        .from(planEntitlements).where(eq(planEntitlements.planFk, sub.planFk)),
-      this.client(tx).select({ key: planFeatures.key, enabled: planFeatures.enabled })
-        .from(planFeatures).where(eq(planFeatures.planFk, sub.planFk)),
+      this.client(tx)
+        .select({ code: plans.name, name: plans.displayName })
+        .from(plans)
+        .where(eq(plans.id, sub.planFk)),
+      this.client(tx)
+        .select({ key: planEntitlements.key, value: planEntitlements.value })
+        .from(planEntitlements)
+        .where(eq(planEntitlements.planFk, sub.planFk)),
+      this.client(tx)
+        .select({ key: planFeatures.key, enabled: planFeatures.enabled })
+        .from(planFeatures)
+        .where(eq(planFeatures.planFk, sub.planFk)),
     ]);
 
     const entitlements: Record<string, number | null> = {};
@@ -235,7 +305,7 @@ export class SubscriptionRepository {
         | 'pastDueGraceUntil'
         | 'accessValidUntil'
         | 'cancelAtPeriodEnd'
-        | 'razorpaySubId'
+        | 'razorpaySubId' // reserved: no recurring-charge webhook yet, no caller sets this today
         | 'reconciliationStatus'
         | 'reconciliationEffectiveAt'
       >
@@ -254,7 +324,10 @@ export class SubscriptionRepository {
     // Zero-match UPDATE (account has no subscription row) → clean 404 rather than
     // handing back `undefined` typed as a subscription and crashing downstream.
     if (!row) {
-      throw new NotFoundError(ErrorCodes.SUBSCRIPTION_NOT_FOUND, 'Subscription not found for account');
+      throw new NotFoundError(
+        ErrorCodes.SUBSCRIPTION_NOT_FOUND,
+        'Subscription not found for account',
+      );
     }
     return row;
   }
@@ -274,7 +347,10 @@ export class SubscriptionRepository {
    */
   async applyTransitionIf(
     accountId: string,
-    precondition: { status: AccountSubscription['status']; cancelAtPeriodEnd?: boolean },
+    precondition: {
+      status: AccountSubscription['status'];
+      cancelAtPeriodEnd?: boolean;
+    },
     patch: Partial<Pick<AccountSubscription, 'cancelAtPeriodEnd'>>,
     tx?: DbExecutor,
   ): Promise<AccountSubscription | null> {
@@ -283,7 +359,12 @@ export class SubscriptionRepository {
       eq(accountSubscriptions.status, precondition.status),
     ];
     if (precondition.cancelAtPeriodEnd !== undefined) {
-      conditions.push(eq(accountSubscriptions.cancelAtPeriodEnd, precondition.cancelAtPeriodEnd));
+      conditions.push(
+        eq(
+          accountSubscriptions.cancelAtPeriodEnd,
+          precondition.cancelAtPeriodEnd,
+        ),
+      );
     }
     const [row] = await this.client(tx)
       .update(accountSubscriptions)
@@ -322,16 +403,14 @@ export class SubscriptionRepository {
   /**
    * Persist the account/plan a checkout order was created for (subscription
    * §9). Durable counterpart to `BillingService`'s Redis `pay:order:{id}` —
-   * that key has a 1h TTL, but a payment webhook can legitimately arrive
-   * later (provider redelivery), and without this row there'd be nothing to
-   * activate against even though `processed_payment_events` could still
-   * accept the claim.
-   */
-  /**
+   * that key has a 1h TTL, but a payment webhook can legitimately arrive later
+   * (provider redelivery), and without this row there'd be nothing to activate
+   * against even though `processed_payment_events` could still accept the claim.
+   *
    * Idempotent on `orderId` (its PK) — a repeated checkout for the same
-   * account+plan can legitimately reuse the same order id (deterministic
-   * under FakePaymentProvider's idempotencyKey-derived ids in dev/staging),
-   * and this must be a clean no-op, not an unhandled unique-violation 500.
+   * account+plan can legitimately reuse the same order id (deterministic under
+   * FakePaymentProvider's idempotencyKey-derived ids in dev/staging), and this
+   * must be a clean no-op, not an unhandled unique-violation 500.
    */
   async insertPaymentOrder(
     orderId: string,
@@ -354,8 +433,8 @@ export class SubscriptionRepository {
     const [row] = await this.client(tx)
       .select({
         accountId: paymentOrders.accountFk,
-        planFk:    paymentOrders.planFk,
-        planCode:  paymentOrders.planCode,
+        planFk: paymentOrders.planFk,
+        planCode: paymentOrders.planCode,
       })
       .from(paymentOrders)
       .where(eq(paymentOrders.orderId, orderId));
@@ -388,51 +467,82 @@ export class SubscriptionRepository {
     if (accountIds.length === 0) return;
     await this.client(tx)
       .insert(subscriptionAuditOutbox)
-      .values(accountIds.map((accountId) => ({ accountFk: accountId, eventType, payload })));
+      .values(
+        accountIds.map((accountId) => ({
+          accountFk: accountId,
+          eventType,
+          payload,
+        })),
+      );
   }
 
   // ─── Reconciliation cron: atomic, idempotent set-based transition ───────────
 
   /**
-   * trialing → expired where the trial clock has elapsed (no recurrence/grace in
-   * this flow). Single atomic `UPDATE … WHERE` so a duplicate run is a no-op.
-   * access_valid_until (= trial_ends_at) is already in the past, so the guard
-   * write-blocks immediately; this just makes the status explicit + bumps version.
+   * Bounded, idempotent time-based transition. Flips up to `limit` rows matching
+   * `predicate` via `patch` (version + updatedAt bumped for you), returning the
+   * affected account fks.
+   *
+   * The predicate is repeated on the outer UPDATE, not just the inner
+   * id-selecting SELECT: if a concurrent transaction changes a row's status
+   * between the inner snapshot and this UPDATE acquiring the lock, Postgres's
+   * EvalPlanQual re-validates against the row's latest committed values and skips
+   * it instead of blindly reapplying a now-stale transition. `limit` bounds each
+   * call to one batch (the cron loops until a batch comes back short) so a mass
+   * same-day expiry never runs as one unbounded UPDATE.
    */
-  /** `limit` bounds each call to one batch (cron loops until a batch comes
-   *  back short of `limit`) — a mass same-day expiry must never run as one
-   *  unbounded UPDATE. */
-  async expireTrials(now: Date, limit: number, tx?: DbExecutor): Promise<string[]> {
+  private async transitionBatch(
+    predicate: SQL | undefined,
+    patch: PgUpdateSetSource<typeof accountSubscriptions>,
+    now: Date,
+    limit: number,
+    tx?: DbExecutor,
+  ): Promise<string[]> {
     const client = this.client(tx);
-    // Predicate is repeated on the outer UPDATE (not just the inner id-selecting
-    // SELECT) so that if a concurrent transaction changes the row's status
-    // between the inner snapshot and this UPDATE acquiring the lock, Postgres's
-    // EvalPlanQual re-validates against the row's latest committed values and
-    // skips it instead of blindly reapplying a now-stale transition.
     const rows = await client
       .update(accountSubscriptions)
       .set({
-        status: 'expired',
+        ...patch,
         subscriptionVersion: sql`${accountSubscriptions.subscriptionVersion} + 1`,
         updatedAt: now,
       })
-      .where(and(
-        inArray(
-          accountSubscriptions.id,
-          client
-            .select({ id: accountSubscriptions.id })
-            .from(accountSubscriptions)
-            .where(and(
-              eq(accountSubscriptions.status, 'trialing'),
-              lt(accountSubscriptions.trialEndsAt, now),
-            ))
-            .limit(limit),
+      .where(
+        and(
+          inArray(
+            accountSubscriptions.id,
+            client
+              .select({ id: accountSubscriptions.id })
+              .from(accountSubscriptions)
+              .where(predicate)
+              .limit(limit),
+          ),
+          predicate,
         ),
-        eq(accountSubscriptions.status, 'trialing'),
-        lt(accountSubscriptions.trialEndsAt, now),
-      ))
+      )
       .returning({ accountFk: accountSubscriptions.accountFk });
     return rows.map((r) => r.accountFk);
+  }
+
+  /**
+   * trialing → expired where the trial clock has elapsed (no recurrence/grace in
+   * this flow). access_valid_until (= trial_ends_at) is already in the past, so
+   * the guard write-blocks immediately; this just makes the status explicit.
+   */
+  async expireTrials(
+    now: Date,
+    limit: number,
+    tx?: DbExecutor,
+  ): Promise<string[]> {
+    return this.transitionBatch(
+      and(
+        eq(accountSubscriptions.status, 'trialing'),
+        lt(accountSubscriptions.trialEndsAt, now),
+      ),
+      { status: 'expired' },
+      now,
+      limit,
+      tx,
+    );
   }
 
   /**
@@ -452,37 +562,20 @@ export class SubscriptionRepository {
     limit: number,
     tx?: DbExecutor,
   ): Promise<string[]> {
-    const graceUntil = new Date(now.getTime() + graceDays * 24 * 60 * 60 * 1000);
-    const client = this.client(tx);
-    // See expireTrials() for why the predicate is repeated on the outer UPDATE.
-    const rows = await client
-      .update(accountSubscriptions)
-      .set({
-        status: 'past_due',
-        pastDueGraceUntil: graceUntil,
-        accessValidUntil: graceUntil,
-        subscriptionVersion: sql`${accountSubscriptions.subscriptionVersion} + 1`,
-        updatedAt: now,
-      })
-      .where(and(
-        inArray(
-          accountSubscriptions.id,
-          client
-            .select({ id: accountSubscriptions.id })
-            .from(accountSubscriptions)
-            .where(and(
-              eq(accountSubscriptions.status, 'active'),
-              eq(accountSubscriptions.cancelAtPeriodEnd, false),
-              lt(accountSubscriptions.currentPeriodEnd, now),
-            ))
-            .limit(limit),
-        ),
+    const graceUntil = new Date(
+      now.getTime() + graceDays * MS_PER_DAY,
+    );
+    return this.transitionBatch(
+      and(
         eq(accountSubscriptions.status, 'active'),
         eq(accountSubscriptions.cancelAtPeriodEnd, false),
         lt(accountSubscriptions.currentPeriodEnd, now),
-      ))
-      .returning({ accountFk: accountSubscriptions.accountFk });
-    return rows.map((r) => r.accountFk);
+      ),
+      { status: 'past_due', pastDueGraceUntil: graceUntil, accessValidUntil: graceUntil },
+      now,
+      limit,
+      tx,
+    );
   }
 
   /**
@@ -492,35 +585,22 @@ export class SubscriptionRepository {
    * fires; nothing is deleted, reads stay open. Single atomic `UPDATE … WHERE`,
    * idempotent on a duplicate/concurrent run.
    */
-  async expireCancelledAtPeriodEnd(now: Date, limit: number, tx?: DbExecutor): Promise<string[]> {
-    const client = this.client(tx);
-    // See expireTrials() for why the predicate is repeated on the outer UPDATE.
-    const rows = await client
-      .update(accountSubscriptions)
-      .set({
-        status: 'cancelled',
-        subscriptionVersion: sql`${accountSubscriptions.subscriptionVersion} + 1`,
-        updatedAt: now,
-      })
-      .where(and(
-        inArray(
-          accountSubscriptions.id,
-          client
-            .select({ id: accountSubscriptions.id })
-            .from(accountSubscriptions)
-            .where(and(
-              eq(accountSubscriptions.status, 'active'),
-              eq(accountSubscriptions.cancelAtPeriodEnd, true),
-              lt(accountSubscriptions.currentPeriodEnd, now),
-            ))
-            .limit(limit),
-        ),
+  async expireCancelledAtPeriodEnd(
+    now: Date,
+    limit: number,
+    tx?: DbExecutor,
+  ): Promise<string[]> {
+    return this.transitionBatch(
+      and(
         eq(accountSubscriptions.status, 'active'),
         eq(accountSubscriptions.cancelAtPeriodEnd, true),
         lt(accountSubscriptions.currentPeriodEnd, now),
-      ))
-      .returning({ accountFk: accountSubscriptions.accountFk });
-    return rows.map((r) => r.accountFk);
+      ),
+      { status: 'cancelled' },
+      now,
+      limit,
+      tx,
+    );
   }
 
   /**
@@ -530,33 +610,21 @@ export class SubscriptionRepository {
    * status explicit so `SubscriptionStatusGuard`'s hard-block path fires instead
    * of only the soft (window-expired) path.
    */
-  async expirePastDueGrace(now: Date, limit: number, tx?: DbExecutor): Promise<string[]> {
-    const client = this.client(tx);
-    // See expireTrials() for why the predicate is repeated on the outer UPDATE.
-    const rows = await client
-      .update(accountSubscriptions)
-      .set({
-        status: 'expired',
-        subscriptionVersion: sql`${accountSubscriptions.subscriptionVersion} + 1`,
-        updatedAt: now,
-      })
-      .where(and(
-        inArray(
-          accountSubscriptions.id,
-          client
-            .select({ id: accountSubscriptions.id })
-            .from(accountSubscriptions)
-            .where(and(
-              eq(accountSubscriptions.status, 'past_due'),
-              lt(accountSubscriptions.pastDueGraceUntil, now),
-            ))
-            .limit(limit),
-        ),
+  async expirePastDueGrace(
+    now: Date,
+    limit: number,
+    tx?: DbExecutor,
+  ): Promise<string[]> {
+    return this.transitionBatch(
+      and(
         eq(accountSubscriptions.status, 'past_due'),
         lt(accountSubscriptions.pastDueGraceUntil, now),
-      ))
-      .returning({ accountFk: accountSubscriptions.accountFk });
-    return rows.map((r) => r.accountFk);
+      ),
+      { status: 'expired' },
+      now,
+      limit,
+      tx,
+    );
   }
 
   // ─── Outbox drain ───────────────────────────────────────────────────────────
@@ -570,7 +638,11 @@ export class SubscriptionRepository {
       .limit(limit);
   }
 
-  async markOutboxProcessed(id: string, now: Date, tx?: DbExecutor): Promise<void> {
+  async markOutboxProcessed(
+    id: string,
+    now: Date,
+    tx?: DbExecutor,
+  ): Promise<void> {
     await this.client(tx)
       .update(subscriptionAuditOutbox)
       .set({ processedAt: now })
@@ -589,7 +661,11 @@ export class SubscriptionRepository {
 
   /** Give up on a poison row: stamp processed (so it leaves the pending scan)
    *  and record that it was dead-lettered, for alerting. */
-  async deadLetterOutbox(id: string, now: Date, tx?: DbExecutor): Promise<void> {
+  async deadLetterOutbox(
+    id: string,
+    now: Date,
+    tx?: DbExecutor,
+  ): Promise<void> {
     await this.client(tx)
       .update(subscriptionAuditOutbox)
       .set({ processedAt: now, deadLetteredAt: now })

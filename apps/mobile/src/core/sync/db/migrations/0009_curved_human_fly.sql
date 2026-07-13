@@ -1,0 +1,1 @@
+ALTER TABLE `payment_accounts` DROP COLUMN `payment_method_fk`;

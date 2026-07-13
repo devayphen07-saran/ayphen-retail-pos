@@ -1,4 +1,5 @@
 import { Injectable } from '@nestjs/common';
+import { MS_PER_DAY } from '#common/time.js';
 import {
   ForbiddenError,
   PaymentRequiredError,
@@ -10,6 +11,7 @@ import { EntitlementService } from '../../subscription/entitlement.service.js';
 import { RbacService } from '#common/rbac/rbac.service.js';
 import { AuditService } from '#common/audit/audit.service.js';
 import { SnapshotService } from '#auth/mobile/services/snapshot.service.js';
+import { AccountPostingService } from '../../ledger/account-posting.service.js';
 import type { PermissionSnapshot } from '#common/types/permission-snapshot.js';
 
 const TRIAL_DAYS = 15;
@@ -20,6 +22,9 @@ export interface CreateStoreInput {
   address?: string;
   phone?: string;
   email?: string;
+  /** F1 (docs/prd/accounts-and-ledger.md) — how much cash is already in the
+   *  drawer today. Optional; omitted/zero starts the Cash account at 0. */
+  openingCashBalancePaise?: number;
 }
 
 /** `snapshot`/`snapshotSignature` are nullable — best-effort, see `createStore`. */
@@ -59,6 +64,7 @@ export class StoreService {
     private readonly rbac: RbacService,
     private readonly audit: AuditService,
     private readonly snapshot: SnapshotService,
+    private readonly ledger: AccountPostingService,
   ) {}
 
   /**
@@ -162,6 +168,24 @@ export class StoreService {
         tx,
       );
 
+      // Seed the two locked default payment accounts (Cash + Bank) so the store
+      // can take payment from day one (PRD payment-accounts-mobile §BR-1). Same
+      // transaction as the store insert → a seed failure rolls the store back.
+      const seeded = await this.repo.seedDefaultPaymentAccounts(store.id, userId, tx);
+
+      // F1 (docs/prd/accounts-and-ledger.md): an owner who tells us how much
+      // cash is already in the drawer gets a store whose balance starts right,
+      // not at zero. Same transaction as the seed — a posting failure rolls
+      // the whole store back same as any other step here.
+      if (input.openingCashBalancePaise && input.openingCashBalancePaise > 0 && seeded.cashAccountId) {
+        await this.ledger.recordOpeningBalance(tx, {
+          storeFk: store.id,
+          accountFk: seeded.cashAccountId,
+          amountPaise: input.openingCashBalancePaise,
+          userId,
+        });
+      }
+
       // Per-store immutable STORE_OWNER role, fully granted, assigned to creator.
       const ownerRole = await this.repo.insertStoreOwnerRole(store.id, tx);
       await this.rbac.seedStoreOwnerPermissions(ownerRole.id, userId, tx);
@@ -179,9 +203,7 @@ export class StoreService {
       if (isFirstStore) {
         const sub = await this.repo.findSubscription(account.id, tx);
         if (sub && sub.status === 'trialing' && !sub.hasUsedTrial) {
-          const trialEndsAt = new Date(
-            Date.now() + TRIAL_DAYS * 24 * 60 * 60 * 1000,
-          );
+          const trialEndsAt = new Date(Date.now() + TRIAL_DAYS * MS_PER_DAY);
           await this.repo.startTrial(sub.id, trialEndsAt, tx);
         }
       }
@@ -209,27 +231,12 @@ export class StoreService {
 
     // The creator's accessible-store list + perm cache are now stale.
     await this.rbac.invalidateUserStoreCache(userId, created.id);
-    // ...and so is the cached signed permission snapshot bootstrap serves —
-    // without this, a client that bootstrapped before creating the store
-    // keeps seeing the pre-store snapshot until SNAPSHOT_CACHE_TTL_SECONDS
-    // expires, even though permissionsVersion was just bumped.
-    await this.snapshot.invalidate(userId);
-
-    // Best-effort: embed the freshly-rebuilt snapshot so the client can patch
-    // its session state in place instead of a full bootstrap round trip.
-    // invalidate() MUST run before getOrBuild() — otherwise getOrBuild's
-    // cache-first read would return the stale pre-creation snapshot. A build
-    // failure here doesn't fail store creation (it already committed); the
-    // client falls back to its existing bootstrap call when these are null.
-    let snapshot: PermissionSnapshot | null = null;
-    let snapshotSignature: string | null = null;
-    try {
-      const built = await this.snapshot.getOrBuild(userId);
-      snapshot = built.snapshot;
-      snapshotSignature = built.signature;
-    } catch {
-      // fields stay null — client falls back to refetchUser().
-    }
+    // ...and so is the cached signed permission snapshot bootstrap serves.
+    // Invalidate it and embed the rebuilt snapshot so the client can patch its
+    // session state in place instead of a full bootstrap round trip (best-effort
+    // — a build failure leaves these null and the client falls back to bootstrap).
+    const { snapshot, snapshotSignature } =
+      await this.snapshot.invalidateAndRebuild(userId);
 
     return { id: created.id, name: created.name, snapshot, snapshotSignature };
   }

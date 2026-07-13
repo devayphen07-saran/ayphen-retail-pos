@@ -1,4 +1,4 @@
-import { Injectable, Logger, type OnApplicationBootstrap } from '@nestjs/common';
+import { Injectable, Logger, UseGuards, type OnApplicationBootstrap } from '@nestjs/common';
 import { DiscoveryService, MetadataScanner, Reflector } from '@nestjs/core';
 import type { InstanceWrapper } from '@nestjs/core/injector/instance-wrapper.js';
 import { MobileJwtGuard } from '#auth/mobile/guards/mobile-jwt.guard.js';
@@ -33,6 +33,8 @@ export class RouteCoverageValidator implements OnApplicationBootstrap {
   ) {}
 
   onApplicationBootstrap(): void {
+    this.assertGuardMetadataKeyValid();
+
     const controllers = this.discovery.getControllers();
     const errors: string[] = [];
 
@@ -47,6 +49,29 @@ export class RouteCoverageValidator implements OnApplicationBootstrap {
       );
     }
     this.logger.log('RBAC route configuration validated.');
+  }
+
+  /**
+   * Self-test the one Nest internal this validator depends on. Every coverage
+   * check reads guards off the `GUARDS_METADATA` key; if a @nestjs/common
+   * upgrade renames it, every route would read as guardless and this validator
+   * would silently pass (fail-open) — worse than no check. Prove the key still
+   * resolves `@UseGuards` on a class we decorate ourselves, so a drift throws at
+   * boot instead of disarming the security net.
+   */
+  private assertGuardMetadataKeyValid(): void {
+    class GuardMetadataProbe {}
+    UseGuards(MobileJwtGuard)(GuardMetadataProbe);
+    const guards = Reflect.getMetadata(GUARDS_METADATA, GuardMetadataProbe) as
+      | unknown[]
+      | undefined;
+    if (!guards?.includes(MobileJwtGuard)) {
+      throw new Error(
+        `[RBAC] Guard metadata key "${GUARDS_METADATA}" no longer resolves @UseGuards — ` +
+          'the route-coverage validator would fail open. A @nestjs/common upgrade likely ' +
+          'renamed it; update GUARDS_METADATA.',
+      );
+    }
   }
 
   private checkController(wrapper: InstanceWrapper, errors: string[]): void {

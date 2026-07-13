@@ -5,6 +5,7 @@ import type { EntitlementService } from '../../../src/subscription/entitlement.s
 import type { RbacService } from '../../../src/common/rbac/rbac.service.js';
 import type { AuditService } from '../../../src/common/audit/audit.service.js';
 import type { SnapshotService } from '../../../src/auth/mobile/services/snapshot.service.js';
+import type { AccountPostingService } from '../../../src/ledger/account-posting.service.js';
 
 const STORE_ID = '22222222-2222-4222-8222-222222222222';
 
@@ -35,6 +36,7 @@ function makeService(overrides: Partial<StoreRepository> = {}): StoreService {
     {} as RbacService,
     {} as AuditService,
     {} as SnapshotService,
+    {} as AccountPostingService,
   );
 }
 

@@ -15,11 +15,13 @@ import { FileValidationService } from '../../../src/files/file-validation.servic
 import { LocalStorageProvider } from '../../../src/files/storage/local-storage.provider';
 import { STORAGE_PROVIDER } from '../../../src/files/storage/storage.provider';
 import type { IncomingFile } from '../../../src/files/file-validation.service';
+import { RecordExistenceService } from '../../../src/files/record-existence.service';
 import {
   accounts,
   accountUsers,
   users,
   stores,
+  products,
   entityTypes,
   filesConfig,
   files,
@@ -38,6 +40,7 @@ describe('FilesService — two-phase upload', () => {
   let db: Database;
   let service: FilesService;
   let filesRepo: FilesRepository;
+  let recordExistence: RecordExistenceService;
   let storage: LocalStorageProvider;
   let storageRoot: string;
 
@@ -59,6 +62,7 @@ describe('FilesService — two-phase upload', () => {
         FilesRepository,
         FilesConfigRepository,
         FileValidationService,
+        RecordExistenceService,
         EntityTypesRepository,
         LocalStorageProvider,
         { provide: STORAGE_PROVIDER, useExisting: LocalStorageProvider },
@@ -68,6 +72,7 @@ describe('FilesService — two-phase upload', () => {
     db = moduleRef.get(DRIZZLE);
     service = moduleRef.get(FilesService);
     filesRepo = moduleRef.get(FilesRepository);
+    recordExistence = moduleRef.get(RecordExistenceService);
     storage = moduleRef.get(LocalStorageProvider);
     storageRoot = resolve(moduleRef.get(AppConfigService).storageLocalDir);
   });
@@ -129,6 +134,11 @@ describe('FilesService — two-phase upload', () => {
       maxAttachmentsAllowed: 3,
       isActive: true,
     });
+
+    // The parent product every commit links to (guuid === RECORD), in store A.
+    // commit() now verifies the parent exists, is live, and belongs to the store
+    // (P1-12a), so an actual row must be present.
+    await db.insert(products).values({ guuid: RECORD, storeFk: storeAId, name: 'Test Product' });
   });
 
   // ── helpers ────────────────────────────────────────────────────────────────
@@ -245,6 +255,103 @@ describe('FilesService — two-phase upload', () => {
     // User A's temp is untouched — no claim, still committable.
     const [temp] = await db.select().from(temporaryFiles).where(eq(temporaryFiles.guuid, staged.guuid));
     expect(temp!.claimedAt).toBeNull();
+  });
+
+  it('rejects a commit against a record that does not exist — no phantom file (P1-12a)', async () => {
+    const staged = await stageProductPng(userAId);
+    const PHANTOM = '99999999-9999-9999-9999-999999999999';
+
+    await expect(
+      runAs(userAId, storeAId, () =>
+        service.commit({
+          entityType: 'Product',
+          kind: 'image',
+          recordGuuid: PHANTOM,
+          fileGuuids: [staged.guuid],
+        }),
+      ),
+    ).rejects.toMatchObject({ errorCode: 'FILE_PARENT_NOT_FOUND' });
+
+    // No files row created; the temp is not claimed (re-committable once the real parent exists).
+    expect(await db.select().from(files)).toHaveLength(0);
+    const [temp] = await db.select().from(temporaryFiles).where(eq(temporaryFiles.guuid, staged.guuid));
+    expect(temp!.claimedAt).toBeNull();
+  });
+
+  it('rejects a commit whose parent lives in another store (parent-check is store-scoped)', async () => {
+    // The product (guuid=RECORD) is in store A; committing it under store B must fail.
+    const staged = await stageProductPng(userAId);
+    await expect(
+      runAs(userAId, storeBId, () =>
+        service.commit({
+          entityType: 'Product',
+          kind: 'image',
+          recordGuuid: RECORD,
+          fileGuuids: [staged.guuid],
+        }),
+      ),
+    ).rejects.toMatchObject({ errorCode: 'FILE_PARENT_NOT_FOUND' });
+  });
+
+  it('detects and reaps a committed file whose parent was deleted (P1-12b reaper)', async () => {
+    const staged = await stageProductPng(userAId);
+    await runAs(userAId, storeAId, () =>
+      service.commit({ entityType: 'Product', kind: 'image', recordGuuid: RECORD, fileGuuids: [staged.guuid] }),
+    );
+
+    // Live parent → the audit finds nothing.
+    expect(await recordExistence.findOrphanedFiles('Product', productEntityId, 500)).toHaveLength(0);
+
+    // Delete the parent product → the committed file is now an orphan.
+    await db.update(products).set({ deletedAt: new Date() }).where(eq(products.guuid, RECORD));
+    const orphans = await recordExistence.findOrphanedFiles('Product', productEntityId, 500);
+    expect(orphans).toHaveLength(1);
+
+    // Reap it (system soft-delete) → gone from active reads.
+    await filesRepo.reapOrphan(orphans[0]!.guuid);
+    const live = await db
+      .select()
+      .from(files)
+      .where(and(eq(files.recordGuuid, RECORD), isNull(files.deletedAt)));
+    expect(live).toHaveLength(0);
+  });
+
+  it('batches a grid read across records, keyed by record_guuid, empty for records with no files (P1-10)', async () => {
+    const staged = await stageProductPng(userAId);
+    await runAs(userAId, storeAId, () =>
+      service.commit({ entityType: 'Product', kind: 'image', recordGuuid: RECORD, fileGuuids: [staged.guuid] }),
+    );
+    const OTHER = '22222222-2222-2222-2222-222222222222';
+
+    const map = await runAs(userAId, storeAId, () => service.listByRecords('Product', [RECORD, OTHER]));
+
+    expect(Object.keys(map).sort()).toEqual([OTHER, RECORD].sort());
+    expect(map[RECORD]).toHaveLength(1);
+    expect(map[OTHER]).toEqual([]); // present but empty — "no files", not "not fetched"
+  });
+
+  it('collapses an identical-bytes double-commit to one live file (P1-13 dedupe index)', async () => {
+    const bytes = png('same.png');
+    // First commit of these exact bytes → one file.
+    const first = await stageProductPng(userAId, bytes);
+    await runAs(userAId, storeAId, () =>
+      service.commit({ entityType: 'Product', kind: 'image', recordGuuid: RECORD, fileGuuids: [first.guuid] }),
+    );
+
+    // Second commit of the SAME bytes to the SAME record → the partial-unique
+    // index rejects the duplicate; the first row stands, no second live row.
+    const second = await stageProductPng(userAId, bytes);
+    await expect(
+      runAs(userAId, storeAId, () =>
+        service.commit({ entityType: 'Product', kind: 'image', recordGuuid: RECORD, fileGuuids: [second.guuid] }),
+      ),
+    ).rejects.toBeDefined();
+
+    const live = await db
+      .select()
+      .from(files)
+      .where(and(eq(files.recordGuuid, RECORD), isNull(files.deletedAt)));
+    expect(live).toHaveLength(1);
   });
 
   it('isolates committed files across stores — store B cannot see store A\'s file', async () => {

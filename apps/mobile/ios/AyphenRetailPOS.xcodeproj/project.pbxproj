@@ -7,43 +7,43 @@
 	objects = {
 
 /* Begin PBXBuildFile section */
+		07EDCB1224C7451B8FCCFECC /* Poppins-Regular.ttf in Resources */ = {isa = PBXBuildFile; fileRef = 4214F94550DC46BFBCFBFCD2 /* Poppins-Regular.ttf */; };
+		0953FCA63FFDD987762D5DFB /* PrivacyInfo.xcprivacy in Resources */ = {isa = PBXBuildFile; fileRef = 273118C44322F4CACF1A5DE1 /* PrivacyInfo.xcprivacy */; };
 		13B07FBF1A68108700A75B9A /* Images.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = 13B07FB51A68108700A75B9A /* Images.xcassets */; };
-		2075CD27C9424F1E8F4F01C6 /* Poppins-SemiBold.ttf in Resources */ = {isa = PBXBuildFile; fileRef = E8CA7A3E9D134F0CB24BEDA0 /* Poppins-SemiBold.ttf */; };
-		20B997E5DA1C406DA7FBC078 /* Poppins-Italic.ttf in Resources */ = {isa = PBXBuildFile; fileRef = AE6B1E5C1D1D4126ABEE4244 /* Poppins-Italic.ttf */; };
-		33088794E669D0A210F0952D /* ExpoModulesProvider.swift in Sources */ = {isa = PBXBuildFile; fileRef = 27E017C0D2A2F4701609D3FC /* ExpoModulesProvider.swift */; };
-		37624853088419E6CEC0E96F /* PrivacyInfo.xcprivacy in Resources */ = {isa = PBXBuildFile; fileRef = E4BAE266DB14022752063F23 /* PrivacyInfo.xcprivacy */; };
-		3B0F8BDD67934B63AC10318A /* Poppins-Regular.ttf in Resources */ = {isa = PBXBuildFile; fileRef = 42ED94E9231A40438AF878FF /* Poppins-Regular.ttf */; };
+		194C1BBEAB8043F58C05D31A /* Poppins-Bold.ttf in Resources */ = {isa = PBXBuildFile; fileRef = CFA16E8245604C78B8305430 /* Poppins-Bold.ttf */; };
+		2EE9DC6D746C40A3A64E0B23 /* Poppins-SemiBold.ttf in Resources */ = {isa = PBXBuildFile; fileRef = 59AEF583802F4E5F90B6CF33 /* Poppins-SemiBold.ttf */; };
 		3E461D99554A48A4959DE609 /* SplashScreen.storyboard in Resources */ = {isa = PBXBuildFile; fileRef = AA286B85B6C04FC6940260E9 /* SplashScreen.storyboard */; };
-		504020B11A64484183580BEC /* Poppins-Light.ttf in Resources */ = {isa = PBXBuildFile; fileRef = 238C714D26F04267B82972F5 /* Poppins-Light.ttf */; };
-		775CB911D1DF4B62810D8C61 /* Poppins-Thin.ttf in Resources */ = {isa = PBXBuildFile; fileRef = 70DBAABB0F5642F9AD3D22C6 /* Poppins-Thin.ttf */; };
-		876C1E53B9BF480CA652376C /* Poppins-Medium.ttf in Resources */ = {isa = PBXBuildFile; fileRef = FE2500932FBF4B7784E0D779 /* Poppins-Medium.ttf */; };
-		97D56D65BD291FB28923AB31 /* libPods-AyphenRetailPOS.a in Frameworks */ = {isa = PBXBuildFile; fileRef = 712CD3228F76DEA61117347A /* libPods-AyphenRetailPOS.a */; };
-		A0DD48AB95B9466EB426D7DA /* Poppins-Bold.ttf in Resources */ = {isa = PBXBuildFile; fileRef = 106A8EFD22DE44F1ABDE0454 /* Poppins-Bold.ttf */; };
+		44B9C252300ECC068B5C8A9A /* ExpoModulesProvider.swift in Sources */ = {isa = PBXBuildFile; fileRef = 760E7E4BCA005396F03EC639 /* ExpoModulesProvider.swift */; };
+		52595C30E34940D58D9C9B3F /* Poppins-Thin.ttf in Resources */ = {isa = PBXBuildFile; fileRef = 92DE8D96A8DF415DB5AC2F27 /* Poppins-Thin.ttf */; };
+		BB01D9EB322F851FB49D9D02 /* libPods-AyphenRetailPOS.a in Frameworks */ = {isa = PBXBuildFile; fileRef = 8B4BBD17F4F0E4F50DA839DB /* libPods-AyphenRetailPOS.a */; };
 		BB2F792D24A3F905000567C9 /* Expo.plist in Resources */ = {isa = PBXBuildFile; fileRef = BB2F792C24A3F905000567C9 /* Expo.plist */; };
+		BBA5D7A5C66B405A9B3A0786 /* Poppins-Medium.ttf in Resources */ = {isa = PBXBuildFile; fileRef = 9FF490BD83DD4D79BE9D377F /* Poppins-Medium.ttf */; };
 		F11748422D0307B40044C1D9 /* AppDelegate.swift in Sources */ = {isa = PBXBuildFile; fileRef = F11748412D0307B40044C1D9 /* AppDelegate.swift */; };
+		F2A957B555B146E89DD03F5B /* Poppins-Italic.ttf in Resources */ = {isa = PBXBuildFile; fileRef = E375536F48C94B469F459136 /* Poppins-Italic.ttf */; };
+		F3D65B60D1EB4F799C981EA9 /* Poppins-Light.ttf in Resources */ = {isa = PBXBuildFile; fileRef = D961AB13B7944F85B35A901F /* Poppins-Light.ttf */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXFileReference section */
-		0EF9FC7B14732B5ED67A8C69 /* Pods-AyphenRetailPOS.debug.xcconfig */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = text.xcconfig; name = "Pods-AyphenRetailPOS.debug.xcconfig"; path = "Target Support Files/Pods-AyphenRetailPOS/Pods-AyphenRetailPOS.debug.xcconfig"; sourceTree = "<group>"; };
-		106A8EFD22DE44F1ABDE0454 /* Poppins-Bold.ttf */ = {isa = PBXFileReference; explicitFileType = undefined; fileEncoding = undefined; includeInIndex = 0; lastKnownFileType = unknown; name = "Poppins-Bold.ttf"; path = "../assets/fonts/Poppins-Bold.ttf"; sourceTree = "<group>"; };
 		13B07F961A680F5B00A75B9A /* AyphenRetailPOS.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = AyphenRetailPOS.app; sourceTree = BUILT_PRODUCTS_DIR; };
 		13B07FB51A68108700A75B9A /* Images.xcassets */ = {isa = PBXFileReference; lastKnownFileType = folder.assetcatalog; name = Images.xcassets; path = AyphenRetailPOS/Images.xcassets; sourceTree = "<group>"; };
 		13B07FB61A68108700A75B9A /* Info.plist */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = text.plist.xml; name = Info.plist; path = AyphenRetailPOS/Info.plist; sourceTree = "<group>"; };
-		238C714D26F04267B82972F5 /* Poppins-Light.ttf */ = {isa = PBXFileReference; explicitFileType = undefined; fileEncoding = undefined; includeInIndex = 0; lastKnownFileType = unknown; name = "Poppins-Light.ttf"; path = "../assets/fonts/Poppins-Light.ttf"; sourceTree = "<group>"; };
-		27E017C0D2A2F4701609D3FC /* ExpoModulesProvider.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; name = ExpoModulesProvider.swift; path = "Pods/Target Support Files/Pods-AyphenRetailPOS/ExpoModulesProvider.swift"; sourceTree = "<group>"; };
-		42ED94E9231A40438AF878FF /* Poppins-Regular.ttf */ = {isa = PBXFileReference; explicitFileType = undefined; fileEncoding = undefined; includeInIndex = 0; lastKnownFileType = unknown; name = "Poppins-Regular.ttf"; path = "../assets/fonts/Poppins-Regular.ttf"; sourceTree = "<group>"; };
-		70DBAABB0F5642F9AD3D22C6 /* Poppins-Thin.ttf */ = {isa = PBXFileReference; explicitFileType = undefined; fileEncoding = undefined; includeInIndex = 0; lastKnownFileType = unknown; name = "Poppins-Thin.ttf"; path = "../assets/fonts/Poppins-Thin.ttf"; sourceTree = "<group>"; };
-		712CD3228F76DEA61117347A /* libPods-AyphenRetailPOS.a */ = {isa = PBXFileReference; explicitFileType = archive.ar; includeInIndex = 0; path = "libPods-AyphenRetailPOS.a"; sourceTree = BUILT_PRODUCTS_DIR; };
-		97C7E95E6B2D6C0DD6C424B1 /* Pods-AyphenRetailPOS.release.xcconfig */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = text.xcconfig; name = "Pods-AyphenRetailPOS.release.xcconfig"; path = "Target Support Files/Pods-AyphenRetailPOS/Pods-AyphenRetailPOS.release.xcconfig"; sourceTree = "<group>"; };
+		273118C44322F4CACF1A5DE1 /* PrivacyInfo.xcprivacy */ = {isa = PBXFileReference; includeInIndex = 1; name = PrivacyInfo.xcprivacy; path = AyphenRetailPOS/PrivacyInfo.xcprivacy; sourceTree = "<group>"; };
+		4214F94550DC46BFBCFBFCD2 /* Poppins-Regular.ttf */ = {isa = PBXFileReference; explicitFileType = undefined; fileEncoding = undefined; includeInIndex = 0; lastKnownFileType = unknown; name = "Poppins-Regular.ttf"; path = "../assets/fonts/Poppins-Regular.ttf"; sourceTree = "<group>"; };
+		59AEF583802F4E5F90B6CF33 /* Poppins-SemiBold.ttf */ = {isa = PBXFileReference; explicitFileType = undefined; fileEncoding = undefined; includeInIndex = 0; lastKnownFileType = unknown; name = "Poppins-SemiBold.ttf"; path = "../assets/fonts/Poppins-SemiBold.ttf"; sourceTree = "<group>"; };
+		760E7E4BCA005396F03EC639 /* ExpoModulesProvider.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; name = ExpoModulesProvider.swift; path = "Pods/Target Support Files/Pods-AyphenRetailPOS/ExpoModulesProvider.swift"; sourceTree = "<group>"; };
+		8456B2FFB8B5815FB86AD102 /* Pods-AyphenRetailPOS.release.xcconfig */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = text.xcconfig; name = "Pods-AyphenRetailPOS.release.xcconfig"; path = "Target Support Files/Pods-AyphenRetailPOS/Pods-AyphenRetailPOS.release.xcconfig"; sourceTree = "<group>"; };
+		8B4BBD17F4F0E4F50DA839DB /* libPods-AyphenRetailPOS.a */ = {isa = PBXFileReference; explicitFileType = archive.ar; includeInIndex = 0; path = "libPods-AyphenRetailPOS.a"; sourceTree = BUILT_PRODUCTS_DIR; };
+		92DE8D96A8DF415DB5AC2F27 /* Poppins-Thin.ttf */ = {isa = PBXFileReference; explicitFileType = undefined; fileEncoding = undefined; includeInIndex = 0; lastKnownFileType = unknown; name = "Poppins-Thin.ttf"; path = "../assets/fonts/Poppins-Thin.ttf"; sourceTree = "<group>"; };
+		9FF490BD83DD4D79BE9D377F /* Poppins-Medium.ttf */ = {isa = PBXFileReference; explicitFileType = undefined; fileEncoding = undefined; includeInIndex = 0; lastKnownFileType = unknown; name = "Poppins-Medium.ttf"; path = "../assets/fonts/Poppins-Medium.ttf"; sourceTree = "<group>"; };
 		AA286B85B6C04FC6940260E9 /* SplashScreen.storyboard */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = file.storyboard; name = SplashScreen.storyboard; path = AyphenRetailPOS/SplashScreen.storyboard; sourceTree = "<group>"; };
-		AE6B1E5C1D1D4126ABEE4244 /* Poppins-Italic.ttf */ = {isa = PBXFileReference; explicitFileType = undefined; fileEncoding = undefined; includeInIndex = 0; lastKnownFileType = unknown; name = "Poppins-Italic.ttf"; path = "../assets/fonts/Poppins-Italic.ttf"; sourceTree = "<group>"; };
 		BB2F792C24A3F905000567C9 /* Expo.plist */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = text.plist.xml; path = Expo.plist; sourceTree = "<group>"; };
-		E4BAE266DB14022752063F23 /* PrivacyInfo.xcprivacy */ = {isa = PBXFileReference; includeInIndex = 1; name = PrivacyInfo.xcprivacy; path = AyphenRetailPOS/PrivacyInfo.xcprivacy; sourceTree = "<group>"; };
-		E8CA7A3E9D134F0CB24BEDA0 /* Poppins-SemiBold.ttf */ = {isa = PBXFileReference; explicitFileType = undefined; fileEncoding = undefined; includeInIndex = 0; lastKnownFileType = unknown; name = "Poppins-SemiBold.ttf"; path = "../assets/fonts/Poppins-SemiBold.ttf"; sourceTree = "<group>"; };
+		CFA16E8245604C78B8305430 /* Poppins-Bold.ttf */ = {isa = PBXFileReference; explicitFileType = undefined; fileEncoding = undefined; includeInIndex = 0; lastKnownFileType = unknown; name = "Poppins-Bold.ttf"; path = "../assets/fonts/Poppins-Bold.ttf"; sourceTree = "<group>"; };
+		D961AB13B7944F85B35A901F /* Poppins-Light.ttf */ = {isa = PBXFileReference; explicitFileType = undefined; fileEncoding = undefined; includeInIndex = 0; lastKnownFileType = unknown; name = "Poppins-Light.ttf"; path = "../assets/fonts/Poppins-Light.ttf"; sourceTree = "<group>"; };
+		E0202DF164D3A0DE64B458DD /* Pods-AyphenRetailPOS.debug.xcconfig */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = text.xcconfig; name = "Pods-AyphenRetailPOS.debug.xcconfig"; path = "Target Support Files/Pods-AyphenRetailPOS/Pods-AyphenRetailPOS.debug.xcconfig"; sourceTree = "<group>"; };
+		E375536F48C94B469F459136 /* Poppins-Italic.ttf */ = {isa = PBXFileReference; explicitFileType = undefined; fileEncoding = undefined; includeInIndex = 0; lastKnownFileType = unknown; name = "Poppins-Italic.ttf"; path = "../assets/fonts/Poppins-Italic.ttf"; sourceTree = "<group>"; };
 		ED297162215061F000B7C4FE /* JavaScriptCore.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = JavaScriptCore.framework; path = System/Library/Frameworks/JavaScriptCore.framework; sourceTree = SDKROOT; };
 		F11748412D0307B40044C1D9 /* AppDelegate.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; name = AppDelegate.swift; path = AyphenRetailPOS/AppDelegate.swift; sourceTree = "<group>"; };
 		F11748442D0722820044C1D9 /* AyphenRetailPOS-Bridging-Header.h */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.h; name = "AyphenRetailPOS-Bridging-Header.h"; path = "AyphenRetailPOS/AyphenRetailPOS-Bridging-Header.h"; sourceTree = "<group>"; };
-		FE2500932FBF4B7784E0D779 /* Poppins-Medium.ttf */ = {isa = PBXFileReference; explicitFileType = undefined; fileEncoding = undefined; includeInIndex = 0; lastKnownFileType = unknown; name = "Poppins-Medium.ttf"; path = "../assets/fonts/Poppins-Medium.ttf"; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
 /* Begin PBXFrameworksBuildPhase section */
@@ -51,7 +51,7 @@
 			isa = PBXFrameworksBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
-				97D56D65BD291FB28923AB31 /* libPods-AyphenRetailPOS.a in Frameworks */,
+				BB01D9EB322F851FB49D9D02 /* libPods-AyphenRetailPOS.a in Frameworks */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -67,41 +67,33 @@
 				13B07FB51A68108700A75B9A /* Images.xcassets */,
 				13B07FB61A68108700A75B9A /* Info.plist */,
 				AA286B85B6C04FC6940260E9 /* SplashScreen.storyboard */,
-				E4BAE266DB14022752063F23 /* PrivacyInfo.xcprivacy */,
+				273118C44322F4CACF1A5DE1 /* PrivacyInfo.xcprivacy */,
 			);
 			name = AyphenRetailPOS;
+			sourceTree = "<group>";
+		};
+		1EDCABFB27A5472A8007CD2C /* Resources */ = {
+			isa = PBXGroup;
+			children = (
+				92DE8D96A8DF415DB5AC2F27 /* Poppins-Thin.ttf */,
+				D961AB13B7944F85B35A901F /* Poppins-Light.ttf */,
+				4214F94550DC46BFBCFBFCD2 /* Poppins-Regular.ttf */,
+				9FF490BD83DD4D79BE9D377F /* Poppins-Medium.ttf */,
+				59AEF583802F4E5F90B6CF33 /* Poppins-SemiBold.ttf */,
+				CFA16E8245604C78B8305430 /* Poppins-Bold.ttf */,
+				E375536F48C94B469F459136 /* Poppins-Italic.ttf */,
+			);
+			name = Resources;
+			path = "";
 			sourceTree = "<group>";
 		};
 		2D16E6871FA4F8E400B85C8A /* Frameworks */ = {
 			isa = PBXGroup;
 			children = (
 				ED297162215061F000B7C4FE /* JavaScriptCore.framework */,
-				712CD3228F76DEA61117347A /* libPods-AyphenRetailPOS.a */,
+				8B4BBD17F4F0E4F50DA839DB /* libPods-AyphenRetailPOS.a */,
 			);
 			name = Frameworks;
-			sourceTree = "<group>";
-		};
-		34C81EE5512B4B478C23C5CD /* Resources */ = {
-			isa = PBXGroup;
-			children = (
-				70DBAABB0F5642F9AD3D22C6 /* Poppins-Thin.ttf */,
-				238C714D26F04267B82972F5 /* Poppins-Light.ttf */,
-				42ED94E9231A40438AF878FF /* Poppins-Regular.ttf */,
-				FE2500932FBF4B7784E0D779 /* Poppins-Medium.ttf */,
-				E8CA7A3E9D134F0CB24BEDA0 /* Poppins-SemiBold.ttf */,
-				106A8EFD22DE44F1ABDE0454 /* Poppins-Bold.ttf */,
-				AE6B1E5C1D1D4126ABEE4244 /* Poppins-Italic.ttf */,
-			);
-			name = Resources;
-			path = "";
-			sourceTree = "<group>";
-		};
-		632A595452F8CD2900485937 /* ExpoModulesProviders */ = {
-			isa = PBXGroup;
-			children = (
-				9E5FAD069913D0980066CEFF /* AyphenRetailPOS */,
-			);
-			name = ExpoModulesProviders;
 			sourceTree = "<group>";
 		};
 		832341AE1AAA6A7D00B99B32 /* Libraries */ = {
@@ -118,9 +110,9 @@
 				832341AE1AAA6A7D00B99B32 /* Libraries */,
 				83CBBA001A601CBA00E9B192 /* Products */,
 				2D16E6871FA4F8E400B85C8A /* Frameworks */,
-				34C81EE5512B4B478C23C5CD /* Resources */,
-				ED93843A6BE18A2A297B82C9 /* Pods */,
-				632A595452F8CD2900485937 /* ExpoModulesProviders */,
+				1EDCABFB27A5472A8007CD2C /* Resources */,
+				B6C3D3EEFB0DB1A10D515A7C /* Pods */,
+				B0CE45E7D81B7ECC76D76A0D /* ExpoModulesProviders */,
 			);
 			indentWidth = 2;
 			sourceTree = "<group>";
@@ -135,12 +127,30 @@
 			name = Products;
 			sourceTree = "<group>";
 		};
-		9E5FAD069913D0980066CEFF /* AyphenRetailPOS */ = {
+		8B32533E8263BA9A17F81445 /* AyphenRetailPOS */ = {
 			isa = PBXGroup;
 			children = (
-				27E017C0D2A2F4701609D3FC /* ExpoModulesProvider.swift */,
+				760E7E4BCA005396F03EC639 /* ExpoModulesProvider.swift */,
 			);
 			name = AyphenRetailPOS;
+			sourceTree = "<group>";
+		};
+		B0CE45E7D81B7ECC76D76A0D /* ExpoModulesProviders */ = {
+			isa = PBXGroup;
+			children = (
+				8B32533E8263BA9A17F81445 /* AyphenRetailPOS */,
+			);
+			name = ExpoModulesProviders;
+			sourceTree = "<group>";
+		};
+		B6C3D3EEFB0DB1A10D515A7C /* Pods */ = {
+			isa = PBXGroup;
+			children = (
+				E0202DF164D3A0DE64B458DD /* Pods-AyphenRetailPOS.debug.xcconfig */,
+				8456B2FFB8B5815FB86AD102 /* Pods-AyphenRetailPOS.release.xcconfig */,
+			);
+			name = Pods;
+			path = Pods;
 			sourceTree = "<group>";
 		};
 		BB2F792B24A3F905000567C9 /* Supporting */ = {
@@ -152,16 +162,6 @@
 			path = AyphenRetailPOS/Supporting;
 			sourceTree = "<group>";
 		};
-		ED93843A6BE18A2A297B82C9 /* Pods */ = {
-			isa = PBXGroup;
-			children = (
-				0EF9FC7B14732B5ED67A8C69 /* Pods-AyphenRetailPOS.debug.xcconfig */,
-				97C7E95E6B2D6C0DD6C424B1 /* Pods-AyphenRetailPOS.release.xcconfig */,
-			);
-			name = Pods;
-			path = Pods;
-			sourceTree = "<group>";
-		};
 /* End PBXGroup section */
 
 /* Begin PBXNativeTarget section */
@@ -170,13 +170,13 @@
 			buildConfigurationList = 13B07F931A680F5B00A75B9A /* Build configuration list for PBXNativeTarget "AyphenRetailPOS" */;
 			buildPhases = (
 				08A4A3CD28434E44B6B9DE2E /* [CP] Check Pods Manifest.lock */,
-				D544FACB7CB35F6B5825A47A /* [Expo] Configure project */,
+				4CF007979B80761C81B0F183 /* [Expo] Configure project */,
 				13B07F871A680F5B00A75B9A /* Sources */,
 				13B07F8C1A680F5B00A75B9A /* Frameworks */,
 				13B07F8E1A680F5B00A75B9A /* Resources */,
 				00DD1BFF1BD5951E006B06BC /* Bundle React Native code and images */,
 				800E24972A6A228C8D4807E9 /* [CP] Copy Pods Resources */,
-				1FDE6CA7836D3A5F4421444D /* [CP] Embed Pods Frameworks */,
+				919E53DF2052415F7F7AF4BC /* [CP] Embed Pods Frameworks */,
 			);
 			buildRules = (
 			);
@@ -226,14 +226,14 @@
 				BB2F792D24A3F905000567C9 /* Expo.plist in Resources */,
 				13B07FBF1A68108700A75B9A /* Images.xcassets in Resources */,
 				3E461D99554A48A4959DE609 /* SplashScreen.storyboard in Resources */,
-				775CB911D1DF4B62810D8C61 /* Poppins-Thin.ttf in Resources */,
-				504020B11A64484183580BEC /* Poppins-Light.ttf in Resources */,
-				3B0F8BDD67934B63AC10318A /* Poppins-Regular.ttf in Resources */,
-				876C1E53B9BF480CA652376C /* Poppins-Medium.ttf in Resources */,
-				2075CD27C9424F1E8F4F01C6 /* Poppins-SemiBold.ttf in Resources */,
-				A0DD48AB95B9466EB426D7DA /* Poppins-Bold.ttf in Resources */,
-				20B997E5DA1C406DA7FBC078 /* Poppins-Italic.ttf in Resources */,
-				37624853088419E6CEC0E96F /* PrivacyInfo.xcprivacy in Resources */,
+				52595C30E34940D58D9C9B3F /* Poppins-Thin.ttf in Resources */,
+				F3D65B60D1EB4F799C981EA9 /* Poppins-Light.ttf in Resources */,
+				07EDCB1224C7451B8FCCFECC /* Poppins-Regular.ttf in Resources */,
+				BBA5D7A5C66B405A9B3A0786 /* Poppins-Medium.ttf in Resources */,
+				2EE9DC6D746C40A3A64E0B23 /* Poppins-SemiBold.ttf in Resources */,
+				194C1BBEAB8043F58C05D31A /* Poppins-Bold.ttf in Resources */,
+				F2A957B555B146E89DD03F5B /* Poppins-Italic.ttf in Resources */,
+				0953FCA63FFDD987762D5DFB /* PrivacyInfo.xcprivacy in Resources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -279,27 +279,29 @@
 			shellScript = "diff \"${PODS_PODFILE_DIR_PATH}/Podfile.lock\" \"${PODS_ROOT}/Manifest.lock\" > /dev/null\nif [ $? != 0 ] ; then\n    # print error to STDERR\n    echo \"error: The sandbox is not in sync with the Podfile.lock. Run 'pod install' or update your CocoaPods installation.\" >&2\n    exit 1\nfi\n# This output is used by Xcode 'outputs' to avoid re-running this script phase.\necho \"SUCCESS\" > \"${SCRIPT_OUTPUT_FILE_0}\"\n";
 			showEnvVarsInLog = 0;
 		};
-		1FDE6CA7836D3A5F4421444D /* [CP] Embed Pods Frameworks */ = {
+		4CF007979B80761C81B0F183 /* [Expo] Configure project */ = {
 			isa = PBXShellScriptBuildPhase;
+			alwaysOutOfDate = 1;
 			buildActionMask = 2147483647;
 			files = (
 			);
-			inputPaths = (
-				"${PODS_ROOT}/Target Support Files/Pods-AyphenRetailPOS/Pods-AyphenRetailPOS-frameworks.sh",
-				"${PODS_XCFRAMEWORKS_BUILD_DIR}/React-Core-prebuilt/React.framework/React",
-				"${PODS_XCFRAMEWORKS_BUILD_DIR}/ReactNativeDependencies/ReactNativeDependencies.framework/ReactNativeDependencies",
-				"${PODS_XCFRAMEWORKS_BUILD_DIR}/hermes-engine/Pre-built/hermes.framework/hermes",
+			inputFileListPaths = (
 			);
-			name = "[CP] Embed Pods Frameworks";
+			inputPaths = (
+				"$(SRCROOT)/.xcode.env",
+				"$(SRCROOT)/.xcode.env.local",
+				"$(SRCROOT)/AyphenRetailPOS/AyphenRetailPOS.entitlements",
+				"$(SRCROOT)/Pods/Target Support Files/Pods-AyphenRetailPOS/expo-configure-project.sh",
+			);
+			name = "[Expo] Configure project";
+			outputFileListPaths = (
+			);
 			outputPaths = (
-				"${TARGET_BUILD_DIR}/${FRAMEWORKS_FOLDER_PATH}/React.framework",
-				"${TARGET_BUILD_DIR}/${FRAMEWORKS_FOLDER_PATH}/ReactNativeDependencies.framework",
-				"${TARGET_BUILD_DIR}/${FRAMEWORKS_FOLDER_PATH}/hermes.framework",
+				"$(SRCROOT)/Pods/Target Support Files/Pods-AyphenRetailPOS/ExpoModulesProvider.swift",
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 			shellPath = /bin/sh;
-			shellScript = "\"${PODS_ROOT}/Target Support Files/Pods-AyphenRetailPOS/Pods-AyphenRetailPOS-frameworks.sh\"\n";
-			showEnvVarsInLog = 0;
+			shellScript = "# This script configures Expo modules and generates the modules provider file.\nbash -l -c \"./Pods/Target\\ Support\\ Files/Pods-AyphenRetailPOS/expo-configure-project.sh\"\n";
 		};
 		800E24972A6A228C8D4807E9 /* [CP] Copy Pods Resources */ = {
 			isa = PBXShellScriptBuildPhase;
@@ -339,29 +341,27 @@
 			shellScript = "\"${PODS_ROOT}/Target Support Files/Pods-AyphenRetailPOS/Pods-AyphenRetailPOS-resources.sh\"\n";
 			showEnvVarsInLog = 0;
 		};
-		D544FACB7CB35F6B5825A47A /* [Expo] Configure project */ = {
+		919E53DF2052415F7F7AF4BC /* [CP] Embed Pods Frameworks */ = {
 			isa = PBXShellScriptBuildPhase;
-			alwaysOutOfDate = 1;
 			buildActionMask = 2147483647;
 			files = (
 			);
-			inputFileListPaths = (
-			);
 			inputPaths = (
-				"$(SRCROOT)/.xcode.env",
-				"$(SRCROOT)/.xcode.env.local",
-				"$(SRCROOT)/AyphenRetailPOS/AyphenRetailPOS.entitlements",
-				"$(SRCROOT)/Pods/Target Support Files/Pods-AyphenRetailPOS/expo-configure-project.sh",
+				"${PODS_ROOT}/Target Support Files/Pods-AyphenRetailPOS/Pods-AyphenRetailPOS-frameworks.sh",
+				"${PODS_XCFRAMEWORKS_BUILD_DIR}/React-Core-prebuilt/React.framework/React",
+				"${PODS_XCFRAMEWORKS_BUILD_DIR}/ReactNativeDependencies/ReactNativeDependencies.framework/ReactNativeDependencies",
+				"${PODS_XCFRAMEWORKS_BUILD_DIR}/hermes-engine/Pre-built/hermes.framework/hermes",
 			);
-			name = "[Expo] Configure project";
-			outputFileListPaths = (
-			);
+			name = "[CP] Embed Pods Frameworks";
 			outputPaths = (
-				"$(SRCROOT)/Pods/Target Support Files/Pods-AyphenRetailPOS/ExpoModulesProvider.swift",
+				"${TARGET_BUILD_DIR}/${FRAMEWORKS_FOLDER_PATH}/React.framework",
+				"${TARGET_BUILD_DIR}/${FRAMEWORKS_FOLDER_PATH}/ReactNativeDependencies.framework",
+				"${TARGET_BUILD_DIR}/${FRAMEWORKS_FOLDER_PATH}/hermes.framework",
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 			shellPath = /bin/sh;
-			shellScript = "# This script configures Expo modules and generates the modules provider file.\nbash -l -c \"./Pods/Target\\ Support\\ Files/Pods-AyphenRetailPOS/expo-configure-project.sh\"\n";
+			shellScript = "\"${PODS_ROOT}/Target Support Files/Pods-AyphenRetailPOS/Pods-AyphenRetailPOS-frameworks.sh\"\n";
+			showEnvVarsInLog = 0;
 		};
 /* End PBXShellScriptBuildPhase section */
 
@@ -371,7 +371,7 @@
 			buildActionMask = 2147483647;
 			files = (
 				F11748422D0307B40044C1D9 /* AppDelegate.swift in Sources */,
-				33088794E669D0A210F0952D /* ExpoModulesProvider.swift in Sources */,
+				44B9C252300ECC068B5C8A9A /* ExpoModulesProvider.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -380,7 +380,7 @@
 /* Begin XCBuildConfiguration section */
 		13B07F941A680F5B00A75B9A /* Debug */ = {
 			isa = XCBuildConfiguration;
-			baseConfigurationReference = 0EF9FC7B14732B5ED67A8C69 /* Pods-AyphenRetailPOS.debug.xcconfig */;
+			baseConfigurationReference = E0202DF164D3A0DE64B458DD /* Pods-AyphenRetailPOS.debug.xcconfig */;
 			buildSettings = {
 				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
 				CLANG_ENABLE_MODULES = YES;
@@ -405,7 +405,7 @@
 				);
 				OTHER_SWIFT_FLAGS = "$(inherited) -D EXPO_CONFIGURATION_DEBUG";
 				PRODUCT_BUNDLE_IDENTIFIER = "com.saranr123.-ayphen-mobile";
-				PRODUCT_NAME = AyphenRetailPOS;
+				PRODUCT_NAME = "AyphenRetailPOS";
 				SWIFT_OBJC_BRIDGING_HEADER = "AyphenRetailPOS/AyphenRetailPOS-Bridging-Header.h";
 				SWIFT_OPTIMIZATION_LEVEL = "-Onone";
 				SWIFT_VERSION = 5.0;
@@ -416,7 +416,7 @@
 		};
 		13B07F951A680F5B00A75B9A /* Release */ = {
 			isa = XCBuildConfiguration;
-			baseConfigurationReference = 97C7E95E6B2D6C0DD6C424B1 /* Pods-AyphenRetailPOS.release.xcconfig */;
+			baseConfigurationReference = 8456B2FFB8B5815FB86AD102 /* Pods-AyphenRetailPOS.release.xcconfig */;
 			buildSettings = {
 				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
 				CLANG_ENABLE_MODULES = YES;
@@ -436,7 +436,7 @@
 				);
 				OTHER_SWIFT_FLAGS = "$(inherited) -D EXPO_CONFIGURATION_RELEASE";
 				PRODUCT_BUNDLE_IDENTIFIER = "com.saranr123.-ayphen-mobile";
-				PRODUCT_NAME = AyphenRetailPOS;
+				PRODUCT_NAME = "AyphenRetailPOS";
 				SWIFT_OBJC_BRIDGING_HEADER = "AyphenRetailPOS/AyphenRetailPOS-Bridging-Header.h";
 				SWIFT_VERSION = 5.0;
 				TARGETED_DEVICE_FAMILY = "1,2";

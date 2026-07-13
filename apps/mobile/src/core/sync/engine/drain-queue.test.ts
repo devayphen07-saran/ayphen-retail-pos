@@ -10,7 +10,10 @@ import { useAuthStore } from '@store';
 import type { SyncDb } from '../db/types';
 
 const mockPush = pushDelta as jest.MockedFunction<typeof pushDelta>;
-const NOW = '2026-01-01T00:00:00.000Z';
+// Relative to the real clock so queued mutations stay within the client's
+// idempotency-replay window (C2) — a hardcoded past date would be dead-lettered
+// as too-old-to-replay once the wall clock moved >45 d past it.
+const NOW = new Date().toISOString();
 
 function createEntry(over: Partial<EnqueueInput> = {}): EnqueueInput {
   return {
@@ -106,6 +109,45 @@ describe('drainMutationQueueOnce — failure paths (P0)', () => {
     expect(row.status).toBe('rejected');
   });
 
+  it('restores the pre-image when the server rejects an update (C5 — no lost prior state)', async () => {
+    const db = createTestDb();
+    // The row already exists with its committed state (row_version 3).
+    const priorRow = { ...optimisticProductRow('g-1'), name: 'Original', row_version: 3 };
+    await appliersRegistry.get('product')!.upsertAll(db, 'store-A', [priorRow]);
+
+    // An optimistic update changed the local name, capturing the prior row as
+    // the pre-image, and queued the update.
+    await appliersRegistry
+      .get('product')!
+      .upsertAll(db, 'store-A', [{ ...priorRow, name: 'Optimistic Edit' }]);
+    await mutationQueueRepository.enqueue(
+      db,
+      createEntry({
+        action: 'update',
+        expectedRowVersion: 3,
+        payload: { guuid: 'g-1', name: 'Optimistic Edit' },
+        preImage: priorRow,
+      }),
+    );
+
+    mockPush.mockResolvedValueOnce({
+      mutation_results: [{ mutation_id: 'm-1', status: 'rejected', code: 'VALIDATION_FAILED', message: 'bad' }],
+      changes: {},
+      sync_cursor: null,
+      has_more: false,
+      server_time: NOW,
+      permissions_version: 1,
+    } as unknown as Awaited<ReturnType<typeof pushDelta>>);
+
+    await drainMutationQueueOnce(db, 'store-A');
+
+    const [restored] = await db.select().from(products);
+    expect(restored.name).toBe('Original'); // pre-image restored, not left as 'Optimistic Edit'
+    expect(restored.rowVersion).toBe(3);
+    const [row] = await mutationQueueRepository.listByStore(db, 'store-A');
+    expect(row.status).toBe('rejected');
+  });
+
   it('re-pends a mutation the server returned no result for', async () => {
     const db = createTestDb();
     await seedOptimisticCreate(db);
@@ -155,6 +197,32 @@ describe('drainMutationQueueOnce — snapshot refresh on push (freshness)', () =
 
     expect(useAuthStore.getState().snapshot).toEqual(snapshot);
     expect(useAuthStore.getState().snapshotSignature).toBe('sig-1');
+  });
+
+  it('applies a just-pushed row echoed back in the same response (C6 — self-echo not shadowed)', async () => {
+    const db = createTestDb();
+    await seedOptimisticCreate(db);
+    // Server accepted the create and assigned a real id, and the piggybacked
+    // delta page in the SAME response echoes that authoritative row back.
+    const authoritative = { ...optimisticProductRow('g-1'), id: 'server-id-1', name: 'Widget (server)' };
+    mockPush.mockResolvedValueOnce({
+      mutation_results: [{ mutation_id: 'm-1', status: 'applied', data: authoritative }],
+      changes: { product: { upserts: [authoritative], deletes: [] } },
+      sync_cursor: 'cur-1',
+      has_more: false,
+      server_time: NOW,
+      permissions_version: 1,
+    } as unknown as Awaited<ReturnType<typeof pushDelta>>);
+
+    await drainMutationQueueOnce(db, 'store-A');
+
+    // The mutation is 'applied' (no longer a live queue row), so the echoed row
+    // is NOT shadowed by B1 — it lands as the authoritative server row, exactly
+    // once (no phantom temp row, no duplicate from the echo).
+    const rows = await db.select().from(products);
+    expect(rows).toHaveLength(1);
+    expect(rows[0].id).toBe('server-id-1');
+    expect(rows[0].name).toBe('Widget (server)');
   });
 
   it('does not touch the stored snapshot when the push response carries none', async () => {

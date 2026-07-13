@@ -748,15 +748,48 @@ Payment accounts are referenced by other modules to record WHERE money flows. Th
 
 ### Integration with `order_payment`
 
-The existing `order_payment` table currently has `paymentMethod VARCHAR(20)` (cash, upi, card, etc.). With the payment accounts module, a new column is added:
+The existing `order_payment` table currently has `paymentMethod VARCHAR(20)` (cash, upi, card, etc.). With the payment accounts module, new columns are added:
 
 ```sql
-ALTER TABLE order_payment ADD COLUMN payment_account_guuid TEXT;
+ALTER TABLE order_payment ADD COLUMN payment_account_guuid TEXT;   -- live FK (aggregation/joins)
+ALTER TABLE order_payment ADD COLUMN payment_account_name TEXT;    -- SNAPSHOT at checkout time
+ALTER TABLE order_payment ADD COLUMN payment_account_kind TEXT;    -- SNAPSHOT at checkout time
 ```
 
 - For new orders, `payment_account_guuid` is populated from the cashier's selection at checkout.
 - `paymentMethod` is still populated as a denormalized label (for display without joins).
-- For historical orders (before accounts module), `payment_account_guuid` remains NULL.
+- For historical orders (before accounts module), all three columns remain NULL.
+
+### DR — Tender attribution is an immutable snapshot (not a live lookup)
+
+> **Decision:** at checkout, `order_payment` stores a **point-in-time snapshot** of the selected
+> tender — `payment_account_name` + `payment_account_kind` copied verbatim — **in addition to** the
+> live `payment_account_guuid` FK. The snapshot is authoritative for anything shown to a human (a
+> receipt, an order history row, a report line). The guuid FK is retained **only** for aggregation
+> joins ("total into this account this month"), never for display.
+
+**Why this matters (the failure it prevents).** A bare live FK means the displayed account on a
+historical order is resolved by looking the account up *now*. That is wrong for money:
+
+- **Rename:** the owner renames "PhonePe Business" → "PhonePe Old". With a live lookup, **every past
+  receipt silently changes** to show "PhonePe Old". With the snapshot, past receipts keep the name
+  the customer actually saw. (This is the gap a live FK alone does **not** close — soft-delete
+  happens to preserve the name because the row persists, but a rename does not.)
+- **Soft-delete:** §16 states "the account name is preserved in those records." With only a guuid FK
+  that is *implicitly* true (the soft-deleted row still resolves), but it forces every report to
+  join a `deleted_at IS NOT NULL` row. The snapshot makes it **literally** true and join-free.
+
+**Invariant (BR):** *Historical tender attribution is immutable — a completed order's recorded
+account name and kind never change when the underlying account is later renamed, deactivated, or
+deleted.* Enforced by writing the snapshot columns at checkout and **never** back-filling them from
+the live account thereafter.
+
+**`system_key` is not a substitute.** `system_key` stabilizes only the two *system* accounts
+(`cash`/`bank`); it is null for every user-created account, so it cannot anchor the name of a renamed
+"SBI Current Account". The per-order snapshot is the only mechanism that holds for user accounts.
+
+*(Split payments, §21: each `order_payment` split row carries its own `payment_account_guuid` +
+name/kind snapshot — the immutability rule applies per split.)*
 
 ---
 

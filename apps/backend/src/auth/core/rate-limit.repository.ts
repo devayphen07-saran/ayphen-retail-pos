@@ -43,11 +43,14 @@ export class RateLimitRepository {
     return deleted.length;
   }
 
-  /** Retention cleanup for the Redis-outage fallback counters (tiny in practice). */
-  async deleteFallbackCountersOlderThan(cutoff: Date): Promise<void> {
-    await this.db
+  /** Retention cleanup for the Redis-outage fallback counters (tiny in
+   *  practice). Returns the number of rows removed. */
+  async deleteFallbackCountersOlderThan(cutoff: Date): Promise<number> {
+    const deleted = await this.db
       .delete(rateLimitFallbackCounters)
-      .where(lt(rateLimitFallbackCounters.windowStart, cutoff));
+      .where(lt(rateLimitFallbackCounters.windowStart, cutoff))
+      .returning({ key: rateLimitFallbackCounters.key });
+    return deleted.length;
   }
 
   async insert(entry: {

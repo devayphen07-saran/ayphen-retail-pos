@@ -202,6 +202,52 @@ export class StoreRepository {
     await this.client(tx).insert(userRoleMappings).values(data);
   }
 
+  /**
+   * Seed the two locked default payment accounts (Cash + Bank) for a new store
+   * (PRD payment-accounts-mobile §BR-1/DR-2). `isSystem` locks them against
+   * delete/deactivate; `systemKey` is the stable discriminator; Cash is the
+   * initial default. Idempotent via `uk_payment_accounts_system_key` — a retried
+   * create can't produce a second Cash/Bank — and it runs in the same transaction
+   * as the store insert, so a failure rolls the whole store back.
+   */
+  async seedDefaultPaymentAccounts(
+    storeId: string,
+    userId: string,
+    tx?: DbExecutor,
+  ): Promise<{ cashAccountId: string | undefined; bankAccountId: string | undefined }> {
+    const rows = await this.client(tx)
+      .insert(paymentAccounts)
+      .values([
+        {
+          storeFk: storeId,
+          name: 'Cash',
+          kind: 'cash',
+          systemKey: 'cash',
+          isSystem: true,
+          isActive: true,
+          isDefault: true,
+          createdBy: userId,
+        },
+        {
+          storeFk: storeId,
+          name: 'Bank',
+          kind: 'bank',
+          systemKey: 'bank',
+          isSystem: true,
+          isActive: true,
+          isDefault: false,
+          createdBy: userId,
+        },
+      ])
+      .onConflictDoNothing()
+      .returning({ id: paymentAccounts.id, systemKey: paymentAccounts.systemKey });
+
+    return {
+      cashAccountId: rows.find((r) => r.systemKey === 'cash')?.id,
+      bankAccountId: rows.find((r) => r.systemKey === 'bank')?.id,
+    };
+  }
+
   /** Read the account's subscription trial state (for first-store trial start). */
   async findSubscription(
     accountId: string,

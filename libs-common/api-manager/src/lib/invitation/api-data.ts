@@ -16,8 +16,8 @@ export const REJECT_INVITATION = new APIData('invitations/reject', APIMethod.POS
 
 /** Accept an in-app invitation by id (from LIST_MY_INVITATIONS). No token is
  *  echoed — the server authorizes by the caller's own contact. Pass
- *  `{ pathParam: { id } }`. Auth required. */
-export const ACCEPT_INVITATION_BY_ID = new APIData('invitations/:id/accept', APIMethod.POST);
+ *  `{ pathParam: { invitationId } }`. Auth required. */
+export const ACCEPT_INVITATION_BY_ID = new APIData('invitations/:invitationId/accept', APIMethod.POST);
 
-/** Decline an in-app invitation by id. Pass `{ pathParam: { id } }`. Auth required. */
-export const REJECT_INVITATION_BY_ID = new APIData('invitations/:id/reject', APIMethod.POST);
+/** Decline an in-app invitation by id. Pass `{ pathParam: { invitationId } }`. Auth required. */
+export const REJECT_INVITATION_BY_ID = new APIData('invitations/:invitationId/reject', APIMethod.POST);

@@ -1,4 +1,5 @@
 import { Injectable, Logger, OnModuleInit } from '@nestjs/common';
+import { MS_PER_DAY } from '#common/time.js';
 import { SchedulerRegistry } from '@nestjs/schedule';
 import { CronJob } from 'cron';
 import { AppConfigService } from '#config/app-config.service.js';
@@ -54,7 +55,7 @@ export class LoginAttemptsCleanupService implements OnModuleInit {
     try {
       const cutoff = new Date(
         Date.now() -
-          this.config.loginAttemptsRetentionDays * 24 * 60 * 60 * 1000,
+          this.config.loginAttemptsRetentionDays * MS_PER_DAY,
       );
       const count = await this.repo.deleteAttemptsOlderThan(cutoff);
 

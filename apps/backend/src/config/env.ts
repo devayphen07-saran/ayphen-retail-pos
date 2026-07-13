@@ -57,9 +57,18 @@ const envSchema = z.object({
   STORAGE_SECRET_ACCESS_KEY:        z.string().optional(),
   STORAGE_FORCE_PATH_STYLE:         z.coerce.boolean().default(false), // true for MinIO
   STORAGE_LOCAL_DIR:                z.string().default('.storage'),    // LocalStorageProvider root
+  // Per-S3-call bound (D7): each object-store call is aborted after this many ms
+  // (via AbortSignal), independent of the global request timeout, so a hung store
+  // can't hold a request slot. maxAttempts bounds the SDK's own retries.
+  STORAGE_REQUEST_TIMEOUT_MS:       z.coerce.number().default(15_000),
+  STORAGE_MAX_ATTEMPTS:             z.coerce.number().default(3),
   // Presigned GET URL lifetime and staging TTL (table-architecture §33).
   STORAGE_SIGNED_URL_TTL_SECONDS:   z.coerce.number().default(2100),   // 35 min, matches ayphen-3.0
   TEMP_FILE_TTL_HOURS:              z.coerce.number().default(24),     // sweeper reaps uncommitted temps past this
+  // Grace before the sweeper may reap a CLAIMED temp (D6): shorter than any real
+  // commit won't happen, so a still-present claim past this belongs to a crashed
+  // commit and is safe to reap; a fresh claim is protected from the sweeper.
+  TEMP_FILE_CLAIM_GRACE_MINUTES:    z.coerce.number().default(60),
   // Public base URL — LocalStorageProvider builds signed raw-serve links off it.
   PUBLIC_BASE_URL:                  z.string().default('http://localhost:3004'),
   JSON_BODY_LIMIT:                  z.string().default('1mb'),
@@ -77,6 +86,7 @@ const envSchema = z.object({
   CRON_LOW_STOCK_CHECK:             z.string().default('0 8 * * *'),
   CRON_PENDING_ORDER_CLEANUP:       z.string().default('*/30 * * * *'),
   CRON_TEMP_FILE_SWEEP:             z.string().default('15 * * * *'), // reap expired uncommitted temps hourly
+  CRON_ORPHAN_FILES_REAP:          z.string().default('30 3 * * *'), // audit committed files with no live parent (P1-12b), daily
 });
 
 export type Env = z.infer<typeof envSchema>;

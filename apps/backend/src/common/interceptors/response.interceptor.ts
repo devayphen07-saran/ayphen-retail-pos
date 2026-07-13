@@ -49,7 +49,7 @@ export class ResponseInterceptor<T>
           statusCode,
           message,
           data:       data ?? null,
-          requestId:  request.headers['x-request-id'] as string,
+          requestId:  (request.headers['x-request-id'] as string | undefined) ?? '',
           timestamp:  new Date().toISOString(),
         };
       }),

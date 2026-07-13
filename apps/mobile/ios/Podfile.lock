@@ -4,6 +4,9 @@ PODS:
     - ReactCommon/turbomodule/core
   - EXConstants (18.0.13):
     - ExpoModulesCore
+  - EXImageLoader (6.0.0):
+    - ExpoModulesCore
+    - React-Core
   - EXJSONUtils (0.15.0)
   - EXManifests (1.0.11):
     - ExpoModulesCore
@@ -223,6 +226,12 @@ PODS:
     - SDWebImageAVIFCoder (~> 0.11.0)
     - SDWebImageSVGCoder (~> 1.7.0)
     - SDWebImageWebPCoder (~> 0.14.6)
+  - ExpoImageManipulator (14.0.8):
+    - EXImageLoader
+    - ExpoModulesCore
+    - SDWebImageWebPCoder
+  - ExpoImagePicker (17.0.11):
+    - ExpoModulesCore
   - ExpoKeepAwake (15.0.8):
     - ExpoModulesCore
   - ExpoLinearGradient (15.0.8):
@@ -2029,6 +2038,28 @@ PODS:
     - ReactCommon/turbomodule/core
     - ReactNativeDependencies
     - Yoga
+  - RNDateTimePicker (9.1.0):
+    - hermes-engine
+    - RCTRequired
+    - RCTTypeSafety
+    - React-Core
+    - React-Core-prebuilt
+    - React-debug
+    - React-Fabric
+    - React-featureflags
+    - React-graphics
+    - React-ImageManager
+    - React-jsi
+    - React-NativeModulesApple
+    - React-RCTFabric
+    - React-renderercss
+    - React-rendererdebug
+    - React-utils
+    - ReactCodegen
+    - ReactCommon/turbomodule/bridging
+    - ReactCommon/turbomodule/core
+    - ReactNativeDependencies
+    - Yoga
   - RNGestureHandler (2.28.0):
     - hermes-engine
     - RCTRequired
@@ -2304,6 +2335,7 @@ PODS:
 DEPENDENCIES:
   - "EXAV (from `../../../node_modules/.pnpm/expo-av@16.0.8_expo@54.0.35_react-native-web@0.21.0_react-dom@19.1.0_react@19.1.0__reac_eb3931bd9d305d4a7d9b8f80a5630552/node_modules/expo-av/ios`)"
   - "EXConstants (from `../../../node_modules/.pnpm/expo-constants@18.0.13_expo@54.0.35_react-native@0.81.5_@babel+core@7.29.7_@react-nativ_feff356d3814a58cb26f3bbf02766aaf/node_modules/expo-constants/ios`)"
+  - "EXImageLoader (from `../../../node_modules/.pnpm/expo-image-loader@6.0.0_expo@54.0.35/node_modules/expo-image-loader/ios`)"
   - "EXJSONUtils (from `../../../node_modules/.pnpm/expo-json-utils@0.15.0/node_modules/expo-json-utils/ios`)"
   - "EXManifests (from `../../../node_modules/.pnpm/expo-manifests@1.0.11_expo@54.0.35/node_modules/expo-manifests/ios`)"
   - "Expo (from `../../../node_modules/.pnpm/expo@54.0.35_@babel+core@7.29.7_@expo+dom-webview@55.0.6_@expo+metro-runtime@6.1.2_expo_453fb21f151c882b8be0e9a84f531034/node_modules/expo`)"
@@ -2318,6 +2350,8 @@ DEPENDENCIES:
   - "ExpoHaptics (from `../../../node_modules/.pnpm/expo-haptics@15.0.8_expo@54.0.35/node_modules/expo-haptics/ios`)"
   - "ExpoHead (from `../../../node_modules/.pnpm/expo-router@6.0.24_e31eca072f7fb9fe37de98d94d27b27d/node_modules/expo-router/ios`)"
   - "ExpoImage (from `../../../node_modules/.pnpm/expo-image@3.0.11_expo@54.0.35_react-native-web@0.21.0_react-dom@19.1.0_react@19.1.0__r_b3b655f90e827ad82969af9136899391/node_modules/expo-image/ios`)"
+  - "ExpoImageManipulator (from `../../../node_modules/.pnpm/expo-image-manipulator@14.0.8_expo@54.0.35/node_modules/expo-image-manipulator/ios`)"
+  - "ExpoImagePicker (from `../../../node_modules/.pnpm/expo-image-picker@17.0.11_expo@54.0.35/node_modules/expo-image-picker/ios`)"
   - "ExpoKeepAwake (from `../../../node_modules/.pnpm/expo-keep-awake@15.0.8_expo@54.0.35_react@19.1.0/node_modules/expo-keep-awake/ios`)"
   - "ExpoLinearGradient (from `../../../node_modules/.pnpm/expo-linear-gradient@15.0.8_expo@54.0.35_react-native@0.81.5_@babel+core@7.29.7_@react-_46d464df8cae1c225eb05b5a43a56b02/node_modules/expo-linear-gradient/ios`)"
   - "ExpoLinking (from `../../../node_modules/.pnpm/expo-linking@8.0.12_expo@54.0.35_react-native@0.81.5_@babel+core@7.29.7_@react-native+m_42a838475ab30931aafd481785e6f881/node_modules/expo-linking/ios`)"
@@ -2399,6 +2433,7 @@ DEPENDENCIES:
   - "ReactCommon/turbomodule/core (from `../../../node_modules/.pnpm/react-native@0.81.5_@babel+core@7.29.7_@react-native+metro-config@0.86.0_@babel+core@7._af4b9c80f65407803fbba16f2c1a0a52/node_modules/react-native/ReactCommon`)"
   - "ReactNativeDependencies (from `../../../node_modules/.pnpm/react-native@0.81.5_@babel+core@7.29.7_@react-native+metro-config@0.86.0_@babel+core@7._af4b9c80f65407803fbba16f2c1a0a52/node_modules/react-native/third-party-podspecs/ReactNativeDependencies.podspec`)"
   - "RNCAsyncStorage (from `../../../node_modules/.pnpm/@react-native-async-storage+async-storage@2.2.0_react-native@0.81.5_@babel+core@7.29.7__bd53198374b65aaca06ab6be2ca7bf31/node_modules/@react-native-async-storage/async-storage`)"
+  - "RNDateTimePicker (from `../../../node_modules/.pnpm/@react-native-community+datetimepicker@9.1.0_expo@54.0.35_react-native@0.81.5_@babel+co_5d464c56a1bb162e1b9b8c8fd98777f7/node_modules/@react-native-community/datetimepicker`)"
   - "RNGestureHandler (from `../../../node_modules/.pnpm/react-native-gesture-handler@2.28.0_react-native@0.81.5_@babel+core@7.29.7_@react-nativ_0e75f6fc826a908e76e2d71d9342e7b6/node_modules/react-native-gesture-handler`)"
   - "RNReanimated (from `../../../node_modules/.pnpm/react-native-reanimated@4.1.7_react-native-worklets@0.5.1_@babel+core@7.29.7_react-nati_5df143ba49e01c81d0ab1bc9d714da27/node_modules/react-native-reanimated`)"
   - "RNScreens (from `../../../node_modules/.pnpm/react-native-screens@4.16.0_react-native@0.81.5_@babel+core@7.29.7_@react-native+metro-_1e3666411b5f0a753de7976239fadca7/node_modules/react-native-screens`)"
@@ -2421,6 +2456,8 @@ EXTERNAL SOURCES:
     :path: "../../../node_modules/.pnpm/expo-av@16.0.8_expo@54.0.35_react-native-web@0.21.0_react-dom@19.1.0_react@19.1.0__reac_eb3931bd9d305d4a7d9b8f80a5630552/node_modules/expo-av/ios"
   EXConstants:
     :path: "../../../node_modules/.pnpm/expo-constants@18.0.13_expo@54.0.35_react-native@0.81.5_@babel+core@7.29.7_@react-nativ_feff356d3814a58cb26f3bbf02766aaf/node_modules/expo-constants/ios"
+  EXImageLoader:
+    :path: "../../../node_modules/.pnpm/expo-image-loader@6.0.0_expo@54.0.35/node_modules/expo-image-loader/ios"
   EXJSONUtils:
     :path: "../../../node_modules/.pnpm/expo-json-utils@0.15.0/node_modules/expo-json-utils/ios"
   EXManifests:
@@ -2449,6 +2486,10 @@ EXTERNAL SOURCES:
     :path: "../../../node_modules/.pnpm/expo-router@6.0.24_e31eca072f7fb9fe37de98d94d27b27d/node_modules/expo-router/ios"
   ExpoImage:
     :path: "../../../node_modules/.pnpm/expo-image@3.0.11_expo@54.0.35_react-native-web@0.21.0_react-dom@19.1.0_react@19.1.0__r_b3b655f90e827ad82969af9136899391/node_modules/expo-image/ios"
+  ExpoImageManipulator:
+    :path: "../../../node_modules/.pnpm/expo-image-manipulator@14.0.8_expo@54.0.35/node_modules/expo-image-manipulator/ios"
+  ExpoImagePicker:
+    :path: "../../../node_modules/.pnpm/expo-image-picker@17.0.11_expo@54.0.35/node_modules/expo-image-picker/ios"
   ExpoKeepAwake:
     :path: "../../../node_modules/.pnpm/expo-keep-awake@15.0.8_expo@54.0.35_react@19.1.0/node_modules/expo-keep-awake/ios"
   ExpoLinearGradient:
@@ -2610,6 +2651,8 @@ EXTERNAL SOURCES:
     :podspec: "../../../node_modules/.pnpm/react-native@0.81.5_@babel+core@7.29.7_@react-native+metro-config@0.86.0_@babel+core@7._af4b9c80f65407803fbba16f2c1a0a52/node_modules/react-native/third-party-podspecs/ReactNativeDependencies.podspec"
   RNCAsyncStorage:
     :path: "../../../node_modules/.pnpm/@react-native-async-storage+async-storage@2.2.0_react-native@0.81.5_@babel+core@7.29.7__bd53198374b65aaca06ab6be2ca7bf31/node_modules/@react-native-async-storage/async-storage"
+  RNDateTimePicker:
+    :path: "../../../node_modules/.pnpm/@react-native-community+datetimepicker@9.1.0_expo@54.0.35_react-native@0.81.5_@babel+co_5d464c56a1bb162e1b9b8c8fd98777f7/node_modules/@react-native-community/datetimepicker"
   RNGestureHandler:
     :path: "../../../node_modules/.pnpm/react-native-gesture-handler@2.28.0_react-native@0.81.5_@babel+core@7.29.7_@react-nativ_0e75f6fc826a908e76e2d71d9342e7b6/node_modules/react-native-gesture-handler"
   RNReanimated:
@@ -2626,6 +2669,7 @@ EXTERNAL SOURCES:
 SPEC CHECKSUMS:
   EXAV: b60fcf142fae6684d295bc28cd7cfcb3335570ea
   EXConstants: fce59a631a06c4151602843667f7cfe35f81e271
+  EXImageLoader: 189e3476581efe3ad4d1d3fb4735b7179eb26f05
   EXJSONUtils: 1d3e4590438c3ee593684186007028a14b3686cd
   EXManifests: 378c7742de02a8605093b1c82b5774d8f9875cec
   Expo: edf5879dd9f83d2aa5b05d012412c810bc182ac1
@@ -2640,6 +2684,8 @@ SPEC CHECKSUMS:
   ExpoHaptics: d3a6375d8dcc3a1083d003bc2298ff654fafb536
   ExpoHead: 33924c5829f9a3f98a5bd432d23c0e02ef64afcc
   ExpoImage: 686f972bff29525733aa13357f6691dc90aa03d8
+  ExpoImageManipulator: 607a5c8c88085381639458a46cc55fb9d3869148
+  ExpoImagePicker: ade85e148f735fc7e6f27dfe3eef28eb3887e90a
   ExpoKeepAwake: 55f75eca6499bb9e4231ebad6f3e9cb8f99c0296
   ExpoLinearGradient: 809102bdb979f590083af49f7fa4805cd931bd58
   ExpoLinking: 2ef632ad5013e3f1568fae9408d56ab9af5efc55
@@ -2723,6 +2769,7 @@ SPEC CHECKSUMS:
   ReactCommon: 08810150b1206cc44aecf5f6ae19af32f29151a8
   ReactNativeDependencies: 71ce9c28beb282aa720ea7b46980fff9669f428a
   RNCAsyncStorage: 3a4f5e2777dae1688b781a487923a08569e27fe4
+  RNDateTimePicker: 9025ccd219b382f246e9ceb85cd4095279b9bad1
   RNGestureHandler: 2914750df066d89bf9d8f48a10ad5f0051108ac3
   RNReanimated: ee9b52bd818bc473b601c82dde956ac79695cabe
   RNScreens: d8d6f1792f6e7ac12b0190d33d8d390efc0c1845

@@ -46,6 +46,54 @@ export const migrations: MobileMigrationConfig = {
         "when": 1783502510761,
         "tag": "0005_zippy_frightful_four",
         "breakpoints": true
+      },
+      {
+        "idx": 6,
+        "when": 1783665606140,
+        "tag": "0006_unknown_meggan",
+        "breakpoints": true
+      },
+      {
+        "idx": 7,
+        "when": 1783684385795,
+        "tag": "0007_fantastic_captain_cross",
+        "breakpoints": true
+      },
+      {
+        "idx": 8,
+        "when": 1783758493206,
+        "tag": "0008_numerous_robin_chapel",
+        "breakpoints": true
+      },
+      {
+        "idx": 9,
+        "when": 1783761754033,
+        "tag": "0009_curved_human_fly",
+        "breakpoints": true
+      },
+      {
+        "idx": 10,
+        "when": 1783800041420,
+        "tag": "0010_swift_miek",
+        "breakpoints": true
+      },
+      {
+        "idx": 11,
+        "when": 1783867014985,
+        "tag": "0011_smart_thor_girl",
+        "breakpoints": true
+      },
+      {
+        "idx": 12,
+        "when": 1783869780130,
+        "tag": "0012_neat_mephistopheles",
+        "breakpoints": true
+      },
+      {
+        "idx": 13,
+        "when": 1783919948752,
+        "tag": "0013_friendly_hemingway",
+        "breakpoints": true
       }
     ]
   },
@@ -55,6 +103,14 @@ export const migrations: MobileMigrationConfig = {
     "m0002": "DELETE FROM `failed_applies` WHERE `id` NOT IN (SELECT MAX(`id`) FROM `failed_applies` GROUP BY `store_id`, `entity_type`, `entity_guuid`);--> statement-breakpoint\nCREATE UNIQUE INDEX `failed_applies_store_entity_unq` ON `failed_applies` (`store_id`,`entity_type`,`entity_guuid`);",
     "m0003": "CREATE TABLE `sync_store_meta` (\n\t`store_id` text PRIMARY KEY NOT NULL,\n\t`permissions_version` integer,\n\t`updated_at` text NOT NULL\n);\n",
     "m0004": "ALTER TABLE `failed_applies` ADD `operation` text DEFAULT 'upsert' NOT NULL;",
-    "m0005": "ALTER TABLE `sync_store_meta` ADD `permissions` text;"
+    "m0005": "ALTER TABLE `sync_store_meta` ADD `permissions` text;",
+    "m0006": "CREATE TABLE `attachment` (\n\t`guuid` text PRIMARY KEY NOT NULL,\n\t`store_fk` text NOT NULL,\n\t`entity_type` text NOT NULL,\n\t`record_guuid` text NOT NULL,\n\t`kind` text NOT NULL,\n\t`status` text DEFAULT 'pending_upload' NOT NULL,\n\t`local_path` text,\n\t`local_thumb_path` text,\n\t`file_guuid` text,\n\t`temp_guuid` text,\n\t`mime_type` text,\n\t`size_bytes` integer,\n\t`sha256` text,\n\t`attempt_count` integer DEFAULT 0 NOT NULL,\n\t`defer_count` integer DEFAULT 0 NOT NULL,\n\t`next_attempt_at` integer,\n\t`last_error` text,\n\t`last_error_code` text,\n\t`created_by` text NOT NULL,\n\t`created_at` integer NOT NULL,\n\t`deleted_at` integer\n);\n--> statement-breakpoint\nCREATE INDEX `idx_att_pending` ON `attachment` (`status`,`next_attempt_at`) WHERE \"attachment\".\"deleted_at\" IS NULL;--> statement-breakpoint\nCREATE INDEX `idx_att_parent` ON `attachment` (`record_guuid`) WHERE \"attachment\".\"deleted_at\" IS NULL;",
+    "m0007": "CREATE TABLE `payment_accounts` (\n\t`id` text PRIMARY KEY NOT NULL,\n\t`store_id` text NOT NULL,\n\t`guuid` text NOT NULL,\n\t`name` text NOT NULL,\n\t`payment_method_fk` text,\n\t`details` text,\n\t`is_default` integer,\n\t`is_active` integer,\n\t`is_system` integer,\n\t`system_key` text,\n\t`row_version` integer NOT NULL,\n\t`modified_at` text NOT NULL\n);\n",
+    "m0008": "ALTER TABLE `payment_accounts` ADD `kind` text;",
+    "m0009": "ALTER TABLE `payment_accounts` DROP COLUMN `payment_method_fk`;",
+    "m0010": "CREATE TABLE `suppliers` (\n\t`id` text PRIMARY KEY NOT NULL,\n\t`store_id` text NOT NULL,\n\t`guuid` text NOT NULL,\n\t`name` text NOT NULL,\n\t`phone` text,\n\t`email` text,\n\t`gst_number` text,\n\t`is_active` integer,\n\t`row_version` integer NOT NULL,\n\t`modified_at` text NOT NULL\n);\n",
+    "m0011": "ALTER TABLE `mutation_queue` ADD `pre_image` text;",
+    "m0012": "ALTER TABLE `customers` ADD `website` text;--> statement-breakpoint\nALTER TABLE `customers` ADD `logo_uri` text;--> statement-breakpoint\nALTER TABLE `customers` ADD `pan_number` text;--> statement-breakpoint\nALTER TABLE `customers` ADD `override_credit_limit` integer;--> statement-breakpoint\nALTER TABLE `customers` ADD `payment_term_lookup_fk` text;--> statement-breakpoint\nALTER TABLE `customers` ADD `payment_term_days` integer;--> statement-breakpoint\nALTER TABLE `customers` ADD `address_line_1` text;--> statement-breakpoint\nALTER TABLE `customers` ADD `address_line_2` text;--> statement-breakpoint\nALTER TABLE `customers` ADD `city` text;--> statement-breakpoint\nALTER TABLE `customers` ADD `district` text;--> statement-breakpoint\nALTER TABLE `customers` ADD `state_lookup_fk` text;--> statement-breakpoint\nALTER TABLE `customers` ADD `pin_code` text;--> statement-breakpoint\nALTER TABLE `customers` ADD `birthday` text;--> statement-breakpoint\nALTER TABLE `customers` ADD `anniversary` text;--> statement-breakpoint\nALTER TABLE `customers` ADD `notes` text;--> statement-breakpoint\nALTER TABLE `suppliers` ADD `display_name` text;--> statement-breakpoint\nALTER TABLE `suppliers` ADD `website` text;--> statement-breakpoint\nALTER TABLE `suppliers` ADD `logo_uri` text;--> statement-breakpoint\nALTER TABLE `suppliers` ADD `pan_number` text;--> statement-breakpoint\nALTER TABLE `suppliers` ADD `payment_term_lookup_fk` text;--> statement-breakpoint\nALTER TABLE `suppliers` ADD `payment_term_days` integer;--> statement-breakpoint\nALTER TABLE `suppliers` ADD `credit_limit` text;--> statement-breakpoint\nALTER TABLE `suppliers` ADD `override_credit_limit` integer;--> statement-breakpoint\nALTER TABLE `suppliers` ADD `address_line_1` text;--> statement-breakpoint\nALTER TABLE `suppliers` ADD `address_line_2` text;--> statement-breakpoint\nALTER TABLE `suppliers` ADD `city` text;--> statement-breakpoint\nALTER TABLE `suppliers` ADD `district` text;--> statement-breakpoint\nALTER TABLE `suppliers` ADD `state_lookup_fk` text;--> statement-breakpoint\nALTER TABLE `suppliers` ADD `pin_code` text;--> statement-breakpoint\nALTER TABLE `suppliers` ADD `notes` text;",
+    "m0013": "CREATE TABLE `account_transactions` (\n\t`id` text PRIMARY KEY NOT NULL,\n\t`store_id` text NOT NULL,\n\t`guuid` text NOT NULL,\n\t`account_fk` text NOT NULL,\n\t`direction` text,\n\t`amount_paise` integer NOT NULL,\n\t`reason` text,\n\t`source_type` text,\n\t`source_fk` text,\n\t`shift_session_fk` text,\n\t`note` text,\n\t`row_version` integer NOT NULL,\n\t`modified_at` text NOT NULL\n);\n--> statement-breakpoint\nCREATE TABLE `cash_movements` (\n\t`id` text PRIMARY KEY NOT NULL,\n\t`store_id` text NOT NULL,\n\t`guuid` text NOT NULL,\n\t`account_fk` text NOT NULL,\n\t`type` text,\n\t`reason` text,\n\t`amount_paise` integer NOT NULL,\n\t`by_user_fk` text,\n\t`row_version` integer NOT NULL,\n\t`modified_at` text NOT NULL\n);\n"
   }
 };

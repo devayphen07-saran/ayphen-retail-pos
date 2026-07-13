@@ -61,7 +61,7 @@ export async function retryFailedApplies(db: SyncDb, storeId: string, now: strin
           if (typeof guuid !== 'string') {
             throw new Error('delete DLQ row has no string guuid');
           }
-          await applier.applyDeletes(tx, [guuid]);
+          await applier.applyDeletes(tx, storeId, [guuid]);
         } else {
           await applier.upsertAll(tx, storeId, [parsed as WireRow]);
         }

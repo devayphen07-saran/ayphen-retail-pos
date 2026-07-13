@@ -43,6 +43,62 @@
       "when": 1783502510761,
       "tag": "0005_zippy_frightful_four",
       "breakpoints": true
+    },
+    {
+      "idx": 6,
+      "version": "6",
+      "when": 1783665606140,
+      "tag": "0006_unknown_meggan",
+      "breakpoints": true
+    },
+    {
+      "idx": 7,
+      "version": "6",
+      "when": 1783684385795,
+      "tag": "0007_fantastic_captain_cross",
+      "breakpoints": true
+    },
+    {
+      "idx": 8,
+      "version": "6",
+      "when": 1783758493206,
+      "tag": "0008_numerous_robin_chapel",
+      "breakpoints": true
+    },
+    {
+      "idx": 9,
+      "version": "6",
+      "when": 1783761754033,
+      "tag": "0009_curved_human_fly",
+      "breakpoints": true
+    },
+    {
+      "idx": 10,
+      "version": "6",
+      "when": 1783800041420,
+      "tag": "0010_swift_miek",
+      "breakpoints": true
+    },
+    {
+      "idx": 11,
+      "version": "6",
+      "when": 1783867014985,
+      "tag": "0011_smart_thor_girl",
+      "breakpoints": true
+    },
+    {
+      "idx": 12,
+      "version": "6",
+      "when": 1783869780130,
+      "tag": "0012_neat_mephistopheles",
+      "breakpoints": true
+    },
+    {
+      "idx": 13,
+      "version": "6",
+      "when": 1783919948752,
+      "tag": "0013_friendly_hemingway",
+      "breakpoints": true
     }
   ]
 }

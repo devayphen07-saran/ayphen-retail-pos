@@ -1,5 +1,5 @@
 import { Inject, Injectable } from '@nestjs/common';
-import { and, desc, eq, inArray, lt, sql } from 'drizzle-orm';
+import { and, desc, eq, inArray, lt, notInArray, sql } from 'drizzle-orm';
 import type { PostgresJsDatabase } from 'drizzle-orm/postgres-js';
 import { DRIZZLE, type DbExecutor } from '#db/db.module.js';
 import { requireRow } from '#db/require-row.js';
@@ -33,6 +33,31 @@ export interface StoreDeviceRow {
 export interface StoreDeviceRowWithStore extends StoreDeviceRow {
   storeFk: string;
 }
+
+/** How a device slot was released — audited in `store_device_access.revoked_reason`. */
+export type SlotRevokeReason =
+  | 'owner_removed'
+  | 'stolen'
+  | 'auto_expired'
+  | 'plan_downgrade'
+  | 'released';
+
+/** Shared column projection for the store-device list joins (slot + device +
+ *  user), so the list variants can't drift column-by-column. */
+const storeDeviceColumns = {
+  id:              storeDeviceAccess.id,
+  deviceFk:        storeDeviceAccess.deviceFk,
+  userFk:          storeDeviceAccess.userFk,
+  status:          storeDeviceAccess.status,
+  deviceLabel:     storeDeviceAccess.deviceLabel,
+  lastAccessedAt:  storeDeviceAccess.lastAccessedAt,
+  firstAccessedAt: storeDeviceAccess.firstAccessedAt,
+  revokedAt:       storeDeviceAccess.revokedAt,
+  revokedReason:   storeDeviceAccess.revokedReason,
+  model:           devices.model,
+  platform:        devices.platform,
+  userName:        users.name,
+};
 
 /** Data access for the device↔store slot model (device-management §3.3, §7). */
 @Injectable()
@@ -131,20 +156,7 @@ export class DeviceAccessRepository {
   /** Store device list (active + recently revoked), joined with device + user. */
   async listStoreDevices(storeId: string, tx?: DbExecutor): Promise<StoreDeviceRow[]> {
     return this.client(tx)
-      .select({
-        id:              storeDeviceAccess.id,
-        deviceFk:        storeDeviceAccess.deviceFk,
-        userFk:          storeDeviceAccess.userFk,
-        status:          storeDeviceAccess.status,
-        deviceLabel:     storeDeviceAccess.deviceLabel,
-        lastAccessedAt:  storeDeviceAccess.lastAccessedAt,
-        firstAccessedAt: storeDeviceAccess.firstAccessedAt,
-        revokedAt:       storeDeviceAccess.revokedAt,
-        revokedReason:   storeDeviceAccess.revokedReason,
-        model:           devices.model,
-        platform:        devices.platform,
-        userName:        users.name,
-      })
+      .select(storeDeviceColumns)
       .from(storeDeviceAccess)
       .innerJoin(devices, eq(storeDeviceAccess.deviceFk, devices.id))
       .innerJoin(users, eq(storeDeviceAccess.userFk, users.id))
@@ -160,20 +172,7 @@ export class DeviceAccessRepository {
    *  history, which only ever grows. */
   async listActiveStoreDevices(storeId: string, tx?: DbExecutor): Promise<StoreDeviceRow[]> {
     return this.client(tx)
-      .select({
-        id:              storeDeviceAccess.id,
-        deviceFk:        storeDeviceAccess.deviceFk,
-        userFk:          storeDeviceAccess.userFk,
-        status:          storeDeviceAccess.status,
-        deviceLabel:     storeDeviceAccess.deviceLabel,
-        lastAccessedAt:  storeDeviceAccess.lastAccessedAt,
-        firstAccessedAt: storeDeviceAccess.firstAccessedAt,
-        revokedAt:       storeDeviceAccess.revokedAt,
-        revokedReason:   storeDeviceAccess.revokedReason,
-        model:           devices.model,
-        platform:        devices.platform,
-        userName:        users.name,
-      })
+      .select(storeDeviceColumns)
       .from(storeDeviceAccess)
       .innerJoin(devices, eq(storeDeviceAccess.deviceFk, devices.id))
       .innerJoin(users, eq(storeDeviceAccess.userFk, users.id))
@@ -187,21 +186,7 @@ export class DeviceAccessRepository {
   async listStoreDevicesByStores(storeIds: string[], tx?: DbExecutor): Promise<StoreDeviceRowWithStore[]> {
     if (storeIds.length === 0) return [];
     return this.client(tx)
-      .select({
-        id:              storeDeviceAccess.id,
-        storeFk:         storeDeviceAccess.storeFk,
-        deviceFk:        storeDeviceAccess.deviceFk,
-        userFk:          storeDeviceAccess.userFk,
-        status:          storeDeviceAccess.status,
-        deviceLabel:     storeDeviceAccess.deviceLabel,
-        lastAccessedAt:  storeDeviceAccess.lastAccessedAt,
-        firstAccessedAt: storeDeviceAccess.firstAccessedAt,
-        revokedAt:       storeDeviceAccess.revokedAt,
-        revokedReason:   storeDeviceAccess.revokedReason,
-        model:           devices.model,
-        platform:        devices.platform,
-        userName:        users.name,
-      })
+      .select({ ...storeDeviceColumns, storeFk: storeDeviceAccess.storeFk })
       .from(storeDeviceAccess)
       .innerJoin(devices, eq(storeDeviceAccess.deviceFk, devices.id))
       .innerJoin(users, eq(storeDeviceAccess.userFk, users.id))
@@ -214,7 +199,7 @@ export class DeviceAccessRepository {
     storeId: string,
     deviceId: string,
     revokedBy: string,
-    reason: 'owner_removed' | 'stolen' | 'auto_expired' | 'plan_downgrade' | 'released',
+    reason: SlotRevokeReason,
     tx?: DbExecutor,
   ): Promise<number> {
     const rows = await this.client(tx)
@@ -238,18 +223,43 @@ export class DeviceAccessRepository {
    * has already moved on, so its old revoked row just stays revoked/historical.
    */
   async restoreDowngradedSlots(storeId: string, tx?: DbExecutor): Promise<void> {
-    const revoked = await this.client(tx)
-      .select({ id: storeDeviceAccess.id, deviceFk: storeDeviceAccess.deviceFk })
+    const client = this.client(tx);
+
+    // One row per device — the most recently revoked plan_downgrade slot —
+    // for devices that don't already hold a fresh active slot (see doc
+    // comment above for why those are skipped). Picking exactly one row per
+    // device via selectDistinctOn (ordered by revokedAt desc) matters just
+    // like it does in restoreSlot: a device revoked more than once over time
+    // leaves multiple historical 'revoked' rows for the same (store, device),
+    // and flipping more than one to 'active' in the same statement would
+    // collide with the uk_sda_active partial unique index.
+    const targetIds = client
+      .selectDistinctOn([storeDeviceAccess.deviceFk], { id: storeDeviceAccess.id })
       .from(storeDeviceAccess)
       .where(and(
         eq(storeDeviceAccess.storeFk, storeId),
         eq(storeDeviceAccess.status, 'revoked'),
         eq(storeDeviceAccess.revokedReason, 'plan_downgrade'),
-      ));
+        notInArray(
+          storeDeviceAccess.deviceFk,
+          client
+            .select({ deviceFk: storeDeviceAccess.deviceFk })
+            .from(storeDeviceAccess)
+            .where(and(
+              eq(storeDeviceAccess.storeFk, storeId),
+              eq(storeDeviceAccess.status, 'active'),
+            )),
+        ),
+      ))
+      .orderBy(storeDeviceAccess.deviceFk, desc(storeDeviceAccess.revokedAt));
 
-    for (const row of revoked) {
-      await this.restoreSlot(storeId, row.deviceFk, tx);
-    }
+    await client
+      .update(storeDeviceAccess)
+      .set({ status: 'active', revokedAt: null, revokedBy: null, revokedReason: null, modifiedAt: new Date() })
+      .where(and(
+        inArray(storeDeviceAccess.id, targetIds),
+        eq(storeDeviceAccess.status, 'revoked'),
+      ));
   }
 
   /**
@@ -261,12 +271,31 @@ export class DeviceAccessRepository {
   async restoreSlot(storeId: string, deviceId: string, tx?: DbExecutor): Promise<void> {
     const stillClaimed = await this.findActiveSlot(storeId, deviceId, tx);
     if (stillClaimed) return;
-    await this.client(tx)
-      .update(storeDeviceAccess)
-      .set({ status: 'active', revokedAt: null, revokedBy: null, revokedReason: null, modifiedAt: new Date() })
+
+    // Target the single most recent revoked row for this (store, device), not
+    // every historical one: a device revoked more than once over time leaves
+    // multiple 'revoked' rows for the same (store, device), and an UPDATE
+    // matching all of them would flip more than one to 'active' in the same
+    // statement, colliding with the uk_sda_active partial unique index (P1).
+    const client = this.client(tx);
+    const [mostRecent] = await client
+      .select({ id: storeDeviceAccess.id })
+      .from(storeDeviceAccess)
       .where(and(
         eq(storeDeviceAccess.storeFk, storeId),
         eq(storeDeviceAccess.deviceFk, deviceId),
+        eq(storeDeviceAccess.status, 'revoked'),
+      ))
+      .orderBy(desc(storeDeviceAccess.revokedAt))
+      .limit(1);
+    if (!mostRecent) return;
+
+    await client
+      .update(storeDeviceAccess)
+      .set({ status: 'active', revokedAt: null, revokedBy: null, revokedReason: null, modifiedAt: new Date() })
+      .where(and(
+        eq(storeDeviceAccess.id, mostRecent.id),
+        eq(storeDeviceAccess.status, 'revoked'),
       ));
   }
 
@@ -275,7 +304,7 @@ export class DeviceAccessRepository {
   async revokeAllSlotsForDevice(
     deviceId: string,
     revokedBy: string,
-    reason: 'owner_removed' | 'stolen' | 'auto_expired' | 'plan_downgrade' | 'released',
+    reason: SlotRevokeReason,
     tx?: DbExecutor,
   ): Promise<void> {
     await this.client(tx)
@@ -297,7 +326,7 @@ export class DeviceAccessRepository {
   async revokeSlotById(
     slotId: string,
     revokedBy: string,
-    reason: 'owner_removed' | 'stolen' | 'auto_expired' | 'plan_downgrade' | 'released',
+    reason: SlotRevokeReason,
     tx?: DbExecutor,
   ): Promise<number> {
     const rows = await this.client(tx)

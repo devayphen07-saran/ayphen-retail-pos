@@ -76,7 +76,7 @@ export const useAcceptInvitationByIdMutation = () => {
   );
 };
 
-/** Decline an in-app invitation by id. Call with `{ pathParam: { id } }`. */
+/** Decline an in-app invitation by id. Call with `{ pathParam: { invitationId } }`. */
 export const useRejectInvitationByIdMutation = () => {
   const queryClient = useQueryClient();
   return useMutation(

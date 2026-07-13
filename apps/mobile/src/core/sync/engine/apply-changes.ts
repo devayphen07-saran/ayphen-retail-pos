@@ -1,5 +1,6 @@
 import { appliersRegistry } from '../appliers/appliers.registry';
 import { syncCursorRepository } from '../repositories/sync-cursor.repository';
+import { mutationQueueRepository } from '../repositories/mutation-queue.repository';
 import { withTransaction } from '../db/transaction';
 import { upsertWithIsolation, deleteWithIsolation } from './apply-with-isolation';
 import type { SyncApplier } from '../appliers/applier.types';
@@ -47,12 +48,23 @@ export async function applyChangesPage(
   const orderedTypes = registry.entityTypes();
 
   await withTransaction(db, async (tx) => {
+    // Pending-mutation shadow (B1 / INV-11): a pulled upsert must not overwrite
+    // a row whose local optimistic value is still unresolved (pending/inflight/
+    // conflict) — otherwise a delta pull landing between a local edit and its
+    // push silently clobbers the edit. The skipped value isn't lost: the local
+    // mutation reconciles it (applied → local value wins; conflict → the server
+    // row surfaces via server_row). Deletes are NOT shadowed (see liveGuuids).
+    const shadowed = await mutationQueueRepository.liveGuuids(tx, storeId);
+
     for (const entityType of orderedTypes) {
       const entityChanges = changes[entityType];
       if (!entityChanges) continue;
       const applier = registry.get(entityType);
       if (!applier) continue; // defensive — we only ever request supported_entity_types
-      await upsertWithIsolation(tx, storeId, entityType, applier, entityChanges.upserts, now);
+      const upserts = entityChanges.upserts.filter(
+        (r) => typeof r.guuid !== 'string' || !shadowed.has(r.guuid),
+      );
+      await upsertWithIsolation(tx, storeId, entityType, applier, upserts, now);
     }
 
     for (const entityType of [...orderedTypes].reverse()) {

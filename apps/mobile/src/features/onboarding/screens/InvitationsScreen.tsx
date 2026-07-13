@@ -38,7 +38,7 @@ export function InvitationsScreen() {
     async (invite: MyInvitationResponse) => {
       setAcceptingId(invite.id);
       try {
-        const res = await acceptInvitation.mutateAsync({ pathParam: { id: invite.id } });
+        const res = await acceptInvitation.mutateAsync({ pathParam: { invitationId: invite.id } });
         await setLastOpenedStoreId(res.store_id);
         // Accept bumps permissionsVersion server-side and the response now
         // embeds the refreshed snapshot directly — patch it in place instead
@@ -68,7 +68,7 @@ export function InvitationsScreen() {
         async () => {
           setRejectingId(invite.id);
           try {
-            await rejectInvitation.mutateAsync({ pathParam: { id: invite.id } });
+            await rejectInvitation.mutateAsync({ pathParam: { invitationId: invite.id } });
             // Badge/list must reflect this immediately (post-login-onboarding-flow.md
             // §5) — refetch bootstrap so pendingInvitationCount drops right away,
             // not just the local list cache.

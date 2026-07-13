@@ -3,11 +3,13 @@ import { SchedulerRegistry } from '@nestjs/schedule';
 import { CronJob } from 'cron';
 import { lt } from 'drizzle-orm';
 import type { PostgresJsDatabase } from 'drizzle-orm/postgres-js';
+import type { Redis } from 'ioredis';
 import { DRIZZLE } from '#db/db.module.js';
 import * as schema from '#db/schema.js';
 import { revokedTokens } from '#db/schema.js';
 import { AppConfigService } from '#config/app-config.service.js';
 import { errorMessage } from '#common/error-message.js';
+import { REDIS } from '#common/redis/redis.provider.js';
 
 export interface TokenCleanupStats {
   lastRunAt:      Date | null;
@@ -16,10 +18,20 @@ export interface TokenCleanupStats {
   error:          string | null;
 }
 
+/** Redis lock so only one instance runs the sweep per tick (mirrors
+ *  DeviceSlotExpiryCronService §11.2/§11.3) — an in-process boolean alone
+ *  does nothing across multiple pods, each with its own memory. The
+ *  underlying DELETE is idempotent either way, so this is a belt-and-
+ *  suspenders correctness fix (avoids redundant concurrent sweeps) rather
+ *  than one guarding against corruption. TTL is generously above the cron
+ *  cadence so a long-running sweep keeps the lock until it finishes rather
+ *  than letting a second instance in mid-run. */
+const CLEANUP_LOCK = 'cron:token-cleanup';
+const LOCK_TTL_SECONDS = 900;
+
 @Injectable()
 export class TokenCleanupService implements OnModuleInit {
   private readonly logger = new Logger(TokenCleanupService.name);
-  private isRunning = false;
   readonly stats: TokenCleanupStats = {
     lastRunAt:        null,
     lastDurationMs:   0,
@@ -31,6 +43,7 @@ export class TokenCleanupService implements OnModuleInit {
     @Inject(DRIZZLE) private readonly db: PostgresJsDatabase<typeof schema>,
     private readonly schedulerRegistry:   SchedulerRegistry,
     private readonly config:              AppConfigService,
+    @Inject(REDIS) private readonly redis: Redis,
   ) {}
 
   onModuleInit(): void {
@@ -43,8 +56,8 @@ export class TokenCleanupService implements OnModuleInit {
   }
 
   async cleanExpiredTokens(): Promise<void> {
-    if (this.isRunning) return;
-    this.isRunning = true;
+    const lock = await this.redis.set(CLEANUP_LOCK, '1', 'EX', LOCK_TTL_SECONDS, 'NX');
+    if (!lock) return;
     const start = Date.now();
     try {
       // `returning` yields the deleted ids, so `.length` is an accurately typed
@@ -63,7 +76,7 @@ export class TokenCleanupService implements OnModuleInit {
       this.stats.error = errorMessage(err);
       this.logger.error('Token cleanup failed', err);
     } finally {
-      this.isRunning = false;
+      await this.redis.del(CLEANUP_LOCK).catch(() => undefined);
     }
   }
 }

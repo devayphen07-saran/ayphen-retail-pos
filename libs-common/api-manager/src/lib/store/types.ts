@@ -10,6 +10,10 @@ export interface CreateStoreRequest {
   address?: string;
   phone?: string;
   email?: string;
+  /** F1 (docs/prd/accounts-and-ledger.md) — cash already in the drawer today,
+   *  integer paise. Not yet collected by CreateStoreScreen's wizard; wired
+   *  here so the API is ready when that field is added. */
+  opening_cash_balance_paise?: number;
 }
 
 export interface CreateStoreResponse {

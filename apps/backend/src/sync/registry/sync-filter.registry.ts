@@ -14,9 +14,11 @@ import {
   paymentAccounts,
   customers,
   suppliers,
+  cashMovements,
+  accountTransactions,
 } from '#db/schema.js';
-import { READ_SAFETY_LAG_MS } from '../sync.constants.js';
 import { assertMicroIso, microIso } from '../us-timestamp.js';
+import { readLagPredicate } from '../pull/read-cutoff.js';
 import type { EntityWatermark } from '../cursor/sync-cursor.service.js';
 import {
   GenericSyncFilter,
@@ -75,9 +77,14 @@ class StaffSyncFilter implements SyncEntityFilter {
     );
   }
 
-  async pullChanges(ctx: SyncPullContext, after: EntityWatermark, limit: number): Promise<DeltaPage> {
+  async pullChanges(
+    ctx: SyncPullContext,
+    after: EntityWatermark,
+    limit: number,
+    cutoff: string | null,
+  ): Promise<DeltaPage> {
     const keyset = sql`(${users.modifiedAt} > ${after.ts}::timestamptz OR (${users.modifiedAt} = ${after.ts}::timestamptz AND ${users.id} > ${after.id || ZERO_UUID}::uuid))`;
-    const lag = sql`${users.modifiedAt} < now() - make_interval(secs => ${READ_SAFETY_LAG_MS / 1000})`;
+    const lag = readLagPredicate(users.modifiedAt, cutoff);
 
     const rows = await ctx.db
       .selectDistinct(this.selection())
@@ -337,10 +344,14 @@ export class SyncFilterRegistry {
         columns: {
           id: paymentAccounts.id,
           name: paymentAccounts.name,
-          paymentMethodFk: paymentAccounts.paymentMethodFk,
+          kind: paymentAccounts.kind,
           details: paymentAccounts.details,
           isDefault: paymentAccounts.isDefault,
           isActive: paymentAccounts.isActive,
+          // Seed lock + discriminator so the client can render the locked Cash/
+          // Bank rows and find "the cash account" (PRD §BR-4 / OQ-1).
+          isSystem: paymentAccounts.isSystem,
+          systemKey: paymentAccounts.systemKey,
           guuid: paymentAccounts.guuid,
           rowVersion: paymentAccounts.rowVersion,
           modifiedAt: paymentAccounts.modifiedAt,
@@ -360,9 +371,24 @@ export class SyncFilterRegistry {
           name: customers.name,
           phone: customers.phone,
           email: customers.email,
+          website: customers.website,
+          logoUri: customers.logoUri,
           gstNumber: customers.gstNumber,
+          panNumber: customers.panNumber,
           customerTypeLookupFk: customers.customerTypeLookupFk,
           creditLimit: customers.creditLimit,
+          overrideCreditLimit: customers.overrideCreditLimit,
+          paymentTermLookupFk: customers.paymentTermLookupFk,
+          paymentTermDays: customers.paymentTermDays,
+          addressLine1: customers.addressLine1,
+          addressLine2: customers.addressLine2,
+          city: customers.city,
+          district: customers.district,
+          stateLookupFk: customers.stateLookupFk,
+          pinCode: customers.pinCode,
+          birthday: customers.birthday,
+          anniversary: customers.anniversary,
+          notes: customers.notes,
           isActive: customers.isActive,
           guuid: customers.guuid,
           rowVersion: customers.rowVersion,
@@ -381,13 +407,75 @@ export class SyncFilterRegistry {
         columns: {
           id: suppliers.id,
           name: suppliers.name,
+          displayName: suppliers.displayName,
           phone: suppliers.phone,
           email: suppliers.email,
+          website: suppliers.website,
+          logoUri: suppliers.logoUri,
           gstNumber: suppliers.gstNumber,
+          panNumber: suppliers.panNumber,
+          paymentTermLookupFk: suppliers.paymentTermLookupFk,
+          paymentTermDays: suppliers.paymentTermDays,
+          creditLimit: suppliers.creditLimit,
+          overrideCreditLimit: suppliers.overrideCreditLimit,
+          addressLine1: suppliers.addressLine1,
+          addressLine2: suppliers.addressLine2,
+          city: suppliers.city,
+          district: suppliers.district,
+          stateLookupFk: suppliers.stateLookupFk,
+          pinCode: suppliers.pinCode,
+          notes: suppliers.notes,
           isActive: suppliers.isActive,
           guuid: suppliers.guuid,
           rowVersion: suppliers.rowVersion,
           modifiedAt: suppliers.modifiedAt,
+        },
+      }),
+      // Append-only (docs/prd/accounts-and-ledger.md D1) — no aliveWhere:
+      // these rows are never soft-deleted, corrections are new events.
+      new GenericSyncFilter({
+        entityType: 'cash_movement',
+        dependencyOrder: 140,
+        permissionEntity: 'CashMovement',
+        table: cashMovements,
+        idColumn: cashMovements.id,
+        modifiedAtColumn: cashMovements.modifiedAt,
+        scopeWhere: storeScope(cashMovements.storeFk),
+        columns: {
+          id: cashMovements.id,
+          guuid: cashMovements.guuid,
+          accountFk: cashMovements.accountFk,
+          type: cashMovements.type,
+          reason: cashMovements.reason,
+          amountPaise: cashMovements.amountPaise,
+          byUserFk: cashMovements.byUserFk,
+          rowVersion: cashMovements.rowVersion,
+          modifiedAt: cashMovements.modifiedAt,
+        },
+      }),
+      // Server-derived projection (BR-3) — pull-only, no mutation handler:
+      // a client can never push one of these directly.
+      new GenericSyncFilter({
+        entityType: 'account_transaction',
+        dependencyOrder: 150,
+        permissionEntity: 'Payment',
+        table: accountTransactions,
+        idColumn: accountTransactions.id,
+        modifiedAtColumn: accountTransactions.modifiedAt,
+        scopeWhere: storeScope(accountTransactions.storeFk),
+        columns: {
+          id: accountTransactions.id,
+          guuid: accountTransactions.guuid,
+          accountFk: accountTransactions.accountFk,
+          direction: accountTransactions.direction,
+          amountPaise: accountTransactions.amountPaise,
+          reason: accountTransactions.reason,
+          sourceType: accountTransactions.sourceType,
+          sourceFk: accountTransactions.sourceFk,
+          shiftSessionFk: accountTransactions.shiftSessionFk,
+          note: accountTransactions.note,
+          rowVersion: accountTransactions.rowVersion,
+          modifiedAt: accountTransactions.modifiedAt,
         },
       }),
     ].sort((a, b) => a.dependencyOrder - b.dependencyOrder);

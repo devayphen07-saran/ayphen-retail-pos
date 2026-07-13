@@ -1,11 +1,11 @@
 import {
   CanActivate,
   ExecutionContext,
-  ForbiddenException,
   Injectable,
-  UnauthorizedException,
 } from '@nestjs/common';
 import type { Request } from 'express';
+import { ForbiddenError, UnauthorizedError } from '#common/exceptions/app.exception.js';
+import { ErrorCodes } from '#common/error-codes.js';
 import { RbacRepository } from '../rbac.repository.js';
 
 /**
@@ -19,10 +19,10 @@ export class SuperAdminGuard implements CanActivate {
   async canActivate(ctx: ExecutionContext): Promise<boolean> {
     const req = ctx.switchToHttp().getRequest<Request>();
     const principal = req.user;
-    if (!principal) throw new UnauthorizedException('MISSING_AUTH');
+    if (!principal) throw new UnauthorizedError(ErrorCodes.MISSING_AUTH);
 
     const ok = await this.repo.isSuperAdmin(principal.userId);
-    if (!ok) throw new ForbiddenException('PERMISSION_DENIED');
+    if (!ok) throw new ForbiddenError(ErrorCodes.PERMISSION_DENIED, 'You do not have permission to perform this action');
     return true;
   }
 }

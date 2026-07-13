@@ -28,8 +28,17 @@ export interface CreateProductInput {
  * deletes this temp row (by guuid) and inserts the authoritative one under
  * the server's real id.
  */
-export async function enqueueCreateProduct(storeId: string, input: CreateProductInput): Promise<string> {
-  const guuid = Crypto.randomUUID();
+/**
+ * `guuid` may be supplied by the caller when a draft id was generated up front —
+ * e.g. an image captured against the product before Save (the offline-image
+ * flow needs the parent guuid to exist at capture time). Omit it for the normal
+ * path and one is generated here.
+ */
+export async function enqueueCreateProduct(
+  storeId: string,
+  input: CreateProductInput,
+  guuid: string = Crypto.randomUUID(),
+): Promise<string> {
   const mutationId = ulid();
   const now = new Date().toISOString();
 

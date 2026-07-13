@@ -29,6 +29,9 @@ import {
   saveTokens,
   clearTokens,
 } from '../auth/token-store';
+import NetInfo from '@react-native-community/netinfo';
+import { stopSync } from '../sync/scheduler-instance';
+import { wipeLocalData, flushPendingWrites } from '../sync/local-reset';
 import { getLastOpenedStoreId } from '@features/store/shared/utils/prefs';
 import { logger } from '../../utils/logger';
 
@@ -316,6 +319,34 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
   const logout = useCallback(async () => {
     const token = await getAccessToken();
+    const storeId = useActiveStoreStore.getState().storeId;
+
+    // Stop the scheduler FIRST, so neither a periodic tick nor the flush below
+    // races the wipe. (clearSession's clearActiveStore also stops it, but only on
+    // the next React render — too late for the flush/wipe here.)
+    stopSync();
+
+    // Flush queued offline writes BEFORE wiping, so an online logout loses
+    // nothing (bounded + best-effort). Must run before clearTokens — the push
+    // needs the live access token. Skipped when offline (the logout-row warning
+    // is what tells the user they'd lose unsynced changes).
+    if (storeId) {
+      try {
+        const net = await NetInfo.fetch();
+        const online = Boolean(net.isConnected) && net.isInternetReachable !== false;
+        if (online) await flushPendingWrites(storeId);
+      } catch (err) {
+        logger.warn('[auth] pre-logout flush skipped', sanitizeError(err));
+      }
+    }
+
+    // Wipe local data — re-login cold-starts from scratch (no cursor → full
+    // re-pull). A wipe failure must not block logout: log and carry on.
+    try {
+      await wipeLocalData();
+    } catch (err) {
+      logger.warn('[auth] local data wipe on logout failed', sanitizeError(err));
+    }
 
     await clearTokens();
     clearSession();

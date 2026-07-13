@@ -57,10 +57,14 @@ export class AuthLogoutService {
 
   /** Log out every active session for the user, blacklisting each active JWT. */
   async logoutAll(userId: string): Promise<void> {
-    const sessions = await this.sessionRepo.getActiveSessionsWithJti(userId);
+    const sessions = await this.sessionRepo.listActiveSessionsWithJti(userId);
     const toBlacklist = sessions
       .filter((s) => s.currentJti && s.currentJtiExp)
       .map((s) => ({ jti: s.currentJti!, exp: s.currentJtiExp! }));
+    // Distinct devices behind these sessions — a device can hold more than one
+    // active session, so slots must be released once per device, not once per
+    // session (see logout()'s doc comment for why a slot release belongs here).
+    const deviceIds = [...new Set(sessions.map((s) => s.deviceFk))];
 
     // Blacklist inserts + all sessions + all their refresh tokens revoked as
     // one atomic unit (same reasoning as logout() above).
@@ -72,6 +76,9 @@ export class AuthLogoutService {
         tx,
       );
       await this.sessionRepo.revokeAllUserSessions(userId, 'user_logout_all', tx);
+      for (const deviceId of deviceIds) {
+        await this.deviceAccess.revokeAllSlotsForDevice(deviceId, userId, 'released', tx);
+      }
       // Audit the global logout — it's more consequential than a single-session
       // logout (which is already audited), so it must leave a trail too.
       await this.audit.logInTransaction({
@@ -113,6 +120,10 @@ export class AuthLogoutService {
       }
       await this.sessionRepo.revokeSession(sessionId, 'user_revoked', tx);
       await this.refreshTokenRepo.revokeBySession(sessionId, 'user_revoked', tx);
+      // Release the target device's store slot too — this is the "revoke a
+      // stolen device" remediation path, so it must free the slot the same
+      // way DeviceAccessService.blockDevice() does, not just kill the session.
+      await this.deviceAccess.revokeAllSlotsForDevice(target.deviceFk, userId, 'stolen', tx);
       await this.audit.logInTransaction({
         event: 'SESSION_REVOKED', activityType: 'AUTH_LOGOUT',
         prefix: 'User', suffix: 'revoked a session',

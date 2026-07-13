@@ -1,5 +1,5 @@
 import { Inject, Injectable } from '@nestjs/common';
-import { and, desc, eq, isNull, type SQL } from 'drizzle-orm';
+import { and, desc, eq, gt, isNull, type SQL } from 'drizzle-orm';
 import type { PostgresJsDatabase } from 'drizzle-orm/postgres-js';
 import { DRIZZLE, type DbExecutor } from '#db/db.module.js';
 import { requireRow } from '#db/require-row.js';
@@ -38,6 +38,7 @@ export class AuthSessionRepository {
     return requireRow(row);
   }
 
+  /** Unscoped by ownership/tenant — caller MUST verify the caller is authorized to read this id before use. */
   async findById(id: string): Promise<DeviceSession | null> {
     const [row] = await this.db
       .select()
@@ -109,6 +110,7 @@ export class AuthSessionRepository {
     const base = and(
       eq(deviceSessions.userFk, userFk),
       isNull(deviceSessions.revokedAt),
+      gt(deviceSessions.expiresAt, new Date()),
     );
 
     return paginateByCursor<SessionWithDevice>({
@@ -144,12 +146,13 @@ export class AuthSessionRepository {
           eq(deviceSessions.id, id),
           eq(deviceSessions.userFk, userFk),
           isNull(deviceSessions.revokedAt),
+          gt(deviceSessions.expiresAt, new Date()),
         ),
       );
     return row ?? null;
   }
 
-  async getActiveSessionsWithJti(userFk: string): Promise<DeviceSession[]> {
+  async listActiveSessionsWithJti(userFk: string): Promise<DeviceSession[]> {
     return this.db
       .select()
       .from(deviceSessions)
@@ -157,6 +160,7 @@ export class AuthSessionRepository {
         and(
           eq(deviceSessions.userFk, userFk),
           isNull(deviceSessions.revokedAt),
+          gt(deviceSessions.expiresAt, new Date()),
         ),
       );
   }

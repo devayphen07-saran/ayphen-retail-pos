@@ -40,6 +40,7 @@ export class AppConfigService {
   get loginAttemptsRetentionDays():       number    { return this.c.LOGIN_ATTEMPTS_RETENTION_DAYS; }
   get cronSubscriptionReconciliation():   string    { return this.c.CRON_SUBSCRIPTION_RECONCILIATION; }
   get cronTempFileSweep():                string    { return this.c.CRON_TEMP_FILE_SWEEP; }
+  get cronOrphanFilesReap():              string    { return this.c.CRON_ORPHAN_FILES_REAP; }
 
   // ── Files & object storage (table-architecture §33) ─────────────────────
   get uploadMaxFileSizeBytes():           number    { return this.c.UPLOAD_MAX_FILE_SIZE_MB * 1024 * 1024; }
@@ -50,9 +51,12 @@ export class AppConfigService {
   get storageAccessKeyId():               string    { return this.c.STORAGE_ACCESS_KEY_ID ?? ''; }
   get storageSecretAccessKey():           string    { return this.c.STORAGE_SECRET_ACCESS_KEY ?? ''; }
   get storageForcePathStyle():            boolean   { return this.c.STORAGE_FORCE_PATH_STYLE; }
+  get storageRequestTimeoutMs():          number    { return this.c.STORAGE_REQUEST_TIMEOUT_MS; }
+  get storageMaxAttempts():               number    { return this.c.STORAGE_MAX_ATTEMPTS; }
   get storageLocalDir():                  string    { return this.c.STORAGE_LOCAL_DIR; }
   get storageSignedUrlTtlSeconds():       number    { return this.c.STORAGE_SIGNED_URL_TTL_SECONDS; }
   get tempFileTtlHours():                 number    { return this.c.TEMP_FILE_TTL_HOURS; }
+  get tempFileClaimGraceMs():             number    { return this.c.TEMP_FILE_CLAIM_GRACE_MINUTES * 60_000; }
   get publicBaseUrl():                    string    { return this.c.PUBLIC_BASE_URL; }
   /** True when a real object store is configured; otherwise the on-disk dev provider is bound. */
   get storageConfigured():                boolean   { return Boolean(this.c.STORAGE_BUCKET); }

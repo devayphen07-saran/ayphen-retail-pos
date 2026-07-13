@@ -43,7 +43,7 @@ export class AllExceptionsFilter implements ExceptionFilter {
     const ctx       = host.switchToHttp();
     const response  = ctx.getResponse<Response>();
     const request   = ctx.getRequest<Request>();
-    const requestId = request.headers['x-request-id'] as string;
+    const requestId = (request.headers['x-request-id'] as string | undefined) ?? '';
 
     const classified = this.classify(exception);
 

@@ -1,3 +1,11 @@
+// Test convention: tests are COLOCATED next to source as `*.test.ts(x)`
+// (e.g. src/core/sync/engine/drain-queue.ts + drain-queue.test.ts) — the
+// standard Expo/RN idiom. There is intentionally no top-level `test/` folder;
+// the two `projects` below are routed purely by file PATH, so a test's
+// location is what selects its runtime. Moving a test out of its source
+// directory silently changes (or drops) which project runs it — update the
+// `testMatch` globs here if you ever relocate one.
+
 /** @type {import('jest').Config} */
 const ALIAS_MODULE_NAME_MAPPER = {
   // Keep in sync with tsconfig.app.json's "paths" / metro.config.js's ALIASES.

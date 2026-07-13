@@ -61,7 +61,18 @@ export class RefreshIdempotencyService {
     private readonly crypto: CryptoService,
   ) {}
 
+  /** Bounds the "SET NX lost, then a re-read finds nothing" retry loop below
+   *  — each iteration means a fresh concurrent claimant raced us in the gap
+   *  between the failed SET NX and the follow-up read, which is vanishingly
+   *  unlikely to happen many times in a row. Purely a safety backstop against
+   *  looping forever; not expected to be exhausted in practice. */
+  private static readonly MAX_CLAIM_RETRIES = 5;
+
   async claim(key: string): Promise<ClaimResult> {
+    return this.attemptClaim(key, 0);
+  }
+
+  private async attemptClaim(key: string, retryCount: number): Promise<ClaimResult> {
     // Claim atomically first — SET NX is a single round-trip, so only one
     // racing caller can ever win it. Losers fall through to poll.
     const claimed = await this.redis.set(
@@ -74,7 +85,7 @@ export class RefreshIdempotencyService {
     if (claimed === 'OK') return { role: 'leader' };
 
     const first = await this.readRecord(key);
-    if (first === 'missing') return { role: 'leader' }; // claim already released/expired — proceed
+    if (first === 'missing') return this.retryClaimOrGiveUp(key, retryCount);
     if (first !== 'pending') return first;
 
     // Pending — poll up to 3s for another server to finish
@@ -82,13 +93,34 @@ export class RefreshIdempotencyService {
     while (Date.now() < deadline) {
       await sleep(POLL_INTERVAL_MS);
       const polled = await this.readRecord(key);
-      if (polled === 'missing') return { role: 'leader' }; // claim released mid-poll — proceed
+      if (polled === 'missing') return this.retryClaimOrGiveUp(key, retryCount);
       if (polled !== 'pending') return polled;
     }
     // Timed out with the leader still pending — do NOT proceed to rotate.
     // The caller must surface a retryable signal, never attempt the rotation
     // itself (that's the bug this type exists to prevent).
     return { role: 'timed_out' };
+  }
+
+  /**
+   * We lost the initial `SET NX`, but by the time we read the record back it
+   * was already gone (expired/released in the gap). Returning `{role:
+   * 'leader'}` here unconditionally was the bug: two concurrent callers can
+   * both observe "missing" this way and both believe themselves leader
+   * without either actually holding the Redis lock. Instead, re-attempt the
+   * `SET NX` — only the caller that actually wins it gets to be leader; a
+   * caller that loses it again falls back into `attemptClaim`'s normal
+   * read/poll path, same as any other contender.
+   */
+  private async retryClaimOrGiveUp(key: string, retryCount: number): Promise<ClaimResult> {
+    if (retryCount >= RefreshIdempotencyService.MAX_CLAIM_RETRIES) {
+      // Exhausted retries — an adversarial or pathological loop, not the
+      // normal case. Surface a retryable signal rather than unconditionally
+      // granting leadership.
+      this.logger.warn(`Refresh-idempotency claim retries exhausted for key ${key}`);
+      return { role: 'timed_out' };
+    }
+    return this.attemptClaim(key, retryCount + 1);
   }
 
   async complete(key: string, response: unknown): Promise<void> {

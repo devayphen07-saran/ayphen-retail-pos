@@ -62,7 +62,10 @@ export class StepUpService {
     dto:             StepUpDto,
   ): Promise<StepUpResult> {
     const session = await this.sessionRepo.findById(deviceSessionId);
-    if (!session) throw new UnauthorizedError(ErrorCodes.SESSION_REVOKED, 'Session has been revoked');
+    // findById returns the row regardless of revocation status — a revoked
+    // session is a row with revokedAt set, not a deleted row — so the null
+    // check alone let a revoked session still complete step-up.
+    if (!session || session.revokedAt) throw new UnauthorizedError(ErrorCodes.SESSION_REVOKED, 'Session has been revoked');
 
     // Resolve phone and publicKey from DB — never trust caller-supplied values
     const [user, device] = await Promise.all([
@@ -74,7 +77,7 @@ export class StepUpService {
     const phone     = user.phone;
     const publicKey = device.publicKey;
 
-    // 1. Rate limit check (Redis + DB)
+    // Rate-limit lockout gate (Redis counter + DB-persisted lock window).
     if (session.stepUpLockedUntil && session.stepUpLockedUntil > new Date()) {
       throw new AppException(ErrorCodes.STEP_UP_LOCKED, 'Too many step-up attempts, try again later', 429);
     }
@@ -84,8 +87,24 @@ export class StepUpService {
     try {
       await this.verifyMethod(phone, publicKey, dto);
     } catch (err) {
-      const count = await this.redis.incr(attemptsKey);
-      await this.redis.expire(attemptsKey, this.config.stepUpRateWindowSeconds);
+      // VALIDATION_FAILED is a malformed-request rejection (missing
+      // otp_request_id/challenge_id, or an unsupported method) thrown BEFORE
+      // any credential is actually checked — it isn't a failed step-up attempt,
+      // so it must not burn toward the lockout counter. Still rethrown as-is;
+      // only the counting is skipped.
+      if (err instanceof AppException && err.errorCode === ErrorCodes.VALIDATION_FAILED) {
+        throw err;
+      }
+
+      // Atomic INCR+EXPIRE in one MULTI so a crash between the two can never
+      // leave a TTL-less counter that locks the session out permanently — the
+      // exact failure rate-limit.service.ts's INCR_WITH_TTL_LUA guards against.
+      const results = await this.redis
+        .multi()
+        .incr(attemptsKey)
+        .expire(attemptsKey, this.config.stepUpRateWindowSeconds)
+        .exec();
+      const count = Number(results?.[0]?.[1] ?? 0);
 
       if (count >= this.config.stepUpMaxAttempts) {
         const lockedUntil = new Date(
@@ -97,7 +116,7 @@ export class StepUpService {
       throw err;
     }
 
-    // 4. Success
+    // Success — clear the attempt counter and stamp the step-up window.
     await this.redis.del(attemptsKey);
     const now        = new Date();
     const window     = dto.intendedWindowSeconds ?? this.config.stepUpValiditySeconds;

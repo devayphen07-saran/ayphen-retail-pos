@@ -1,6 +1,7 @@
 import { Module } from '@nestjs/common';
 import { MobileAuthModule } from '#auth/mobile/mobile-auth.module.js';
 import { SubscriptionModule } from '../subscription/subscription.module.js';
+import { LedgerModule } from '../ledger/ledger.module.js';
 import { SubscriptionStatusGuard } from '#auth/mobile/guards/subscription-status.guard.js';
 import { SyncRateLimitGuard } from './guards/sync-rate-limit.guard.js';
 import { DeviceSlotGuard } from './guards/device-slot.guard.js';
@@ -25,6 +26,7 @@ import { ProductMutationHandler, ProductCaseMutationHandler } from './push/handl
 import { CustomerMutationHandler } from './push/handlers/customer.handler.js';
 import { SupplierMutationHandler } from './push/handlers/supplier.handler.js';
 import { PaymentAccountMutationHandler } from './push/handlers/payment-account.handler.js';
+import { CashMovementMutationHandler } from './push/handlers/cash-movement.handler.js';
 
 /**
  * The offline-first sync engine (docs/prd/sync-engine.md). Pull: /sync/initial
@@ -35,7 +37,7 @@ import { PaymentAccountMutationHandler } from './push/handlers/payment-account.h
  * SharedRepositoriesModule (#common/shared-repositories.module.js).
  */
 @Module({
-  imports: [MobileAuthModule, SubscriptionModule],
+  imports: [MobileAuthModule, SubscriptionModule, LedgerModule],
   controllers: [SyncController, TimeController],
   providers: [
     SubscriptionStatusGuard,
@@ -59,6 +61,7 @@ import { PaymentAccountMutationHandler } from './push/handlers/payment-account.h
     CustomerMutationHandler,
     SupplierMutationHandler,
     PaymentAccountMutationHandler,
+    CashMovementMutationHandler,
     {
       provide: MutationHandlerRegistry,
       useFactory: (...handlers: SyncMutationHandler[]) => new MutationHandlerRegistry(handlers),
@@ -69,9 +72,14 @@ import { PaymentAccountMutationHandler } from './push/handlers/payment-account.h
         CustomerMutationHandler,
         SupplierMutationHandler,
         PaymentAccountMutationHandler,
+        CashMovementMutationHandler,
       ],
     },
   ],
-  exports: [TombstoneRepository],
+  // PaymentAccountMutationHandler is exported so the REST PaymentAccountController
+  // (payments module) can reuse the exact same write rules — seed-lock,
+  // single-default, name-trim, fk-resolve, tombstone-on-delete — instead of
+  // forking validation (PRD payment-accounts-mobile §DR-6).
+  exports: [TombstoneRepository, PaymentAccountMutationHandler],
 })
 export class SyncModule {}

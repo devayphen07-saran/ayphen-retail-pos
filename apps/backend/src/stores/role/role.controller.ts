@@ -22,6 +22,7 @@ import {
 } from '#common/rbac/decorators/rbac.decorators.js';
 import type { MobilePrincipal } from '#common/types/principal.js';
 import { RoleService } from './role.service.js';
+import { RoleAssignmentService } from './role-assignment.service.js';
 import {
   CreateRoleDtoSchema,
   UpdatePermissionsDtoSchema,
@@ -39,7 +40,10 @@ import type { RoleResponse, RoleDetailResponse, CreatedRoleResponse } from './dt
 @UseGuards(MobileJwtGuard, TenantGuard, PermissionsGuard, SubscriptionStatusGuard)
 @StoreContext('param.storeId')
 export class RoleController {
-  constructor(private readonly roles: RoleService) {}
+  constructor(
+    private readonly roles: RoleService,
+    private readonly roleAssignment: RoleAssignmentService,
+  ) {}
 
   // Deliberately unpaginated: bounded by how many custom roles one store
   // defines, not by store/account size — realistically low tens at most.
@@ -103,7 +107,7 @@ export class RoleController {
     await this.roles.deleteRole(storeId, user.userId, roleId);
   }
 
-  @Post(':roleId/assign')
+  @Post(':roleId/members')
   @HttpCode(204)
   @RequirePermissions({ entity: 'UserRoleMapping', action: 'create' })
   async assign(
@@ -113,7 +117,7 @@ export class RoleController {
     @Body() body: unknown,
   ): Promise<void> {
     const dto = parse(body, AssignRoleDtoSchema);
-    await this.roles.assignRole(storeId, user.userId, roleId, dto.user_id);
+    await this.roleAssignment.assignRole(storeId, user.userId, roleId, dto.user_id);
   }
 
   @Delete(':roleId/members/:userId')
@@ -125,6 +129,6 @@ export class RoleController {
     @Param('userId', ParseUUIDPipe) targetUserId: string,
     @CurrentUser() user: MobilePrincipal,
   ): Promise<void> {
-    await this.roles.revokeRole(storeId, user.userId, roleId, targetUserId);
+    await this.roleAssignment.revokeRole(storeId, user.userId, roleId, targetUserId);
   }
 }

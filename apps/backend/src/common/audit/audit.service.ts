@@ -22,10 +22,13 @@ export type ActivityType =
   | 'ROLE_PERMISSION_CHANGED'
   | 'ROLE_ASSIGNMENT_CREATED'
   | 'ROLE_ASSIGNMENT_REVOKED'
+  | 'INVITATION_CREATED'
   // ─ Billing / subscription events (subscription §29.14) ─
   | 'SUBSCRIPTION_CHANGED'
   // ─ Lookup engine events (lookup-entity-prd.md §6/§9) ─
-  | 'LOOKUP_CHANGED';
+  | 'LOOKUP_CHANGED'
+  // ─ Tax-rate config events (online-only, server-authoritative) ─
+  | 'TAXRATE_CHANGED';
 
 export interface AuditLogEntry {
   event:        string;

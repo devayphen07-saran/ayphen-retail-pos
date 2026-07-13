@@ -46,8 +46,18 @@ export class SyncConflictService {
       storeId,
       false,
     );
-    const rows = await this.repo.list(storeId, filter);
-    return rows.filter((row) => this.canView(row.entityType, permissions));
+    // The repo applies `.limit(200)` in SQL, so the permission filter must be
+    // pushed into the query itself rather than applied after fetching — else
+    // a store with >200 conflicts skewed toward types this caller can't view
+    // would silently return a short/empty page even though older, visible
+    // conflicts exist beyond the cutoff. Mirror `canView`'s rule (a type with
+    // no registry entry is always visible) by only excluding types the
+    // registry knows about AND the caller lacks `view` on.
+    const excludeEntityTypes = this.registry
+      .all()
+      .filter((f) => !this.rbac.checkCrud(permissions, f.permissionEntity, 'view'))
+      .map((f) => f.entityType);
+    return this.repo.list(storeId, { ...filter, excludeEntityTypes });
   }
 
   async resolve(
@@ -78,6 +88,12 @@ export class SyncConflictService {
     }
     const row = await this.repo.resolve(storeId, mutationId, patch);
     if (!row) {
+      // The optimistic guard (C4) matched nothing though the conflict existed
+      // at authorization time — a concurrent resolve already moved it out of
+      // 'open'. Re-read: if it's now terminal, the resolve is idempotently
+      // satisfied, so return the current row instead of a misleading 404.
+      const current = await this.repo.findByMutationId(storeId, mutationId);
+      if (current && current.status !== 'open') return current;
       throw new NotFoundError(
         ErrorCodes.SYNC_CONFLICT_NOT_FOUND,
         'No conflict recorded for this mutation',

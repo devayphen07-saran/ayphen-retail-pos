@@ -16,6 +16,37 @@ export const quantity = z
   ])
   .transform((v) => (typeof v === 'number' ? String(v) : v));
 
+/** Indian tax identifiers. GSTIN = 2-digit state + 10-char PAN + entity + check
+ *  + Z + check; PAN = 5 letters + 4 digits + letter. Format is enforced here
+ *  (not a DB CHECK) because offline mutations only reach validation at sync. */
+const GSTIN_RE = /^[0-9]{2}[A-Z]{5}[0-9]{4}[A-Z][1-9A-Z]Z[0-9A-Z]$/;
+const PAN_RE = /^[A-Z]{5}[0-9]{4}[A-Z]$/;
+
+/** GSTIN 15-char format, or empty string. Pair with `.nullish()` at the field. */
+export const gstin = z.union([
+  z.string().regex(GSTIN_RE, 'Enter a valid 15-character GSTIN'),
+  z.literal(''),
+]);
+
+/** PAN 10-char format, or empty string. Pair with `.nullish()` at the field. */
+export const pan = z.union([
+  z.string().regex(PAN_RE, 'Enter a valid 10-character PAN'),
+  z.literal(''),
+]);
+
+/** 6-digit Indian PIN code, or empty string. Pair with `.nullish()`. */
+export const pinCode = z.union([
+  z.string().regex(/^\d{6}$/, 'PIN code must be 6 digits'),
+  z.literal(''),
+]);
+
+/** Net (custom) payment-term days, 1–999. Pair with `.nullish()`. */
+export const paymentTermDays = z
+  .number()
+  .int()
+  .min(1, 'Enter a value between 1 and 999')
+  .max(999, 'Enter a value between 1 and 999');
+
 /** Drop undefined values so partial updates only touch the fields sent. */
 export function prune(record: Record<string, unknown>): Record<string, unknown> {
   return Object.fromEntries(Object.entries(record).filter(([, v]) => v !== undefined));

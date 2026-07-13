@@ -1,4 +1,8 @@
-import { computeWaves, topoSort } from '../../../src/sync/push/delta.service.js';
+import {
+  computeWaves,
+  topoSort,
+  findParentCycleMutationIds,
+} from '../../../src/sync/push/delta.service.js';
 import type { SyncMutation } from '../../../src/sync/dto/sync-delta.schema.js';
 
 /** Minimal valid mutation builder — only the fields computeWaves/topoSort read. */
@@ -80,5 +84,34 @@ describe('computeWaves (sync push batch parallelization)', () => {
 
     const waves = computeWaves(sorted);
     expect(waveIndexOf(waves, 'child')).toBeGreaterThan(waveIndexOf(waves, 'parent'));
+  });
+});
+
+describe('findParentCycleMutationIds (C3 — parent_guuid cycle rejection)', () => {
+  it('returns an empty set for an acyclic batch', () => {
+    const mutations = [m('a', 'g1'), m('b', 'g2', { parentGuuid: 'g1' })];
+    expect(findParentCycleMutationIds(mutations).size).toBe(0);
+  });
+
+  it('flags a two-node cycle (a→b→a)', () => {
+    const a = m('a', 'g-a', { parentGuuid: 'g-b' });
+    const b = m('b', 'g-b', { parentGuuid: 'g-a' });
+    const cyclic = findParentCycleMutationIds([a, b]);
+    expect([...cyclic].sort()).toEqual(['a', 'b']);
+  });
+
+  it('flags a self-parent as a cycle of one', () => {
+    const a = m('a', 'g-a', { parentGuuid: 'g-a' });
+    expect([...findParentCycleMutationIds([a])]).toEqual(['a']);
+  });
+
+  it('flags only the cycle, not an acyclic child hanging off it', () => {
+    const a = m('a', 'g-a', { parentGuuid: 'g-b' });
+    const b = m('b', 'g-b', { parentGuuid: 'g-a' });
+    const child = m('c', 'g-c', { parentGuuid: 'g-a' }); // points into the cycle, not on it
+    const cyclic = findParentCycleMutationIds([a, b, child]);
+    expect(cyclic.has('a')).toBe(true);
+    expect(cyclic.has('b')).toBe(true);
+    expect(cyclic.has('c')).toBe(false);
   });
 });

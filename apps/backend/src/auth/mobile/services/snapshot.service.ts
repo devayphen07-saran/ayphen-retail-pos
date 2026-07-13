@@ -76,6 +76,21 @@ export class SnapshotService {
         SnapshotResultSchema,
       );
       if (parsed) {
+        // Don't just trust the cached snapshot's own self-reported version —
+        // compare it against the live DB truth. Without this, a cache entry
+        // that should have been invalidated (a missed call site, a future
+        // permission-mutating path) can never self-correct: every request
+        // whose clientVersion still matches the stale cached version would
+        // report "up to date" forever, until the cache entry's own TTL
+        // (SNAPSHOT_CACHE_TTL_SECONDS, up to 7 days) happens to lapse. This
+        // is a single indexed PK read — cheap insurance on every cache hit.
+        const liveVersion = await this.getLivePermissionsVersion(userId);
+        if (
+          liveVersion !== null &&
+          liveVersion !== parsed.snapshot.permissionsVersion
+        ) {
+          return this.build(userId);
+        }
         if (
           clientVersion !== undefined &&
           parsed.snapshot.permissionsVersion === clientVersion
@@ -97,6 +112,37 @@ export class SnapshotService {
 
   async invalidate(userId: string): Promise<void> {
     await this.redis.del(snapshotKey(userId));
+  }
+
+  /** Live `users.permissionsVersion` — the DB truth `getOrBuild` validates a
+   *  cache hit against. Returns null (rather than throwing) if the user row
+   *  is somehow gone, so a stale-but-present cache entry is trusted as a last
+   *  resort instead of failing the request outright. */
+  private async getLivePermissionsVersion(userId: string): Promise<number | null> {
+    const [row] = await this.db
+      .select({ permissionsVersion: users.permissionsVersion })
+      .from(users)
+      .where(eq(users.id, userId));
+    return row?.permissionsVersion ?? null;
+  }
+
+  /**
+   * Invalidate the cached snapshot and best-effort rebuild it for embedding in a
+   * response after a permission-changing action (store create, invite accept).
+   * `invalidate()` runs before the rebuild so `getOrBuild` can't return the stale
+   * pre-change snapshot. A rebuild failure yields nulls — the action already
+   * committed, so the client just falls back to a bootstrap round trip.
+   */
+  async invalidateAndRebuild(
+    userId: string,
+  ): Promise<{ snapshot: PermissionSnapshot | null; snapshotSignature: string | null }> {
+    await this.invalidate(userId);
+    try {
+      const built = await this.getOrBuild(userId);
+      return { snapshot: built?.snapshot ?? null, snapshotSignature: built?.signature ?? null };
+    } catch {
+      return { snapshot: null, snapshotSignature: null };
+    }
   }
 
   private async build(userId: string): Promise<SnapshotResult> {

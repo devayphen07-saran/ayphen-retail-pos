@@ -17,7 +17,7 @@ import type { StoreResponse } from './dto/store.response.js';
 import type { SetupStatusResponse } from './dto/setup-status.response.js';
 
 @Controller('stores')
-@UseGuards(MobileJwtGuard, TenantGuard, PermissionsGuard, SubscriptionStatusGuard)
+@UseGuards(MobileJwtGuard)
 export class StoreController {
   constructor(private readonly stores: StoreService) {}
 
@@ -25,6 +25,11 @@ export class StoreController {
    * Create a store (subscription.md §8, device F0). Account-level action: gated
    * by ownership + max_stores in the service, not store RBAC — @StoreContext('none')
    * marks it store-unscoped so the route validator is satisfied.
+   *
+   * Only MobileJwtGuard applies: the store-scoped guards live on the routes that
+   * need them (below). SubscriptionStatusGuard must NOT run here — with no store
+   * to resolve, TenantGuard leaves request.context unset and the subscription
+   * guard's fail-safe would 403 every store-creation attempt (STORE_CONTEXT_MISSING).
    */
   @Post()
   @StoreContext('none')
@@ -39,6 +44,7 @@ export class StoreController {
       address:   dto.address,
       phone:     dto.phone,
       email:     dto.email,
+      openingCashBalancePaise: dto.opening_cash_balance_paise,
     });
     return StoreResponseMapper.toResponse(store);
   }
@@ -49,6 +55,7 @@ export class StoreController {
    * blocks it regardless of subscription state.
    */
   @Get(':storeId/setup-status')
+  @UseGuards(TenantGuard, PermissionsGuard, SubscriptionStatusGuard)
   @StoreContext('param.storeId')
   @RequirePermissions({ entity: 'Store', action: 'view' })
   async getSetupStatus(

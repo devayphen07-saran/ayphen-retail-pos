@@ -225,6 +225,69 @@
       "when": 1783598195121,
       "tag": "0031_role_permission_partial_index_and_file_claims",
       "breakpoints": true
+    },
+    {
+      "idx": 32,
+      "version": "7",
+      "when": 1783664523999,
+      "tag": "0032_files_record_sha_dedupe",
+      "breakpoints": true
+    },
+    {
+      "idx": 33,
+      "version": "7",
+      "when": 1783681165980,
+      "tag": "0033_lethal_william_stryker",
+      "breakpoints": true
+    },
+    {
+      "idx": 34,
+      "version": "7",
+      "when": 1783755411658,
+      "tag": "0034_robust_cassandra_nova",
+      "breakpoints": true
+    },
+    {
+      "idx": 35,
+      "version": "7",
+      "when": 1783758377829,
+      "tag": "0035_light_the_liberteens",
+      "breakpoints": true
+    },
+    {
+      "idx": 36,
+      "version": "7",
+      "when": 1783758426521,
+      "tag": "0036_sour_firelord",
+      "breakpoints": true
+    },
+    {
+      "idx": 37,
+      "version": "7",
+      "when": 1783797997402,
+      "tag": "0037_freezing_salo",
+      "breakpoints": true
+    },
+    {
+      "idx": 38,
+      "version": "7",
+      "when": 1783869051924,
+      "tag": "0038_complete_the_hunter",
+      "breakpoints": true
+    },
+    {
+      "idx": 39,
+      "version": "7",
+      "when": 1783917404638,
+      "tag": "0039_goofy_lilith",
+      "breakpoints": true
+    },
+    {
+      "idx": 40,
+      "version": "7",
+      "when": 1783920826986,
+      "tag": "0040_glossy_sleeper",
+      "breakpoints": true
     }
   ]
 }

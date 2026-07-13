@@ -71,7 +71,7 @@ export class BillingService {
     userId: string,
     planCode: string,
   ): Promise<CheckoutResult> {
-    const accountId = await this.requireOwnedAccount(userId);
+    const accountId = await this.repo.requireOwnedAccountId(userId);
 
     // Identity-scoped limit — checkout triggers a real outbound Razorpay
     // Orders API call (with its own retries) per invocation, and the global
@@ -107,7 +107,7 @@ export class BillingService {
     userId: string,
     input: { orderId: string; paymentId: string; signature: string },
   ): Promise<VerifyResult> {
-    const accountId = await this.requireOwnedAccount(userId);
+    const accountId = await this.repo.requireOwnedAccountId(userId);
 
     // Bind the order to the caller — the order's account must be the caller's
     // own. Without this the owner-check was dead code (its result was discarded).
@@ -218,12 +218,6 @@ export class BillingService {
 
     const row = await this.repo.findPaymentOrder(orderId);
     return row ? { accountId: row.accountId, planFk: row.planFk, planCode: row.planCode } : null;
-  }
-
-  private async requireOwnedAccount(userId: string): Promise<string> {
-    const accountId = await this.repo.findOwnedAccountId(userId);
-    if (!accountId) throw new ForbiddenError(ErrorCodes.NOT_ACCOUNT_OWNER, 'You are not the account owner');
-    return accountId;
   }
 
   /**

@@ -104,13 +104,13 @@ export class SyncCursorService implements OnModuleInit {
       this.invalid();
     }
 
-    if (payload!.v !== SYNC_CURSOR_VERSION) this.invalid();
-    if (payload!.u !== userId || payload!.s !== storeId) this.invalid();
-    if (typeof payload!.ia !== 'number' || !Number.isFinite(payload!.ia)) this.invalid();
+    if (payload.v !== SYNC_CURSOR_VERSION) this.invalid();
+    if (payload.u !== userId || payload.s !== storeId) this.invalid();
+    if (typeof payload.ia !== 'number' || !Number.isFinite(payload.ia)) this.invalid();
 
     // Horizon — keyed on `ia` ONLY (S-31). Re-minted each poll, so it ages out
     // only for a genuinely long-offline client.
-    if (now.getTime() - payload!.ia > SYNC_HORIZON_MS) {
+    if (now.getTime() - payload.ia > SYNC_HORIZON_MS) {
       throw new GoneError(
         ErrorCodes.SYNC_HORIZON_EXCEEDED,
         'Sync cursor is older than the horizon — restart at /sync/initial',
@@ -131,19 +131,19 @@ export class SyncCursorService implements OnModuleInit {
       return wm.ts > nowMicro ? { ts: nowMicro, id: wm.id } : wm;
     };
 
-    if (typeof payload!.e !== 'object' || payload!.e === null) this.invalid();
+    if (typeof payload.e !== 'object' || payload.e === null) this.invalid();
     const entities: Record<string, EntityWatermark> = {};
-    for (const [entity, wm] of Object.entries(payload!.e)) {
+    for (const [entity, wm] of Object.entries(payload.e)) {
       entities[entity] = clamp(wm);
     }
 
     return {
-      v: payload!.v,
-      u: payload!.u,
-      s: payload!.s,
-      ia: Math.min(payload!.ia, now.getTime()),
+      v: payload.v,
+      u: payload.u,
+      s: payload.s,
+      ia: Math.min(payload.ia, now.getTime()),
       e: entities,
-      ...(payload!.t !== undefined ? { t: clamp(payload!.t) } : {}),
+      ...(payload.t !== undefined ? { t: clamp(payload.t) } : {}),
     };
   }
 

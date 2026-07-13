@@ -153,6 +153,13 @@ export abstract class MasterDataSyncHandler implements SyncMutationHandler {
     // Unique violations (guuid replay under a new mutation_id, SKU races) bubble
     // as PostgresError 23505 — the pipeline's savepoint maps them to a rejected
     // DUPLICATE_ENTRY without poisoning the outer transaction.
+    //
+    // `as never`: `values` is assembled dynamically for a config-driven table
+    // (mapColumns + resolved FK columns + computed keys), so it can't be checked
+    // against a single static insert model here. Column correctness is enforced
+    // at runtime instead — columnKey() throws for any structural column absent
+    // from the table metadata, and the Zod create/update schemas validate every
+    // payload field before it reaches mapColumns.
     const [row] = await ctx.tx
       .insert(this.cfg.table)
       .values(values as never)
@@ -372,7 +379,6 @@ export abstract class MasterDataSyncHandler implements SyncMutationHandler {
     return del.kind === 'deletedAt' ? row[key] == null : row[key] === true;
   }
 
-  /** The camelCase key a column lands under in a full-row select/insert. */
   /** The camelCase key a column lands under in a full-row select/insert —
    *  resolved from the real Drizzle table metadata, never guessed. Throws loudly
    *  if a config column isn't part of this handler's table (a wiring bug). */

@@ -1,4 +1,5 @@
 import { Injectable } from '@nestjs/common';
+import { MS_PER_DAY } from '#common/time.js';
 import {
   ConflictError,
   ForbiddenError,
@@ -20,6 +21,7 @@ import { AuditService } from '#common/audit/audit.service.js';
 import { SnapshotService } from '#auth/mobile/services/snapshot.service.js';
 import { RateLimitService } from '#auth/core/rate-limit.service.js';
 import { SYSTEM_ROLE_CODES } from '#common/rbac/permission-matrix.constants.js';
+import { assertGrantsWithinActorScope } from '#common/rbac/effective-permissions.js';
 import type { PermissionSnapshot } from '#common/types/permission-snapshot.js';
 
 const INVITE_TTL_DAYS = 7;
@@ -76,12 +78,12 @@ export class InvitationService {
     actorId: string,
     input: CreateInvitationInput,
   ): Promise<CreateInvitationResult> {
-    const role = await this.validateContactAndRole(storeId, input);
+    const role = await this.validateContactAndRole(storeId, actorId, input);
 
     const rawToken = randomBytes(24).toString('base64url');
     const tokenHash = hashInvitationToken(rawToken);
     const expiresAt = new Date(
-      Date.now() + INVITE_TTL_DAYS * 24 * 60 * 60 * 1000,
+      Date.now() + INVITE_TTL_DAYS * MS_PER_DAY,
     );
 
     const invitation = await rethrowUniqueViolationAs(
@@ -110,8 +112,8 @@ export class InvitationService {
           tx,
         );
         await this.audit.logInTransaction({
-          event: 'ROLE_ASSIGNMENT_CREATED',
-          activityType: 'ROLE_ASSIGNMENT_CREATED',
+          event: 'INVITATION_CREATED',
+          activityType: 'INVITATION_CREATED',
           prefix: 'Invitation',
           suffix: `created for role "${role.name}"`,
           userId: actorId,
@@ -142,6 +144,7 @@ export class InvitationService {
    */
   private async validateContactAndRole(
     storeId: string,
+    actorId: string,
     input: CreateInvitationInput,
   ): Promise<RoleRow> {
     if (!input.phone && !input.email) {
@@ -160,6 +163,20 @@ export class InvitationService {
         'This role cannot be assigned via invitation',
       );
     }
+
+    // Same escalation guard as RoleService.assignRole/updatePermissions — an
+    // invitation grants a role on accept exactly like a direct assignment, so
+    // Invitation.create must not become a side door to hand out permissions the
+    // inviter doesn't hold themselves.
+    const roleGrants = await this.roleRepo.listGrants(input.roleId);
+    await assertGrantsWithinActorScope(
+      this.rbac,
+      actorId,
+      storeId,
+      roleGrants,
+      (g) => g.entityCode,
+      'You cannot invite someone to a role that grants permissions you do not hold yourself',
+    );
 
     if (
       await this.repo.findPendingInvite(
@@ -273,25 +290,11 @@ export class InvitationService {
       await this.grantMembershipAndRole(tx, invitation, userId);
     });
     await this.rbac.invalidateUserStoreCache(userId, invitation.storeFk);
-    // Same staleness bug as store creation — the cached bootstrap snapshot
-    // must be dropped too, or the newly-joined store won't show up until TTL.
-    await this.snapshot.invalidate(userId);
-
-    // Best-effort: embed the freshly-rebuilt snapshot so the client can patch
-    // its session state in place instead of a full bootstrap round trip.
-    // invalidate() MUST run before getOrBuild() — otherwise getOrBuild's
-    // cache-first read would return the stale pre-accept snapshot. A build
-    // failure here doesn't fail the accept (it already committed); the client
-    // falls back to its existing bootstrap call when these come back null.
-    let snapshot: PermissionSnapshot | null = null;
-    let snapshotSignature: string | null = null;
-    try {
-      const built = await this.snapshot.getOrBuild(userId);
-      snapshot = built.snapshot;
-      snapshotSignature = built.signature;
-    } catch {
-      // fields stay null — client falls back to refetchUser().
-    }
+    // Same staleness as store creation — drop the cached bootstrap snapshot and
+    // embed the rebuilt one so the newly-joined store shows up immediately
+    // (best-effort — a build failure leaves these null and the client falls back
+    // to a bootstrap round trip).
+    const { snapshot, snapshotSignature } = await this.snapshot.invalidateAndRebuild(userId);
 
     return { storeId: invitation.storeFk, snapshot, snapshotSignature };
   }
@@ -303,6 +306,22 @@ export class InvitationService {
     invitation: InvitationRow,
     userId: string,
   ): Promise<void> {
+    // The role was only validated live at invite-creation time — nothing
+    // stops it from being soft-deleted in the days before this invite is
+    // accepted (deleteRole's own recheck only blocks a delete while a *live*
+    // pending invite still exists at that instant; a delete landing right
+    // after invite-creation, or racing this very accept, isn't covered by
+    // that lock). Re-verify inside this transaction so accept can't grant a
+    // role that no longer exists.
+    const role = await this.roleRepo.findRoleInStore(
+      invitation.roleFk,
+      invitation.storeFk,
+      tx,
+    );
+    if (!role) {
+      throw new NotFoundError(ErrorCodes.ROLE_NOT_FOUND, 'Role not found');
+    }
+
     await this.repo.ensureAccountMembership(userId, invitation.storeFk, tx);
     await this.roleRepo.insertAssignmentIfAbsent(
       {

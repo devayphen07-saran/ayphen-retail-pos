@@ -6,7 +6,6 @@ import {
   createHmac,
   randomBytes,
   randomUUID,
-  timingSafeEqual,
 } from 'crypto';
 import { SignJWT, jwtVerify } from 'jose';
 import { z } from 'zod';
@@ -119,13 +118,6 @@ export class CryptoService implements OnModuleInit {
     return createHmac('sha256', this.config.jwtAccessSecret)
       .update(canonicalJson)
       .digest('hex');
-  }
-
-  verifySnapshot(canonicalJson: string, signature: string): boolean {
-    const expected = this.signSnapshot(canonicalJson);
-    const a = Buffer.from(expected, 'hex');
-    const b = Buffer.from(signature, 'hex');
-    return a.length === b.length && timingSafeEqual(a, b);
   }
 
   // ── Device signature (Ed25519 via SubtleCrypto) ───────────────────────────

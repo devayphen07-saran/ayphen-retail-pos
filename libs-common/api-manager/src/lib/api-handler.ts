@@ -1,10 +1,10 @@
-import {
+import { isAxiosError } from 'axios';
+import type {
   AxiosError,
   AxiosRequestConfig,
   AxiosResponse,
-  isAxiosError,
+  RawAxiosRequestHeaders,
 } from 'axios';
-import type { RawAxiosRequestHeaders } from 'axios';
 import type {
   QueryKey,
   UseMutationOptions,
@@ -26,13 +26,39 @@ type QueryPrimitive = string | number | boolean | undefined | null;
 
 type QueryRecord = Record<string, QueryPrimitive | QueryPrimitive[]>;
 
+type HeaderBag = RawAxiosRequestHeaders & {
+  delete?: (name: string) => void;
+  set?: (name: string, value: string | number | boolean) => void;
+};
+
+type ApiErrorBody = {
+  error?: {
+    errorCode?: string;
+    code?: string;
+    message?: string;
+    issues?: ZodIssueLike[];
+    details?: { fieldErrors?: Record<string, string> };
+  };
+  errorCode?: string;
+  code?: string;
+  message?: string;
+  issues?: ZodIssueLike[];
+  details?: { fieldErrors?: Record<string, string> };
+};
+
+type ZodIssueLike = {
+  path: (string | number)[];
+  message: string;
+};
+
 export interface NormalizedError {
   status: number;
   code: string;
   message: string;
   isOffline: boolean;
   data?: unknown;
-  /** Per-field validation messages, keyed by field path (e.g. "name", "keepStoreIds"). */
+
+  /** Per-field validation messages, keyed by field path, e.g. "name". */
   fieldErrors?: Record<string, string>;
 }
 
@@ -42,13 +68,63 @@ export interface RequestParams<T> {
   pathParam?: PathRecord;
 }
 
+/**
+ * Variables for a multipart upload mutation.
+ *
+ * The caller owns building FormData. This wrapper only resolves path/query
+ * params, applies upload timeout, and removes JSON Content-Type so the platform
+ * can attach the multipart boundary.
+ */
+export interface UploadParams {
+  formData: FormData;
+  pathParam?: PathRecord;
+  queryParam?: string | URLSearchParams | QueryRecord;
+  timeout?: number;
+}
+
+/** Uploads need more headroom than the normal JSON request timeout. */
+const UPLOAD_TIMEOUT_MS = 60_000;
+
 declare module 'axios' {
   interface AxiosRequestConfig {
     skipAuth?: boolean;
   }
 }
 
-function normalizeError(error: unknown): NormalizedError {
+function isObject(value: unknown): value is Record<string, unknown> {
+  return value !== null && typeof value === 'object';
+}
+
+function isApiErrorBody(value: unknown): value is ApiErrorBody {
+  return isObject(value);
+}
+
+function extractPayload(body: unknown): ApiErrorBody | undefined {
+  if (!isApiErrorBody(body)) return undefined;
+
+  if (isApiErrorBody(body.error)) {
+    return body.error;
+  }
+
+  return body;
+}
+
+function extractFieldErrors(body: unknown): Record<string, string> | undefined {
+  if (!isApiErrorBody(body)) return undefined;
+
+  const payload = extractPayload(body);
+
+  const issues = payload?.issues ?? body.issues;
+  if (Array.isArray(issues) && issues.length > 0) {
+    return Object.fromEntries(
+      issues.map((issue) => [issue.path.join('.'), issue.message]),
+    );
+  }
+
+  return payload?.details?.fieldErrors ?? body.details?.fieldErrors;
+}
+
+export function normalizeError(error: unknown): NormalizedError {
   if (!isAxiosError(error)) {
     return {
       status: 0,
@@ -58,43 +134,22 @@ function normalizeError(error: unknown): NormalizedError {
     };
   }
 
-  type ZodIssueLike = { path: (string | number)[]; message: string };
-  const err = error as AxiosError<{
-    error?: {
-      errorCode?: string;
-      code?: string;
-      message?: string;
-    };
-    errorCode?: string;
-    code?: string;
-    message?: string;
-    issues?: ZodIssueLike[];
-    details?: { fieldErrors?: Record<string, string> };
-  }>;
+  const err = error as AxiosError<ApiErrorBody>;
 
   if (!err.response) {
+    const isTimeout = err.code === 'ECONNABORTED';
+
     return {
       status: 0,
-      code: err.code === 'ECONNABORTED' ? 'timeout' : 'network_error',
-      message:
-        err.code === 'ECONNABORTED'
-          ? 'Request timed out.'
-          : 'No internet connection.',
+      code: isTimeout ? 'timeout' : 'network_error',
+      message: isTimeout ? 'Request timed out.' : 'No internet connection.',
       isOffline: true,
     };
   }
 
   const body = err.response.data;
-  const payload =
-    body?.error && typeof body.error === 'object' ? body.error : body;
-
-  // The backend sends per-field detail two ways: Zod validation failures as a
-  // flat `issues` array (path + message per field), hand-validated failures
-  // (e.g. subscription reconciliation) as `details.fieldErrors`. Project both
-  // into one shape so callers (handleFormError) only need to check one field.
-  const fieldErrors: Record<string, string> | undefined = body?.issues?.length
-    ? Object.fromEntries(body.issues.map((issue) => [issue.path.join('.'), issue.message]))
-    : body?.details?.fieldErrors;
+  const payload = extractPayload(body);
+  const fieldErrors = extractFieldErrors(body);
 
   return {
     status: err.response.status,
@@ -102,14 +157,13 @@ function normalizeError(error: unknown): NormalizedError {
     message: payload?.message ?? err.message ?? 'Request failed.',
     isOffline: false,
     data: body,
-    ...(fieldErrors && { fieldErrors }),
+    ...(fieldErrors ? { fieldErrors } : {}),
   };
 }
 
 function unwrapEnvelope<T>(responseData: unknown): T {
   if (
-    responseData &&
-    typeof responseData === 'object' &&
+    isObject(responseData) &&
     'success' in responseData &&
     'data' in responseData
   ) {
@@ -119,7 +173,9 @@ function unwrapEnvelope<T>(responseData: unknown): T {
   return responseData as T;
 }
 
-function buildQueryString(queryParam?: RequestParams<unknown>['queryParam']) {
+function buildQueryString(
+  queryParam?: RequestParams<unknown>['queryParam'],
+): string {
   if (!queryParam) return '';
 
   if (typeof queryParam === 'string') {
@@ -140,6 +196,7 @@ function buildQueryString(queryParam?: RequestParams<unknown>['queryParam']) {
         if (item === undefined || item === null) continue;
         params.append(key, String(item));
       }
+
       continue;
     }
 
@@ -149,6 +206,49 @@ function buildQueryString(queryParam?: RequestParams<unknown>['queryParam']) {
 
   const query = params.toString();
   return query ? `?${query}` : '';
+}
+
+function queryParamForKey(
+  queryParam?: RequestParams<unknown>['queryParam'],
+): string | null {
+  if (!queryParam) return null;
+
+  if (typeof queryParam === 'string') {
+    return queryParam.startsWith('?') ? queryParam.slice(1) : queryParam;
+  }
+
+  if (queryParam instanceof URLSearchParams) {
+    return queryParam.toString();
+  }
+
+  return buildQueryString(queryParam).replace(/^\?/, '');
+}
+
+function removeHeader(headers: unknown, name: string): void {
+  if (!headers || typeof headers !== 'object') return;
+
+  const headerBag = headers as HeaderBag;
+
+  if (typeof headerBag.delete === 'function') {
+    headerBag.delete(name);
+    return;
+  }
+
+  delete headerBag[name];
+  delete headerBag[name.toLowerCase()];
+}
+
+function cloneHeadersWithoutAuth(
+  headers?: AxiosRequestConfig['headers'],
+): RawAxiosRequestHeaders {
+  const cloned: RawAxiosRequestHeaders = {
+    ...(headers as RawAxiosRequestHeaders | undefined),
+  };
+
+  delete cloned.Authorization;
+  delete cloned.authorization;
+
+  return cloned;
 }
 
 export class APIData {
@@ -207,17 +307,10 @@ export class APIData {
   private buildConfig(config?: AxiosRequestConfig): AxiosRequestConfig {
     if (!this.public) return config ?? {};
 
-    const headers: RawAxiosRequestHeaders = {
-      ...(config?.headers as RawAxiosRequestHeaders | undefined),
-    };
-
-    delete headers['Authorization'];
-    delete headers['authorization'];
-
     return {
       ...config,
       skipAuth: true,
-      headers,
+      headers: cloneHeadersWithoutAuth(config?.headers),
     };
   }
 
@@ -248,6 +341,9 @@ export class APIData {
           ...updatedConfig,
           data: param?.bodyParam,
         });
+
+      default:
+        throw new Error(`APIData: unsupported method "${this.method}"`);
     }
   }
 
@@ -257,7 +353,7 @@ export class APIData {
     const queryKey: QueryKey = [
       this.path,
       params?.pathParam ?? null,
-      params?.queryParam ?? null,
+      queryParamForKey(params?.queryParam),
     ];
 
     return {
@@ -303,7 +399,7 @@ export class APIData {
   > {
     const onRawSuccess = config?.onRawSuccess;
 
-    const { onRawSuccess: _onRawSuccess, ...tanstackConfig } = (config ??
+    const { onRawSuccess: _ignoredOnRawSuccess, ...tanstackConfig } = (config ??
       {}) as {
       onRawSuccess?: unknown;
     } & Partial<
@@ -319,6 +415,7 @@ export class APIData {
     >;
 
     return {
+      ...tanstackConfig,
       mutationFn: async (params: RequestParams<TBody>) => {
         try {
           const response = await this.routeMethod<TBody, TResponse>(params);
@@ -336,7 +433,74 @@ export class APIData {
           throw normalizeError(error);
         }
       },
+    };
+  }
+
+  /**
+   * Multipart-upload sibling of `mutationOptions`.
+   *
+   * The JSON Content-Type set by the axios instance is stripped so React Native
+   * and browsers can set `multipart/form-data` with the correct boundary.
+   */
+  public uploadMutationOptions<TResponse, TContext = unknown>(
+    config?: Partial<
+      Omit<
+        UseMutationOptions<TResponse, NormalizedError, UploadParams, TContext>,
+        'mutationFn'
+      >
+    > & {
+      onRawSuccess?: (
+        response: AxiosResponse<TResponse>,
+        vars: UploadParams,
+      ) => Promise<void> | void;
+    },
+  ): UseMutationOptions<TResponse, NormalizedError, UploadParams, TContext> {
+    const onRawSuccess = config?.onRawSuccess;
+
+    const { onRawSuccess: _ignoredOnRawSuccess, ...tanstackConfig } = (config ??
+      {}) as {
+      onRawSuccess?: unknown;
+    } & Partial<
+      Omit<
+        UseMutationOptions<TResponse, NormalizedError, UploadParams, TContext>,
+        'mutationFn'
+      >
+    >;
+
+    return {
       ...tanstackConfig,
+      mutationFn: async (params: UploadParams) => {
+        try {
+          const response = await this.routeMethod<unknown, TResponse>(
+            {
+              pathParam: params.pathParam,
+              queryParam: params.queryParam,
+            },
+            params.formData,
+            {
+              timeout: params.timeout ?? UPLOAD_TIMEOUT_MS,
+              transformRequest: (data, headers) => {
+                removeHeader(headers, 'Content-Type');
+                removeHeader(headers, 'content-type');
+                return data;
+              },
+            },
+          );
+
+          const data = unwrapEnvelope<TResponse>(response.data);
+
+          if (onRawSuccess) {
+            await onRawSuccess(
+              { ...response, data } as AxiosResponse<TResponse>,
+              params,
+            );
+          }
+
+          return data;
+        } catch (error) {
+          throw normalizeError(error);
+        }
+      },
     };
   }
 }

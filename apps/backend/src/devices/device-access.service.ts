@@ -108,16 +108,11 @@ export class DeviceAccessService {
       return { access: 'granted', isNew: false };
     }
 
-    const limit = await this.entitlements.get(accountId, 'max_devices_per_store');
-
     try {
       return await this.uow.execute(async (tx) => {
         // Lock the store row so concurrent claims serialize, then recount
-        // inside the txn — the pre-fetched `limit` above is TOCTOU-able by
-        // itself (two concurrent claims for different devices can both pass
-        // it before either inserts); the lock closes that window (mirrors
-        // StoreService.createStore / InvitationService's own account/store
-        // locks on the same class of plan-entitlement race).
+        // inside the txn (mirrors StoreService.createStore / InvitationService's
+        // own account/store locks on the same class of plan-entitlement race).
         await this.repo.lockStore(storeId, tx);
 
         // Re-check for this exact device's own slot now that the store is
@@ -135,7 +130,12 @@ export class DeviceAccessService {
           return { access: 'granted' as const, isNew: false };
         }
 
-        // Recount inside the txn; null limit = unlimited (Enterprise).
+        // Recount inside the txn; null limit = unlimited (Enterprise). The
+        // limit itself is also fetched inside the lock, not just the count:
+        // an entitlement change (e.g. a plan downgrade reconciling
+        // concurrently) between a pre-lock fetch and this recount would
+        // otherwise validate the fresh count against a stale limit.
+        const limit = await this.entitlements.get(accountId, 'max_devices_per_store', tx);
         const active = await this.repo.countActiveSlots(storeId, tx);
         if (!this.entitlements.canCreate(limit, active)) {
           // F3 needs the slot-holder list (sorted by last_accessed_at) so the

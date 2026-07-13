@@ -13,6 +13,8 @@ export const ITEM_ROUTES: Partial<Record<string, string>> = {
   'sessions': '/(store)/sessions',
   'sync-issues': '/(store)/sync-issues',
   'local-tables': '/(store)/local-tables',
+  'payment-accounts': '/(store)/payment-accounts',
+  suppliers: '/(store)/suppliers',
 };
 
 export function resolveMenuColor(theme: MobileTheme, token: MenuColorToken): string {

@@ -4,7 +4,7 @@ import { EntitlementService } from './entitlement.service.js';
 import { StoreRepository } from '../stores/store/store.repository.js';
 import { DeviceAccessRepository } from '../devices/device-access.repository.js';
 
-function isOverLimit(limit: number | null, current: number): boolean {
+function exceedsLimit(limit: number | null, current: number): boolean {
   return limit !== null && current > limit;
 }
 
@@ -58,13 +58,24 @@ export class DowngradeDetectionService {
       ]);
 
     const activeStores = await this.stores.listActiveStores(accountId, tx);
-    if (isOverLimit(maxStores, activeStores.length)) return true;
+    if (exceedsLimit(maxStores, activeStores.length)) return true;
 
     const storeIds = activeStores.map((s) => s.id);
+
+    // Serializes against a concurrent claimSlot for each of these stores
+    // (same per-store row lock claimSlot takes before its own
+    // max_devices_per_store recheck) — without this, a concurrent slot claim
+    // and this over-limit check are two independent reads that can each pass
+    // before the other commits, letting the store end up over its new plan's
+    // per-store device limit with nothing ever detecting it.
+    for (const storeId of storeIds) {
+      await this.devices.lockStore(storeId, tx);
+    }
+
     const deviceCounts = await this.devices.countActiveSlotsByStores(storeIds, tx);
 
     for (const storeId of storeIds) {
-      if (isOverLimit(maxDevices, deviceCounts.get(storeId) ?? 0)) return true;
+      if (exceedsLimit(maxDevices, deviceCounts.get(storeId) ?? 0)) return true;
     }
     return false;
   }

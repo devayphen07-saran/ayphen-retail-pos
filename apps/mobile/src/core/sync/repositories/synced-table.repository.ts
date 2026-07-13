@@ -1,4 +1,4 @@
-import { eq, inArray, getTableColumns, sql, type SQL } from 'drizzle-orm';
+import { and, eq, inArray, getTableColumns, sql, type SQL } from 'drizzle-orm';
 import type { SQLiteTable, SQLiteColumn } from 'drizzle-orm/sqlite-core';
 import type { SyncDb } from '../db/types';
 
@@ -87,10 +87,16 @@ export function createSyncedTableRepository<
     },
 
     /** Tombstone application — a hard delete locally regardless of how the
-     *  server soft-deletes (the client never needs the deleted row again). */
-    async deleteByGuuids(db: SyncDb, guuids: string[]): Promise<void> {
+     *  server soft-deletes (the client never needs the deleted row again).
+     *  Store-scoped: a global lookup row (composite PK `(storeId, id)`, see
+     *  schema.ts) shares the SAME `guuid` across every store that cached it, so
+     *  a guuid-only delete would evict it from EVERY store when just one store's
+     *  delta tombstoned it. The scope confines the delete to the pulling store. */
+    async deleteByGuuids(db: SyncDb, storeId: string, guuids: string[]): Promise<void> {
       if (guuids.length === 0) return;
-      await db.delete(cfg.table).where(inArray(cfg.guuidColumn, guuids));
+      await db
+        .delete(cfg.table)
+        .where(and(eq(cfg.storeIdColumn, storeId), inArray(cfg.guuidColumn, guuids)));
     },
 
     /** Wipe every locally-cached row for this store — used when a permission
@@ -109,11 +115,11 @@ export function createSyncedTableRepository<
         .where(eq(cfg.storeIdColumn, storeId)) as Promise<TRow[]>;
     },
 
-    async findByGuuid(db: SyncDb, guuid: string): Promise<TRow | null> {
+    async findByGuuid(db: SyncDb, storeId: string, guuid: string): Promise<TRow | null> {
       const [row] = await db
         .select()
         .from(cfg.table)
-        .where(eq(cfg.guuidColumn, guuid))
+        .where(and(eq(cfg.storeIdColumn, storeId), eq(cfg.guuidColumn, guuid)))
         .limit(1);
       return (row as TRow) ?? null;
     },

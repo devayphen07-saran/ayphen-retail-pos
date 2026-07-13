@@ -10,7 +10,7 @@ import type { WireRow } from '../repositories/synced-table.repository';
 export interface SyncApplier {
   entityType: string;
   upsertAll(db: SyncDb, storeId: string, rows: WireRow[]): Promise<void>;
-  applyDeletes(db: SyncDb, guuids: string[]): Promise<void>;
+  applyDeletes(db: SyncDb, storeId: string, guuids: string[]): Promise<void>;
   /** Wipe every locally-cached row for this store — see permission-rebase.ts. */
   deleteAllForStore(db: SyncDb, storeId: string): Promise<void>;
 }

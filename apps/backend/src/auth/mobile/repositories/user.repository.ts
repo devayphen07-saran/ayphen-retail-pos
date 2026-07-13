@@ -25,6 +25,7 @@ export class UserRepository {
     return row ?? null;
   }
 
+  /** Unscoped by ownership/tenant — caller MUST verify the caller is authorized to read this id before use. */
   async findById(id: string, tx?: DbExecutor): Promise<User | null> {
     const [row] = await (tx ?? this.db).select().from(users).where(eq(users.id, id));
     return row ?? null;

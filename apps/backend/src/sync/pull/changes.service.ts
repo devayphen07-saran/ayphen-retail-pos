@@ -6,7 +6,9 @@ import { SyncFilterRegistry } from '../registry/sync-filter.registry.js';
 import { ZERO_UUID, type SyncPullContext, type WireRow } from '../registry/entity-filter.js';
 import { TombstoneRepository, type TombstoneWireRow } from '../repositories/tombstone.repository.js';
 import { DeviceSyncHealthRepository } from '../repositories/device-sync-health.repository.js';
-import { DELTA_PAGE_SIZE, PER_ENTITY_FLOOR } from '../sync.constants.js';
+import { DELTA_PAGE_SIZE, PER_ENTITY_FLOOR, WAVE_CONCURRENCY } from '../sync.constants.js';
+import { computeReadCutoff } from './read-cutoff.js';
+import { runBounded } from '../bounded.js';
 
 export interface EntityChanges {
   upserts: WireRow[];
@@ -58,6 +60,11 @@ export class SyncChangesService {
     const permissions = await this.rbac.getCachedPermissions(userId, storeId, false);
     const ctx: SyncPullContext = { db: this.db, storeId, userId, permissions };
 
+    // One read-safety cutoff for the whole pull (B2/B3): computed once, applied
+    // to every entity keyset AND the tombstone stream so a long in-flight write
+    // transaction can't drop a row/tombstone behind the advancing watermark.
+    const cutoff = await computeReadCutoff(this.db);
+
     // A requested type this server has never heard of (typo, stale client
     // constant, casing mismatch against a non-snake_case wire string like
     // `taxrate`) would otherwise vanish with no trace — log it, but never
@@ -87,16 +94,24 @@ export class SyncChangesService {
     const nextEntities: Record<string, EntityWatermark> = { ...cursor.e };
     let hasMore = false;
 
-    for (const filter of filters) {
-      // Entity-level RBAC (§18): no `view` → empty page. The watermark is
-      // deliberately NOT advanced — after a re-grant the client back-fills
-      // from where it stopped instead of permanently missing the gap (S-5).
-      if (!this.rbac.checkCrud(permissions, filter.permissionEntity, 'view')) {
-        changes[filter.entityType] = { upserts: [], deletes: [] };
-        continue;
-      }
+    // Entity-level RBAC (§18): no `view` → empty page. The watermark is
+    // deliberately NOT advanced — after a re-grant the client back-fills from
+    // where it stopped instead of permanently missing the gap (S-5).
+    const viewable = filters.filter((f) =>
+      this.rbac.checkCrud(permissions, f.permissionEntity, 'view'),
+    );
+    for (const f of filters) {
+      if (!viewable.includes(f)) changes[f.entityType] = { upserts: [], deletes: [] };
+    }
 
-      const page = await filter.pullChanges(ctx, cursor.e[filter.entityType], perEntityLimit);
+    // The per-entity keyset reads are independent, so fan them out with the same
+    // pool-aware bound the push path uses (WAVE_CONCURRENCY) instead of paying N
+    // serial round trips — p95 no longer scales linearly with entity count.
+    const pages = await runBounded(viewable, WAVE_CONCURRENCY, async (filter) => ({
+      filter,
+      page: await filter.pullChanges(ctx, cursor.e[filter.entityType], perEntityLimit, cutoff),
+    }));
+    for (const { filter, page } of pages) {
       changes[filter.entityType] = { upserts: page.rows, deletes: [] };
       if (page.watermark) nextEntities[filter.entityType] = page.watermark;
       hasMore ||= page.hasMore;
@@ -106,8 +121,18 @@ export class SyncChangesService {
     // client applies an entity's upserts before its deletes within one page
     // (BR-SYNC-021: created+deleted in-window must end deleted).
     const tombstoneAfter = cursor.t ?? EPOCH_WATERMARK;
-    const tombstonePage = await this.tombstones.pullSince(this.db, storeId, tombstoneAfter, DELTA_PAGE_SIZE);
+    const tombstonePage = await this.tombstones.pullSince(this.db, storeId, tombstoneAfter, DELTA_PAGE_SIZE, cutoff);
+    // The tombstone stream is store-scoped only, not entity-filtered, so it
+    // must be narrowed to the same `viewable` set the upsert path already
+    // enforces (§18) — otherwise a delete for an entity type the caller can't
+    // view, or never asked for, would leak across the RBAC boundary. This is
+    // purely a response-shaping filter: the keyset watermark below still
+    // advances past every row the store produced, filtered out or not, since
+    // no-gap correctness is about watermark position, not which rows are
+    // handed to the client.
+    const viewableEntityTypes = new Set<string>(viewable.map((f) => f.entityType));
     for (const del of tombstonePage.rows) {
+      if (!viewableEntityTypes.has(del.entity_type)) continue;
       (changes[del.entity_type] ??= { upserts: [], deletes: [] }).deletes.push(del);
     }
     hasMore ||= tombstonePage.hasMore;

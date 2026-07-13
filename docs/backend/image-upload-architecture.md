@@ -1,622 +1,451 @@
-# Image / File Upload — Architecture (Final, Consolidated)
+# Image / File Upload — Backend Architecture (As-Built, NestJS)
 
-> **The single authoritative architecture document for the image/file upload feature.** It consolidates
-> the three working documents in this folder into one clean reference:
-> - `image-upload-flow.md` — the end-to-end flow trace (every path, `file:line`).
-> - `image-upload-flow-review.md` — the four-lens review (Critic / Decision / Backend-Standard / Architect).
-> - `image-upload-testcases.md` — the BA+QA test-case & acceptance set.
+> **The authoritative architecture document for the file/image upload backend in this repo.** It
+> describes the **current NestJS implementation** under `apps/backend/src/files` — a two-phase
+> (stage → commit) upload pipeline over an object store (S3-compatible, or an on-disk provider in dev),
+> with Postgres/Drizzle as the source of truth.
 >
-> It spans two repositories:
-> - **Backend** — `/Users/saran/Downloads/ayphen-3.0` — Spring Boot, package `com.ayphen.api`, S3 + Postgres.
-> - **Frontend** — `/Users/saran/ayphen-mobile/ayphen-frontend` — Nx monorepo: `apps/ayphen-mobile`,
->   `apps/engage-mobile`, `apps/portal`, shared `libs-mobile/*`, `libs-web/*`, `common/*`.
+> **Repo & stack.** `ayphen-retail-pos` (Nx monorepo). Backend: NestJS + TypeScript (`apps/backend`),
+> Postgres via Drizzle ORM, `@aws-sdk/client-s3` (lazy-loaded). Object storage: Supabase Storage
+> (S3-compatible) in the configured environment; an on-disk `LocalStorageProvider` when `STORAGE_BUCKET`
+> is unset.
 >
-> **How to read this document.** Part A describes the system **as it is today** (current architecture,
-> every flow, the data model, the contract). Part B is the **defect register** (what's wrong, ranked).
-> Part C is the **target architecture** (the decided end-state and how to get there). Every factual claim
-> about current behaviour is cited `file:line`; every "should be" is labelled as target, not current.
+> **History.** This feature is a ground-up rebuild of the legacy Spring Boot `com.ayphen.api` file
+> pipeline. The legacy analysis (its defects and the decided target) informed this design; that target
+> is now built. The **client-side offline capture/upload layer** (local `attachment` table, background
+> uploader, display) is a separate concern documented in
+> [`docs/mobile/image-offline-architecture.md`](../mobile/image-offline-architecture.md) — this document
+> is the **backend** contract that layer rides on.
+>
+> **How to read this.** Part A is the system as-built (data model, flows, validation, storage, security,
+> jobs, contract). Part B shows how the legacy defect classes are structurally closed by this design.
+> Part C is what is deliberately deferred / not yet built. Every claim is cited `file:line` under
+> `apps/backend/src/`.
 
 ---
 
 ## Table of contents
 
-- **Part A — Current architecture (as-is)**
-  - A1. System context & the shared pipeline
-  - A2. Data model
-  - A3. Backend flows (6) — upload, retrieve, delete, edit, DB-blob pipeline, mail
-  - A4. Frontend flows (11 surfaces) — mobile + web
-  - A5. API / contract surface
-  - A6. File lifecycle state machine
-  - A7. One upload followed end to end
-  - A8. Where flows diverge or duplicate
-- **Part B — Defect register**
-  - B1. Corrections to the original trace (errata)
-  - B2. Findings, ranked P0 → P3
-- **Part C — Target architecture (to-be)**
-  - C1. The decision, in one paragraph
-  - C2. Target data model & authority
-  - C3. Target upload / link / retrieve / delete flows
-  - C4. Concurrency, idempotency, failure semantics
-  - C5. Security & isolation model
-  - C6. Build order & what to defer
-  - C7. Acceptance criteria (traceable to test cases)
-  - C8. Open questions
+- **Part A — Current architecture (as-built)**
+  - A1. System context & the two-phase pipeline
+  - A2. Data model (`files` / `temporary_files` / `files_config`)
+  - A3. Flows — stage → commit → read → delete/restore → cancel
+  - A4. Validation & content safety
+  - A5. Storage provider abstraction & presigned reads
+  - A6. Security & isolation model
+  - A7. Scheduled jobs (temp sweeper, orphan reaper)
+  - A8. API / contract surface
+  - A9. One upload followed end to end
+  - A10. Configuration
+- **Part B — How the legacy defect classes are closed**
+- **Part C — Deferred / not yet built**
 
 ---
 ---
 
-# PART A — CURRENT ARCHITECTURE (AS-IS)
+# PART A — CURRENT ARCHITECTURE (AS-BUILT)
 
-## A1. System context & the shared pipeline
+## A1. System context & the two-phase pipeline
 
-The feature lets an authenticated tenant user attach a file (image, PDF, Office doc, CSV) to a business
-record — a docket/receipt, a ticket, a customer/supplier/employee/company logo, a bank statement, a
-supplier price file. Inbound email attachments enter the same backend pipeline.
-
-**Actors**
-- **Authenticated tenant user** (web portal / two mobile apps) — picks, uploads, links, views, deletes.
-- **Inbound email sender** (external, untrusted) — attachments ingested via MS Graph API.
-- **A second tenant's user** — the adversary in every isolation concern.
-- **Scheduled jobs** — *none today* touch files (a reaper is a target-state addition).
-
-**The shared pipeline every surface converges on:**
+The feature lets an authenticated store user attach a file (image, PDF, office doc) to a business
+record — today, product images. It is **two-phase** so the byte upload is decoupled from linking the
+file to a parent record (which lets the offline client capture before the parent exists):
 
 ```
-┌──────────────┐   ┌──────────────────┐   ┌─────────────────────┐   ┌───────────────────┐   ┌──────────────┐
-│ Pick/capture │ → │ Upload to "temp" │ → │ S3 write + a         │ → │ Link fileKey(s) to │ → │ Retrieve via │
-│ (picker /    │   │ multipart POST   │   │ TemporaryFile row    │   │ the parent record  │   │ presigned    │
-│  dropzone)   │   │ files/temp/upload│   │ (NO tenant column)   │   │ on save (promote)  │   │ GET URL      │
-└──────────────┘   └──────────────────┘   └─────────────────────┘   └───────────────────┘   └──────────────┘
+┌──────────────┐   ┌────────────────────┐   ┌──────────────────────┐   ┌───────────────────────┐   ┌──────────────┐
+│ Pick/capture │ → │ STAGE               │ → │ Object write +       │ → │ COMMIT                │ → │ Read via     │
+│ (client)     │   │ POST .../files/temp │   │ temporary_files row  │   │ POST .../files/commit │   │ presigned    │
+│              │   │ multipart, VALIDATED │   │ (owner-scoped)       │   │ verify parent → copy  │   │ GET (35 min) │
+└──────────────┘   └────────────────────┘   └──────────────────────┘   │ → files row (store)   │   └──────────────┘
+                                                                        └───────────────────────┘
 ```
 
-**Two invariants of the current design:**
-1. **No presigned-PUT-from-client.** The client always sends raw bytes/URI through the backend; the
-   backend owns the S3 write. Presigned URLs appear only on the **read** side.
-2. **Two-phase (stage → link) is the norm; one-step is the exception.** Ticket attachments (A4.7) upload
-   directly against the ticket entity in one call; everything else stages to a temp table first, then
-   links `fileKey`s on parent-record save.
+**Design invariants (enforced in code, not by convention):**
+1. **Backend-mediated multipart** — the client always sends bytes through the backend; the backend owns
+   every object-store write. Presigned URLs appear only on the **read** side. (No presigned-PUT-from-client.)
+2. **Validation at ingestion** — extension, size, and magic-byte content sniff run at **stage** time
+   ([`file-validation.service.ts:34`](../../apps/backend/src/files/file-validation.service.ts#L34)), not
+   deferred to commit. Record-scoped rules (count, consolidated size) run at commit.
+3. **Owner-scoped temps, store-scoped files** — a staged temp is only ever readable/claimable by its
+   uploader (`uploaded_by`); a committed file is only ever readable by its store (`store_fk`). **No
+   method looks a file up by key/guuid alone** ([`files.repository.ts:13-20`](../../apps/backend/src/files/files.repository.ts#L13)).
+4. **The parent must exist to commit** — commit resolves `(entity_type, record_guuid, store_fk)` to a
+   live record before writing any `files` row ([`files.service.ts:129-134`](../../apps/backend/src/files/files.service.ts#L129)).
+
+**Actors.** Authenticated store user (stages, commits, reads, deletes); a second store's user (the
+isolation adversary); two scheduled jobs (temp sweeper, orphan-files reaper). There is no inbound-email
+ingestion in this repo.
 
 ---
 
 ## A2. Data model
 
-DDL under `/Users/saran/Downloads/ayphen-3.0/src/main/resources/db-scripts/`. Java entities under
-`com.ayphen.api.domain` / `...entity`.
+Schema: [`apps/backend/src/db/schema.ts:1005-1095`](../../apps/backend/src/db/schema.ts#L1005). Three tables.
 
-| Table | Role | Key columns | Tenant scoped? | Notes |
+| Table | Role | Key columns | Scoped by | Notes |
 |---|---|---|---|---|
-| `files` | Permanent, linked files (source of truth) | `id`, `file_key`, `entity_fk`, `record_id`, `file_type_fk`, `company_fk`, `file_url`, `file_data` (BLOB), `is_active`, `deleted_by/date` | Yes (via `company_fk`) | **Polymorphic** owner pointer `(entity_fk, record_id)` with no real FK. `company_fk` is `NULL`-able in DDL but `@Column(nullable=false)` in the entity — a contradiction (see B2/P2-11). |
-| `temporary_files` | Staged, not-yet-linked uploads | `id`, `file_key`, `file_name`, `file_url`, `is_active` | **NO — no company/tenant column at all** | Structural isolation gap (B2/P0-4). Ephemeral by intent (minutes–hours) but reaped by nothing today. |
-| `files_config` | Per-`(entity, fileType)` validation rules | `entity_id`, `file_type_id`, `max_file_size`, `max_consolidated_size`, `valid_extensions`, `max_attachments_allowed` | via `entity`/`file_type` FKs | The only table here with real DB referential integrity (not polymorphic). Drives all of BR1–BR4. |
-| `company_storage` (`CompanyStorageAllocation`) | Per-company storage quota | `company_fk`, `allocated_size` (default **1GB** = 1048576 KB) | Yes | Quota is checked by a live `SUM(fileSizeKb)` read, not a maintained counter (B2/P1-5). |
-| `StorageArea` | (adjacent to the storage domain) | — | — | In the model cluster; not on the hot upload path. |
+| `temporary_files` | Staged, not-yet-linked uploads | `id`, `guuid` (unique), `file_name`, `storage_key`, `size_bytes`, `mime_type`, `sha256`, `uploaded_by` (→`users`), `expires_at`, **`claimed_at`** | **owner** (`uploaded_by`) — **no store column** | Ephemeral, **no soft-delete**; the row's existence *is* the pending state. `claimed_at` is the atomic commit gate. `expires_at` drives the sweeper. Index: `idx_temporary_files_expires_at`. |
+| `files` | Permanent, record-linked (source of truth) | `id`, `guuid` (unique), `entity_type_fk` (→`entity_types`), `record_id` (no FK), `record_guuid` (no FK), `store_fk` (→`stores`, **nullable** = user-level), `kind`, `storage_key`, `thumbnail_url`, `mime_type`, `size_bytes`, `sha256`, `original_filename`, `is_private` (default true), `description`, audit cols + `deleted_at`/`deleted_by` | **store** (`store_fk`) | Polymorphic parent pointer `(entity_type_fk, record_guuid)` with **no DB FK** — enforced in app + orphan reaper. Indexes: `idx_files_entity_record`, `idx_files_store`, and the dedupe unique below. |
+| `files_config` | Per-`(entity, kind)` validation rules | `entity_type_fk` (→`entity_types`), `file_kind` (nullable = entity-wide), `max_file_size_bytes`, `max_consolidated_size_bytes`, `valid_extensions` (comma list), `max_attachments_allowed`, `is_active` | via `entity_type` FK | Real referential integrity (not polymorphic). Unique `uk_files_config_entity_kind (entity_type_fk, file_kind)`. Drives all validation limits. |
+
+**Dedupe (P1-13, built).** `uk_files_record_sha` — a **partial unique index** on
+`(entity_type_fk, record_guuid, sha256) WHERE deleted_at IS NULL AND sha256 IS NOT NULL`
+([`schema.ts:1062-1064`](../../apps/backend/src/db/schema.ts#L1062), migration
+`drizzle/0032_files_record_sha_dedupe.sql`). The same bytes committed to the same record twice — a
+retried commit or a double-tap of the *same* photo — collapse to one live row.
+
+**`files_config` seed (Step 0).** `Product` has `supports_attachments = true`
+(`entity-catalogue.ts`), and the seed inserts an **entity-wide** rule (`file_kind = null`) for every
+attachment-supporting entity: **10 MB/file, 50 MB consolidated, `jpg,jpeg,png,webp,gif,pdf`, max 10**
+(`seed.ts`) — SVG deliberately excluded. Rule lookup (`configRepo.findRule`) resolves against this
+null-kind row.
 
 **Data authority.** The `files` row is the source of truth for "this file exists and is linked here."
-S3 is a dumb blob store. Product/customer/supplier/employee/company images are **not** denormalised URL
-columns — they are joined at read time from `files` via `(entity_fk, record_id, file_type_fk)`. This is
-a genuinely good design choice (no dangling-URL-on-rename bugs) and is preserved in the target.
+Object storage is a dumb blob store. Images are **not** denormalised URL columns — they are joined at
+read time via `(entity_type_fk, record_guuid, store_fk)`. Presigned URLs are **regenerated per read** and
+**never stored** — `FilesMapper` never emits `storage_key`, only a fresh signed URL.
 
 ---
 
-## A3. Backend flows (`ayphen-3.0`)
+## A3. Flows
 
-Citations are `file:line` under `.../com/ayphen/api/`.
+All under [`files.service.ts`](../../apps/backend/src/files/files.service.ts) unless noted. The service
+reads the caller's identity from `RequestContextService` (`requireUserId`/`requireStoreId`, `:407-417`) —
+never from the request body.
 
-### A3.1 — Upload (the VALIDATED endpoint `POST /api/v1/files/upload`)
+### A3.1 Stage — `POST /stores/:storeId/files/temp` ([`:71`](../../apps/backend/src/files/files.service.ts#L71))
 
-`FilesController.java:43-54` → `FilesServiceImpl.processFileUpload` (`FilesServiceImpl.java:634-688`).
-**Note (see B1):** this endpoint is fully validated but the **frontend does not currently call it** —
-the frontend calls the *unvalidated* temp endpoint in A3.1b. This flow is documented because it is the
-model the target adopts.
+1. `requireUserId()`; resolve the entity + its `files_config` rule, asserting `supports_attachments`
+   (`resolveEntityAndRule`, `:350`).
+2. **Validate at ingestion** (`validation.validateAtIngestion`, A4): extension + per-file size +
+   magic-byte content sniff.
+3. `sha256` of the bytes; build the **server-owned** key `tmp/{userId}/{uuid}/{safeName(originalName)}`
+   (`safeName` strips path separators and unsafe chars, `:421`).
+4. `putOrFail` the object **outside any DB transaction** (`:81`, `:376`) → wraps failures as
+   `StorageUnavailableError` (503).
+5. `insertTemp` a `temporary_files` row with `expires_at = now + TEMP_FILE_TTL_HOURS` (24h). If the
+   insert throws after the object landed, `safeDelete` the object (best-effort; the sweeper is the backstop).
+6. Return `{ guuid, file_name, size_bytes, mime_type, sha256, expires_at, preview_url }` — `preview_url`
+   is a fresh presigned GET (35 min) so the client can preview before commit.
 
-1. Receives multipart file + `recordId`, `entityId`, `fileType`, `description`, `tenantId`. **No
-   `@PreAuthorize`.**
-2. Resolves the owning `Entities` row; builds the S3 key
-   `{companyGuuid}/entities/{entityName}/{recordId}/{UUID}/{originalFilename}` (`:641-649`) — filename
-   embedded **raw**, unsanitized.
-3. Resolves `Company` by guuid — optional; proceeds with `null` company if unresolved (`:653-658`).
-4. **Validates** — `commonUtils.validateFileUploadRestrictions(...)` (`:661-662`): `FilesConfig` lookup
-   (throws if missing) → **quota** (`CompanyStorageAllocation.allocatedSize` vs a live
-   `SUM(fileSizeKb)` from `calculateTotalUsedStorageByCompany`, no lock) → per-file size → consolidated
-   size → extension allow-list → attachment count.
-5. **S3 write** — one `PutObjectRequest`, `ACL.PRIVATE` (`:665, 881-891`).
-6. **DB insert** — the `Files` row; `fileUrl` set to the raw (non-presigned) S3 URL (`:671, 684`).
-7. **Response** — a `FilesDTO` carrying both the raw `fileUrl`/`fileKey` **and** a fresh presigned URL.
+### A3.2 Commit — `POST /stores/:storeId/files/commit` ([`:115`](../../apps/backend/src/files/files.service.ts#L115))
 
-**Ordering / failure:** steps 5–6 are inside one class-level `@Transactional(rollbackOn=Exception.class)`
-(`:55`). **S3 write precedes DB insert** — if the insert throws, the DB rolls back but the S3 object is
-orphaned forever; no reconciliation job exists.
+Body: `{ entity_type, record_guuid, kind, file_guuids[], record_id?, description? }`.
 
-### A3.1b — Upload (the endpoint the frontend ACTUALLY calls, `POST /api/v1/files/temp/upload`)
+1. `requireUserId()` + `requireStoreId()`; resolve entity + rule.
+2. **Parent verification** — `recordExistence.supports(entity_type)` → `ParentVerificationUnavailableError`
+   (500) if the entity has no registered resolver; then `recordExistence.exists(entity_type, record_guuid,
+   storeId)` → **`ParentRecordNotFoundError` (409 `file_parent_not_found`)** if there is no live,
+   store-owned record ([`record-existence.service.ts:101`](../../apps/backend/src/files/record-existence.service.ts#L101)).
+   The resolver registry (`RECORD_TABLES`) currently holds **`Product` only** — fail-closed.
+3. `resolveTemps` (`:166`) — batched, **owner-scoped**, order-preserving; a missing guuid →
+   `TempFileNotFoundError`, an expired one → `TempFileExpiredError`. No claim yet (validation runs first).
+4. `assertRecordBudget` (`:180`) — count + consolidated-size checks applied cumulatively over the batch on
+   top of the record's existing `recordStats`.
+5. `claimAll` (`:202`) — atomic `UPDATE … SET claimed_at = now WHERE guuid = ? AND uploaded_by = ? AND
+   claimed_at IS NULL` per temp ([`files.repository.ts:68`](../../apps/backend/src/files/files.repository.ts#L68)).
+   Two concurrent commits of the same upload race here; the loser gets `null` and aborts — one staged file
+   can never become two `files` rows.
+6. `copyStaged` (`:218`) — copy each staged object to its committed key
+   `{storeId}/{entityCode}/{recordGuuid}/{uuid}/{safeName}`, concurrently; on any failure, delete the
+   copies that landed and throw `StorageUnavailableError`.
+7. `persistFiles` (`:237`) — **one DB transaction**: insert each `files` row and delete its temp row. If
+   the tx throws, delete the staged→committed copies (no dangling reference).
+8. Best-effort delete of the staged objects; return `FileResponse[]` (each with a fresh presigned URL).
+   On any outer failure, `releaseClaims` frees the `claimed_at` gate so the client can retry before TTL.
 
-`FilesController.java:152-153` (no `@PreAuthorize`) → `FilesServiceImpl.uploadToTemporaryStorage`
-(`FilesServiceImpl.java:832-867`).
+### A3.3 Read (store-scoped, fresh presigned URL per read)
 
-1. Receives **only** a raw `MultipartFile` — no `recordId`/`entityId`/`fileType`/`tenantId`.
-2. **Runs none of the six validation checks.** No extension check, no per-file/consolidated size check,
-   no attachment-count check, no quota check, no company binding. The only ceiling is Spring's blanket
-   `spring.servlet.multipart.max-file-size: 20MB`.
-3. Writes to S3 and inserts a `temporary_files` row (which has no tenant column).
-4. Validation happens **later, only at promotion/link time** (`validateTempFileUploadRestrictions`,
-   6 call sites) — and only if the user completes the parent-record save.
+- **Single record** — `GET /stores/:storeId/files?entity_type&record_guuid` → `listByRecord` (`:279`).
+- **Batched grid** — `GET /stores/:storeId/files/by-records?entity_type&record_guuids=a,b,c` →
+  `listByRecords` (`:292`): one query for many records, returns a `Record<record_guuid, FileResponse[]>`
+  map with **every requested guuid present** (empty array = "no files", distinct from "not fetched").
+  `record_guuids` is comma-separated, deduped, capped at **100**
+  ([`dto/upload-fields.request.ts:28`](../../apps/backend/src/files/dto/upload-fields.request.ts#L28)).
+- **One file** — `GET /stores/:storeId/files/:guuid` → `getFile` (`:311`).
 
-This is the real ingestion path for every frontend surface except ticket attachments. It is the origin
-of the two headline P0s (unvalidated write, no tenant attribution).
+Every read mints a fresh presigned GET (`STORAGE_SIGNED_URL_TTL_SECONDS = 2100`, 35 min) via
+`toResponses` (`:365`); the raw key is never returned.
 
-### A3.2 — Retrieve
+### A3.4 Delete / restore (store-scoped soft-delete → trash)
 
-- `getFilesByRecordId`, `getFileByGuuid`, `getFilesByCompanyIdAndFileType` return `FilesDTO`/
-  `Page<FilesDTO>` with a presigned URL generated **at read time** (`ConversionUtils.generatePreSignedUrl`,
-  35-min expiry, `ConversionUtils.java:1211,1223`). Never stored.
-- **No byte-streaming/proxy endpoint** — nothing streams S3 bytes through the backend (`getInputStream`,
-  `:1413`, is internal-only, for PDF building).
-- Every retrieval path is **tenant-scoped** (`findByCompanyIdAndGuuidAndIsActiveTrue` `:2449`;
-  `getFilesByCompanyIdAndFileType` also filters by accessible location IDs `:580-605`) — **except** the
-  `FilesHelper` path (A3.5) and the raw `fileUrl` field riding alongside every response.
-- **Failure smell:** `generatePreSignedUrl` swallows `SdkClientException` and returns the literal string
-  `"Error generating pre-signed URL"` instead of `null`/throw (`:1223-1227`) — a broken link rendered as
-  if real.
+- **Delete** — `DELETE /stores/:storeId/files/:guuid` → `deleteFile` (`:318`): store-scoped soft-delete
+  (`deleted_at`/`deleted_by`). The object is **not** removed (recoverable).
+- **Restore** — `POST /stores/:storeId/files/:guuid/restore` → `restoreFile` (`:325`): store-scoped,
+  clears `deleted_at`.
 
-### A3.3 — Delete (THREE mechanisms coexist)
+### A3.5 Cancel a staged upload
 
-**(A) Hard delete by numeric id** — `FilesController.deleteFile(Long id)` (`:90-93`, **no
-`@PreAuthorize`**) → `FilesServiceImpl.deleteFile(Long id)` (`:468-487`): `findByIdAndIsActiveTrue(id)`,
-**no company filter**, deletes the S3 object, sets `isActive=false`. Any authenticated user of any tenant
-can permanently destroy another company's file by guessing a sequential id. **No recovery** (real S3
-delete, not trash).
-
-**(B) Tenant-scoped soft-delete-to-trash by key** — `FilesController.deleteFile(UUID tenantId, ...)`
-(`:174` region) → `deleteFile(UUID tenantId, List<String> fileKeys)` (`:2120-2216`): resolves
-`companyId` from `tenantId`; permanent rows are scoped by `fileKey AND companyId` (`:2163,2195`,
-**correct**); **temp rows** are looked up by `fileKey` alone (`:2172,2216`, **no company filter** —
-structural, `temporary_files` has no column). `restoreFile` (`:2284-2329`) is correctly scoped
-(`findByFileKeyAndCompanyIdAndIsActiveFalse`). Trash-move (`moveFileInS3`/`moveFileToTrashInS3`,
-`:922-936,1743`) is copy-then-delete with no rollback.
-
-**(C) Delete-and-move-to-trash by key** — `DELETE /api/v1/files/delete` →
-`deleteFileFromTempAndMoveToTrash` (`FilesController.java:95-98`, **no `@PreAuthorize`, no tenant param**),
-resolves a `Files` row by `fileKey` + `isActive` only, no company filter. Same severity as (A).
-
-### A3.4 — Edit / update
-
-`updateFile(id, newFile, companyGuuid)` → `processFileUpdate` (`:704-753`): **deletes the old S3 object
-first (`:720`), then uploads the new (`:727`)**, then updates the row. If the new upload fails after the
-old delete, the row stays **active** pointing at a deleted key — a dangling reference invisible until
-someone fetches it. `editFileMetadata` (`:2364-2388`) only touches link metadata and is correctly
-tenant/existence checked.
-
-### A3.5 — Second upload pipeline: `FilesHelper` (DB-blob, bypasses S3)
-
-`utility/helper/FilesHelper.java` — a **complete second pipeline** (`addFile`/`addFiles`/`updateFile`/
-`updateFiles`/`softDeleteFileById(s)`/`getFileByFileId`/`getFilesByFileIds`/`getFilesByEntityIdAndRecordId`),
-storing raw bytes into the `Files.fileData` BLOB (`:75`). No S3. Validation is a non-null check only
-(`:246,257`) — none of the six rules. **No `companyId` filter on any lookup.** **Confirmed dead code**
-(see B1): zero HTTP-reachable callers. It is live, compiled, DI-wired code with no entry point — a
-loaded landmine.
-
-### A3.6 — Mail attachments
-
-`FilesController.uploadMailAttachments` (`:172-182`) → `FilesServiceImpl.uploadMailAttachments`
-(`:1926-2037`): reuses `validateTempFileUploadRestrictions` (`:1986-1994`) with
-`fileTypeId = LK_FILE_TYPE_UN_CATEGORISED_DOC`; per-file exceptions are caught and logged to `MailAudit`
-(intentional partial-success). **Defect:** the S3 key is built **without** a `UUID` segment (`:2000`):
-`{companyGuuid}/entities/{entityName}/UnCategorisedDocs/{originalFilename}` — deterministic; same-named
-attachments silently overwrite. **Inbound email** (`EmailReaderService.java:441`) wraps raw `byte[]` in
-`config/ByteArrayMultipartFile.java` and flows through this exact pipeline — attacker-controlled
-filenames/content hit the same key-construction and content-type-trusting logic as a browser upload.
+- `DELETE /stores/:storeId/files/temp/:guuid` → `cancelStaged` (`:106`): owner-scoped hard delete of the
+  temp row + `safeDelete` of the object — the "cancel my in-progress upload" the legacy app lacked.
 
 ---
 
-## A4. Frontend flows (`ayphen-frontend`)
+## A4. Validation & content safety
 
-Citations relative to `/Users/saran/ayphen-mobile/ayphen-frontend/`.
+[`file-validation.service.ts`](../../apps/backend/src/files/file-validation.service.ts) — the **real
+gate**; client checks are UX only. The client-declared `mimeType` is **never trusted** for security
+decisions.
 
-### A4.1 — Mobile docket/receipt upload (the ONE real mobile flow) — `apps/ayphen-mobile`
-
-`src/pages/dashboard/upload-documents/form/index.tsx:72-136` + `src/utils/attachment/hooks.tsx`.
-1. **Pick a File** → `pickDocument` (`hooks.tsx:22-40`): `DocumentPicker.getDocumentAsync({type:"*/*"})` —
-   **no type restriction**. **Bug (`:36`):** `uploadFileTos3({...file, fileName: file})` passes the whole
-   asset object as `fileName` → corrupted filename.
-2. **Pick from Gallery** → `pickImage` (`:42-60`): explicit `requestMediaLibraryPermissionsAsync()`,
-   `Alert` on denial; `launchImageLibraryAsync({mediaTypes:["images"], quality:0.2})` — the only
-   compression is the 0.2 quality knob.
-3. Dispatches `uploadFileMobile`. **FormData bug (`api-handler.ts:262-299`):** appends `"file"` **twice**
-   (a bare string, then the RN file object). The web sibling `generateAsyncThunkForMultipart` (`:222-260`)
-   does the single correct append.
-4. POSTs to `v1/public/files/temp/upload`; bearer token attached; **no request timeout configured.**
-5. **Success:** `setAttachments(...)` + success `Alert`. **Failure:** `.catch(err => console.log(err))` —
-   **nothing shown to the user, no retry, no offline queue.**
-6. **Delete** (`:89-102`) is **local-only** — never calls the backend; staged into `deletedAttachments`.
-7. **Save** — `gerenareRequestData()` (`:104-129`) flattens to `{create:{fileKey:[...]}, delete:{fileKey:[...]}}`
-   in the parent save payload.
-8. **No double-tap guard** on the pick buttons (`form/index.tsx:104-121`).
-
-### A4.2 — Mobile `ImagePickerComponent` shared lib (DEAD)
-
-`libs-mobile/mobile-components/src/lib/ImagePicker/index.tsx:27-40`: `launchImageLibraryAsync({quality:1,
-allowsEditing:true, aspect:[4,3]})`, **no permission-denial handling, no upload call**. **Zero consumers**
-in either mobile app. A second, divergent picker implementation.
-
-### A4.3 — `engage-mobile` — Attachments (NON-FUNCTIONAL)
-
-`apps/engage-mobile/.../project-detail/overview/index.tsx:250-266` — a static "No attachments found"
-placeholder. No picker, no upload, no state. `expo-image-picker` is a dependency with no consumer.
-
-### A4.4 — Web generic multi-file `Attachments` widget
-
-`apps/portal/src/components/Attachments/index.tsx` (+ `utils.ts`, `hooks.ts`, `AttachmentsListView.tsx`).
-`beforeUpload` (`utils.ts:37-84`): count vs `maxAttachments` (default 10), type allow-list (images+PDF+
-Office+CSV), **size check present but commented out (`:70-80`)**. `customRequest` dispatches `uploadFile`
-(correct single-append builder); success/failure both surfaced via `notification`; a real double-submit
-guard drives `disabled`/`loading` (`:159-163,186-193`). Delete is local-only until parent save.
-
-### A4.5 — Web single-file `UploadAttachment` dropzone
-
-`apps/portal/src/components/UploadAttachment/index.tsx:61-120`. Same shape, single file; type checked,
-**size check commented out (`:107-117`)**; double-submit guard reads the **global**
-`fileServiceSlice.uploadFileState` (`:125`) — shared app-wide, so an unrelated widget's upload can flip
-this one's `isLoading`.
-
-### A4.6 — Web profile image / company logo
-
-`apps/portal/src/components/ProfileImage/index.tsx`. antd `Upload` wrapped in `ImgCrop`. `beforeUpload`
-validates jpg/jpeg/png **and an ACTIVE `<1MB` size check** — the **only** surface where the size check is
-live. Local-state until parent save; on save `logoRequestData(...)` feeds `bodyParam.files.logo`. Company
-logo (`.../company/components/general-form.tsx`) reuses this exact component + `useLogo` hook.
-
-### A4.7 — Web ticket attachments, post-creation (WORKING, the reference flow)
-
-`apps/portal/src/tickets/tickets/ticket-details/ticket-attachments.tsx:151-184`. `customRequest`
-dispatches `addTicketAttachment` directly with the raw `Blob` and `pathParam:{tenantId, public:appCode,
-id:ticketId}` → `v1/public/{tenantId}/tickets/{id}/attachments` — **one-step, entity-attached, tenant-
-scoped by construction**. Control disabled during upload. **Delete is fully wired** (`deleteTicketAttachment`
-→ `v1/public/{tenantId}/tickets/attachments/{id}`) — a real backend delete, unlike every other surface.
-
-### A4.8 — Web ticket attachments, create/edit form (BROKEN — silent data loss)
-
-`apps/portal/src/tickets/tickets/ticket-form/ticket-form-hooks.tsx`. Files upload and get real `fileKey`s
-(user sees them attached with a success notification), but the linking line in both `onCreateTicket` and
-`onEditTicket` is **commented out**:
-```ts
-// files: { logo: ..., attachments: attachmentRequestData(attachments.value, attachments.deletedValues) },
-```
-Net effect: files are uploaded, shown as attached, then **silently dropped** — orphaned in
-`temporary_files`, never linked, no error surfaced.
-
-### A4.9 — Web docket/receipt upload (Books)
-
-`apps/portal/src/books/UncategorizedDockets/UploadDocket.tsx`. Embeds the generic `Attachments` widget
-(`allowedFileTypesForUncategorised` = PDF/JPG/PNG/XLS/XLSX/CSV/DOC/DOCX/PPT/PPTX). On Save, `fileKey`s
-are POSTed as JSON to `v1/public/files/tenant/{tenantId}/upload-uncategorized`. **Separately**, the
-"permanently delete" handler in `DeletedDocketsList.tsx` has its **entire body commented out** — the
-button does nothing (only "restore" works).
-
-### A4.10 — Web "attach existing doc" drawer (NOT an upload surface)
-
-`apps/portal/src/components/UploadUncategorizedDockets/DocketsList.tsx` — a read-only picker that GETs
-already-uploaded docs and attaches an existing one to another record. No file input, no validation, no
-delete. Links via the record's `preSignedUrl` directly, with **no expiry/refresh** if it has lapsed.
-
-### A4.11 — Web bank statement / supplier price file (not image-relevant)
-
-`.../Reconciliation/UploadBankStatement/index.tsx`, `.../Suppliers/.../UploadPriceFile/index.tsx` —
-"upload + server-side parse-preview" for XLS/XLSX/CSV. Included only because they share the same
-**size-check-commented-out** pattern, confirming it's systemic across the upload component family.
+- **`validateAtIngestion`** (`:34`, at stage): non-empty; size ≤ `min(rule.maxFileSizeBytes,
+  UPLOAD_MAX_FILE_SIZE_MB=10MB)`; extension ∈ `rule.validExtensions`; **magic-byte content sniff** —
+  `detectKind` recognises JPEG/PNG/GIF/WEBP/BMP/PDF/ZIP (docx/xlsx/pptx are ZIP), and the detected
+  signature must match the declared extension. **`isScriptableMarkup`** rejects `<?xml`, `<svg`,
+  `<!doctype html`, `<html`, `<script` unless the extension is textual (`csv`/`txt`). **SVG is
+  deliberately not a sniffable image** — script-capable markup must never pass an image gate
+  (stored-XSS defence).
+- **`validateAtCommit`** (`:60`, at commit): `count + 1 ≤ maxAttachmentsAllowed`;
+  `existing.totalBytes + file.size ≤ maxConsolidatedSizeBytes`.
 
 ---
 
-## A5. API / contract surface
+## A5. Storage provider abstraction & presigned reads
 
-| Endpoint | Method | Called by | Auth today |
+Bound at wire time by [`storage.module.ts`](../../apps/backend/src/files/storage/storage.module.ts): an
+`S3StorageProvider` when `STORAGE_BUCKET` is set, otherwise an on-disk `LocalStorageProvider`
+(`STORAGE_LOCAL_DIR = .storage`, dev only). The `StorageProvider` interface
+([`storage/storage.provider.ts`](../../apps/backend/src/files/storage/storage.provider.ts)):
+`putObject`, `deleteObject`, `copyObject`, `getSignedUrl`, `objectExists`.
+
+- **S3** ([`s3-storage.provider.ts`](../../apps/backend/src/files/storage/s3-storage.provider.ts)): AWS
+  SDK v3, lazily imported so the app boots with no S3 dependency when local. `putObject` writes
+  `ACL: private`; `getSignedUrl` presigns a GET; `copyObject` builds `CopySource` by **encoding each path
+  segment while preserving `/`** (a whole-key `encodeURIComponent` turns `/` into `%2F`, which Supabase's
+  gateway does not decode → the copy would fail as an opaque 503) and logs the underlying error before
+  rethrowing `StorageUnavailableError`.
+- **Local dev raw serve** ([`files-raw.controller.ts`](../../apps/backend/src/files/files-raw.controller.ts)):
+  `GET /files/raw/:key?exp&sig` — `@Public()`, HMAC-signed; SVG/markup are forced to
+  `Content-Disposition: attachment`, only known image types render inline. Never reached when S3 is configured.
+
+Reads are **private + presigned-at-read**: a ~35-min GET URL, regenerated every read, never persisted.
+
+---
+
+## A6. Security & isolation model
+
+**Guard chain** — [`files.controller.ts:52`](../../apps/backend/src/files/files.controller.ts#L52):
+`@UseGuards(MobileJwtGuard, TenantGuard, SubscriptionStatusGuard)` + class-level
+`@StoreContext('param.storeId')`. `TenantGuard` resolves the store from the path and verifies access,
+writing `request.context`; `SubscriptionStatusGuard` **exempts reads** (`GET`/`HEAD`/`OPTIONS` in
+`READ_METHODS`) — viewing files is never blocked by a lapsed subscription; only writes
+(stage/commit/cancel/delete/restore) are gated.
+
+- **Owner/store isolation is structural** — temps are owner-scoped (`uploaded_by`), committed files
+  store-scoped (`store_fk`); no repository method resolves by key/guuid alone
+  ([`files.repository.ts`](../../apps/backend/src/files/files.repository.ts)).
+- **`store_fk`/`user_id` come from the resolved context**, never the request body (`requireStoreId`/
+  `requireUserId`, `files.service.ts:407-417`).
+- **The client never chooses the storage key** — the server builds `tmp/{userId}/…` and
+  `{storeId}/{entityCode}/{recordGuuid}/{uuid}/{name}` via `safeName`.
+- **Commit parent-verify is an isolation control too** — it forecloses committing against another store's
+  `record_guuid` (the store-scoped `exists()` and the tenant check agree), and against a `record_guuid`
+  that never existed (no phantom rows).
+- **Content sniff + extension allow-list + size caps at ingestion**; SVG/markup rejected; the dev
+  raw-serve forces attachment disposition.
+- **Errors** are typed through the shared exception filter (`AllExceptionsFilter`), which renders a
+  consistent envelope and emits `errorCode` in lowercase snake_case (e.g. `file_parent_not_found`).
+
+---
+
+## A7. Scheduled jobs
+
+- **Temp sweeper** — `TempFileSweeperService`, cron `CRON_TEMP_FILE_SWEEP = '15 * * * *'` (hourly). Calls
+  `FilesService.sweepExpiredTemps` (`files.service.ts:336`): delete expired, uncommitted `temporary_files`
+  rows and their objects (batch 500).
+- **Orphan-`files` reaper** — [`orphan-files-reaper.service.ts`](../../apps/backend/src/files/orphan-files-reaper.service.ts),
+  cron `CRON_ORPHAN_FILES_REAP = '30 3 * * *'` (daily). For each **registered** entity code, LEFT-JOIN
+  finds committed `files` with no live parent (`record-existence.service.ts:findOrphanedFiles`), soft-deletes
+  them + their objects (`reapOrphan`), bounded to 20 passes × 500 rows/entity per tick. With the commit
+  parent-check in place this should normally find nothing — running it *proves* the invariant and catches
+  post-commit parent deletions the app didn't cascade.
+
+---
+
+## A8. API / contract surface
+
+`@Controller('stores/:storeId/files')` — [`files.controller.ts`](../../apps/backend/src/files/files.controller.ts):
+
+| Endpoint | Method | Purpose | Gate |
 |---|---|---|---|
-| `v1/public/files/temp/upload` | POST | A4.1, A4.4, A4.5, A4.6, A4.8, A4.9 (real ingestion) | Authenticated; **no `@PreAuthorize`**; **no validation** (A3.1b) |
-| `v1/public/files/temp/upload` | DELETE | **Nobody** (zero call sites) | — |
-| `v1/public/files/tenant/{tenantId}/upload-uncategorized` | POST | A4.9 (link step) | tenant-scoped |
-| `v1/public/files/files/{tenantId}/{fileTypeId}` | GET | A4.10 (list existing) | tenant-scoped |
-| `v1/public/{tenantId}/tickets/{id}/attachments` | POST | A4.7 (one-step upload) | tenant-scoped |
-| `v1/public/{tenantId}/tickets/attachments/{id}` | DELETE | A4.7 (real delete) | tenant-scoped |
-| `POST /api/v1/files/upload` | POST | *(validated backend endpoint, currently unused by FE)* | **no `@PreAuthorize`** |
-| `DELETE /api/v1/files/delete/{id}` | DELETE | Backend hard-delete-by-id (A3.3-A) | **no `@PreAuthorize`, no tenant filter** |
-| `DELETE /api/v1/files/delete` | DELETE | Backend delete-to-trash-by-key (A3.3-C) | **no `@PreAuthorize`, no tenant filter** |
-| `/tenant/{tenantId}/...` (delete/restore/edit/mail/statement) | various | Backend tenant-scoped routes | `@PreAuthorize` applied |
+| `stores/:storeId/files/temp` | POST (multipart `file` + `entity_type` + `kind`) | Stage one file | write-gated |
+| `stores/:storeId/files/temp/:guuid` | DELETE (204) | Cancel a staged upload | write-gated |
+| `stores/:storeId/files/commit` | POST `{ entity_type, record_guuid, kind, file_guuids[] }` | Link staged temps to a record | write-gated |
+| `stores/:storeId/files` | GET `?entity_type&record_guuid` | List a record's files | read (ungated) |
+| `stores/:storeId/files/by-records` | GET `?entity_type&record_guuids=a,b,c` | Batched grid read → map | read (ungated) |
+| `stores/:storeId/files/:guuid` | GET | One file (fresh presigned URL) | read (ungated) |
+| `stores/:storeId/files/:guuid` | DELETE (204) | Soft-delete → trash | write-gated |
+| `stores/:storeId/files/:guuid/restore` | POST | Restore from trash | write-gated |
+| `files/raw/:key` | GET `?exp&sig` | Dev-only HMAC raw serve (local provider) | `@Public()` (signed) |
 
-**Upload response body** (`ApiResponse.body`): `{ id, name, fileKey, fileSizeKb, fileType, fileUrl,
-preSignedUrl, mimeType, description }`. Note `fileUrl` (raw, non-presigned S3 URL) is returned alongside
-`preSignedUrl` — redundant and a leak (B2/P1-3).
-
----
-
-## A6. File lifecycle state machine
-
-```
-        (upload)             (link on save)          (delete)           (restore)
-[none] ────────► [TEMP/staged] ──────────► [PERMANENT/active] ────────► [TRASHED] ────────► [PERMANENT/active]
-                     │                            │  ▲                      │
-                     │ (abandoned:                │  │ (update: replace)    │ (permanent delete)
-                     │  never linked)             │  └───────┘              ▼
-                     ▼                                                   [PURGED/gone]
-                [ORPHAN — no reaper today]
-```
-
-- **Legal:** none→temp, temp→permanent, permanent→trashed, trashed→permanent, trashed→purged,
-  permanent→(replace)→permanent.
-- **Must be rejected:** restore a non-trashed file; link an already-linked/purged key; delete an
-  already-trashed file twice; act on another tenant's file in any state.
-- **Broken today:** temp→orphan has no reaper (accumulates forever); trashed→purged is dead on the web
-  Deleted-Dockets screen (commented-out handler).
+**Stage response:** `{ guuid, file_name, size_bytes, mime_type, sha256, expires_at, preview_url }`.
+**Commit / read response (`FileResponse`):** the file metadata + a fresh presigned URL; the raw
+`storage_key` is never emitted.
 
 ---
 
-## A7. One upload followed end to end (worked example — mobile docket photo)
+## A9. One upload followed end to end (product image)
 
-1. User taps **Pick from Gallery** in `UploadDocket`.
-2. `requestMediaLibraryPermissionsAsync()` → granted.
-3. `launchImageLibraryAsync({mediaTypes:["images"], quality:0.2})` → local asset.
-4. Client-side transform: only the 0.2 JPEG re-encode; no resize.
-5. `uploadFileTos3` dispatches `uploadFileMobile`.
-6. `generateAsyncThunkForMultipartUri` builds FormData — appends `"file"` **twice** (bug).
-7. POST `v1/public/files/temp/upload`, bearer token, **no timeout**.
-8. Backend `uploadToTemporaryStorage` — **no validation**, no company binding.
-9. S3 `PutObjectRequest` (`ACL.PRIVATE`); `temporary_files` row inserted (no tenant column).
-10. Response: `fileKey`, raw `fileUrl`, `preSignedUrl` (35-min).
-11. Client pushes `response.body` into local `attachments`; success `Alert`.
-12. User **Saves** the docket → `{create:{fileKey:["<key>"]}}` in the save payload.
-13. Backend **link step** (`upload-uncategorized` for dockets) looks up the temp row **by key alone**,
-    validates *now* (`validateTempFileUploadRestrictions`), promotes it to a permanent `files` row.
-    ⚠️ **The exact promotion mechanism (S3 move vs. key re-point) is untraced — the one open question.**
-14. Later retrieval regenerates a **fresh** presigned URL at read time; the step-10 URL is long expired.
+1. Client stages: `POST /stores/{store}/files/temp` (multipart, `entity_type=Product`, `kind=image`).
+2. Backend validates at ingestion (extension/size/content-sniff), writes `tmp/{userId}/{uuid}/{name}`
+   (outside any tx), inserts a `temporary_files` row (`expires_at = +24h`), returns `guuid` + a 35-min
+   `preview_url`. **201.**
+3. The product's create mutation syncs (offline client waits for this — see the mobile doc).
+4. Client commits: `POST /stores/{store}/files/commit` `{ entity_type:'Product', record_guuid, kind:'image',
+   file_guuids:[guuid] }`.
+5. Backend verifies the `Product` exists in this store → resolves the owner's temp → budget checks →
+   claims the temp (`claimed_at`) → copies `tmp/…` → `{store}/Product/{record}/{uuid}/{name}` → one tx
+   inserts the `files` row and deletes the temp → deletes the staged object. **201.**
+6. Later reads (`GET …/files/by-records`) mint fresh presigned GET URLs at read time; the step-2
+   `preview_url` has long expired.
 
 ---
 
-## A8. Where flows diverge or duplicate
+## A10. Configuration
 
-- **Two mobile pickers** — the live one (`hooks.tsx`, quality 0.2, permission-handled, wired to upload)
-  vs. the dead `ImagePickerComponent` (quality 1, no permission handling, no upload). Neither is a
-  superset.
-- **Duplicated request-shaping** — `attachmentRequestData`/`gerenareRequestData` copy-pasted between
-  `apps/ayphen-mobile/.../util.ts` and `apps/portal/.../Attachments/utils.ts` instead of shared in
-  `common/`.
-- **Size-check-commented-out** — the same disabled block in ≥4 files (one copy-paste origin).
-- **Delete semantics differ** — ticket attachments delete for real; every other surface is local-only
-  until parent save; the `DELETE temp/upload` endpoint has zero callers.
-- **Two upload-completion models** — generic temp-then-link vs. one-step entity-attached (tickets only);
-  the ticket create/edit form mixes them and breaks (A4.8).
-- **Two backend storage pipelines** — the S3 path and the dead DB-blob `FilesHelper` path, sharing the
-  `Files` table and the `FilesService` interface but with different validation/tenant guarantees.
+Env → [`config/env.ts`](../../apps/backend/src/config/env.ts), surfaced via `AppConfigService`:
+
+| Setting | Env var | Default |
+|---|---|---|
+| Global per-file cap | `UPLOAD_MAX_FILE_SIZE_MB` | 10 MB |
+| Presigned URL TTL | `STORAGE_SIGNED_URL_TTL_SECONDS` | 2100 (35 min) |
+| Temp staging TTL | `TEMP_FILE_TTL_HOURS` | 24 h |
+| Temp sweep cron | `CRON_TEMP_FILE_SWEEP` | `15 * * * *` (hourly) |
+| Orphan reap cron | `CRON_ORPHAN_FILES_REAP` | `30 3 * * *` (daily) |
+| Object store bucket | `STORAGE_BUCKET` | unset → LocalStorageProvider |
+| S3 region/endpoint/keys | `STORAGE_REGION` / `STORAGE_ENDPOINT` / `STORAGE_ACCESS_KEY_ID` / `STORAGE_SECRET_ACCESS_KEY` / `STORAGE_FORCE_PATH_STYLE` | — |
+| Local store dir (dev) | `STORAGE_LOCAL_DIR` | `.storage` |
 
 ---
 ---
 
-# PART B — DEFECT REGISTER
+# PART B — HOW THE LEGACY DEFECT CLASSES ARE CLOSED
 
-## B1. Corrections to the original trace (errata)
+The rebuild was designed to structurally prevent the legacy Spring Boot pipeline's defects. Mapping:
 
-Independent re-verification (three of the four review lenses re-traced source) corrected the following:
-
-1. **The frontend hits the UNvalidated temp endpoint** (A3.1b), not the validated `processFileUpload`
-   (A3.1). This is the single most important correction — it turns "upload is validated" into "the real
-   ingestion path has zero validation."
-2. **`FilesHelper` is confirmed dead code** — zero HTTP-reachable callers (A3.5).
-3. **A third delete mechanism exists** — `DELETE /api/v1/files/delete` (A3.3-C), same severity as A3.3-A.
-4. **The global exception handler cannot catch real exceptions** — same-package custom classes named
-   `Exception`/`IOException`/`IllegalArgumentException`/`IllegalStateException` shadow the JDK types the
-   handlers declare; confirmed via bytecode. Affects error handling for **every** flow.
-5. **Auth model confirmed** — the unscoped endpoints require authentication (Spring's default
-   `anyRequest().authenticated()`); what's missing is `@PreAuthorize` (the tenant/permission check), so
-   the exposure is "any authenticated user of any tenant," not anonymous.
-6. **Confirmed** — default quota is **1GB**; **no** scheduled job reaps abandoned temp files/S3 objects.
-
-## B2. Findings, ranked P0 → P3
-
-**P0 — critical (auth bypass / tenant leak / data loss / hang):**
-- **P0-1** Global exception handler catches nothing real (errata #4). Wrong response shape for every
-  failure; a `ResourceNotFoundException` even returns HTTP 200 with a 404 body.
-- **P0-2** The real ingestion endpoint (`/temp/upload`) runs **zero validation** (A3.1b). Any
-  authenticated user uploads any type up to 20MB, unattributed to any company.
-- **P0-3** Hard-delete-by-id has no tenant filter and no `@PreAuthorize` (A3.3-A). Cross-tenant
-  irreversible destruction. *(Third delete mechanism A3.3-C is the same severity.)*
-- **P0-4** `temporary_files` has no tenant column (structural). Cross-tenant delete **and** cross-tenant
-  link/adoption at promotion (A3.3-B temp branch; the ~90-call-site link path).
-- **Also P0 (cross-lens):** SVG accepted as an image type + no content sniffing → stored-XSS
-  (server-side allow-list trusts the client `Content-Type`).
-
-**P1 — high (race / missing tx / non-idempotent / fail-open):**
-- **P1-5** Quota check is a live unlocked `SUM` — TOCTOU race; two concurrent uploads overshoot.
-- **P1-6** S3 client has no timeout/retry and the S3 call runs inside the DB transaction → connection-pool
-  exhaustion under S3 latency.
-- **P1-7** S3/DB dual-writes are never reconciled — create-path orphan, update-path dangling reference,
-  batch-delete partial rollback. No reaper.
-- **P1-8** `generatePreSignedUrl` returns a fake "URL" string on failure and logs via raw stdout.
-- **Frontend P1s:** mobile FormData double-append (A4.1); document-picker filename corruption (A4.1);
-  mobile swallows upload errors (A4.1); no client timeout (A4.1); ticket-form silently drops attachments
-  (A4.8); size checks commented out on every surface but the logo (A4.4/4.5); no idempotency key.
-
-**P2 — architecture / over- or under-engineering:**
-- **P2-9** `FilesHelper` dead code (retire it). **P2-10** Missing indexes on every hot query column
-  (`company_fk`, `record_id`, `entity_fk`, `file_type_fk`, `file_key`). **P2-11** `Files.companyId`
-  entity annotation (`nullable=false`) contradicts the DDL (`NULL`-able) → silently null-tenant rows.
-  **P2-12** No rate limiting despite a working mechanism used elsewhere. **P2-13** No correlation/trace-id
-  infrastructure. **P2 (FE):** global non-keyed upload state (A4.5); dead RTK-Query API; two mobile
-  pickers; permanent-delete dead handler (A4.9).
-
-**P3 — nits:** mail-attachment S3 key lacks a UUID segment (collision); `files_config.is_active` index
-commented out; duplicated request-shaping helpers; stale/redundant raw `fileUrl` in responses.
-
-**Definition-of-Done scorecard (backend, 15 items):** 0 pass, 4 partial, 11 fail — including *Client never
-trusted / every tenant query scoped* (FAIL), *limits claimed atomically* (FAIL), *input validated at the
-boundary* (FAIL), *errors typed/consistent* (FAIL), *risky logic tested* (FAIL — two test files in the
-whole repo, neither covering this feature).
-
-**What is genuinely well-built (preserve):** the tenant-scoped `/tenant/{tenantId}/...` route family (the
-template to fix everything else toward); presigned-at-read-time retrieval; `ACL.PRIVATE` + presigned-GET-
-only; the join-at-read-time image model; the mail batch's partial-success design; the six `CommonUtils`
-checks (thorough where wired — the problem is reach, not design).
+| Legacy defect (old system) | Structurally closed by (this repo) |
+|---|---|
+| Real ingestion path ran **zero validation** | `validateAtIngestion` runs at **stage** time, before anything permanent — extension + size + magic-byte sniff (A4). |
+| `temporary_files` had **no tenant column** → cross-tenant delete/adopt | Temps are **owner-scoped** (`uploaded_by`); commit resolves temps by `guuid AND uploaded_by`; there is no key-only lookup (A6). |
+| Hard-delete-by-id with **no tenant filter / no auth** | One store-scoped soft-delete + restore; deletes require the guard chain + `store_fk` match (A3.4). No numeric-id delete exists. |
+| Commit trusted the client about its own parent → **phantom rows** | Commit verifies `(entity_type, record_guuid, store_fk)` → live record or `409 file_parent_not_found` (A3.2), plus a daily orphan reaper that *proves* the invariant (A7). |
+| **SVG stored-XSS** (allow-list trusted `Content-Type`) | SVG excluded from the seed allow-list; content sniff rejects scriptable markup; dev raw-serve forces `Content-Disposition: attachment` (A4/A5). |
+| **S3 write inside the DB transaction, no timeout** → pool exhaustion | Object writes are **outside** the DB tx (stage: put→insert; commit: copy→tx-insert→delete); the tx is short and DB-only. *(A per-S3-call timeout is still a follow-up — Part C.)* |
+| S3/DB **dual-writes never reconciled** (orphans, dangling refs) | Commit copy→tx→delete with compensating deletes + claim release on failure; temp sweeper + orphan reaper are the backstops (A3.2/A7). |
+| Non-idempotent commit → **duplicate rows** | `claimed_at` gives **at-most-once row creation** and `uk_files_record_sha` collapses identical re-commits, so no duplicate *live* rows. **Caveat (D4):** this is not a *recoverable* idempotent response — if the server commits but the client loses the response, a retry finds the temp already deleted and gets `TempFileNotFoundError`, not the committed file. |
+| Second **DB-blob pipeline** (`FilesHelper`), unvalidated/unscoped | Does not exist — one storage abstraction (S3 or local), no `fileData` blob path. |
+| Stored/leaked raw S3 URLs | Presigned-at-read only; `storage_key` never emitted (A2/A5). |
+| Quota TOCTOU on an unlocked `SUM` | **Only partially closed (D1).** There is no account-wide quota (deferred), **but the per-record count/consolidated checks have the same read-then-insert TOCTOU** — `assertRecordBudget` reads `recordStats` (`files.service.ts:137`) with no lock, then inserts later, so two concurrent commits to one record can both pass and overshoot. See D1. |
 
 ---
 ---
 
-# PART C — TARGET ARCHITECTURE (TO-BE)
+# PART C — DEFERRED / NOT YET BUILT
 
-## C1. The decision, in one paragraph
+- **Per-S3-call timeout** — only the app-wide 30s request timeout bounds an S3 call today; a tighter
+  per-call `requestHandler` timeout on the S3 client is a follow-up so a hung object store can't tie up a
+  request slot (`s3-storage.provider.ts` documents this).
+- **`Product:edit` (per-parent-entity) permission on files routes** — the controller is store-scoped but
+  does not yet enforce per-parent CRUD (files are polymorphic; the parent entity isn't known until request
+  time). The commit parent-check already resolves the parent, so the permission check is a cheap addition
+  at that point.
+- **Account-wide storage quota** — no `company_storage`/`used_size_kb` counter; only per-record limits via
+  `files_config`. Add if overage becomes a hard capacity constraint.
+- **Server-side thumbnails** — the `files.thumbnail_url` column exists but is unpopulated; the client
+  renders its own local thumb today. A server thumb worker is deferred.
+- **Hard-purge of trashed files** — `deleteFile` soft-deletes (recoverable) but there is **no scheduled
+  purge** of soft-deleted committed files past a retention window (only the temp sweeper purges expired
+  *uncommitted* temps, and the orphan reaper soft-deletes parentless files). Add a retention-based purge
+  when product/compliance defines a window.
+- **Attachment surfaces beyond `Product`** — `RECORD_TABLES` in `record-existence.service.ts` registers
+  **only `Product`**; committing against any other entity is fail-closed until its table is registered here.
+- **Client offline layer** — capture, the local `attachment` table, and the background uploader live in
+  the mobile app and are documented in
+  [`docs/mobile/image-offline-architecture.md`](../mobile/image-offline-architecture.md), not here. One
+  known gap there: no product-grid screen consumes the batched read yet, so cross-device grid display is
+  wired end-to-end on the backend but not yet surfaced by a client screen.
+- **Presigned-PUT / chunked-resumable / CDN / async scan** — all deferred behind measured-need triggers;
+  at current file sizes (100–300 KB downsized images) none is justified.
 
-Keep backend-mediated multipart upload (reject direct-to-S3 presigned-PUT for now — file sizes here
-don't justify moving validation off the server). **Harden the temp stage rather than delete it:** add a
-tenant column to `temporary_files` and move validation to raw-upload time. **Migrate every "parent record
-already exists at attach time" surface to the one-step, entity-attached pattern** (the ticket-attachments
-flow, A4.7, already proves it works and is tenant-scoped by construction), keeping the two-step
-temp-then-link shape **only** for genuine "attach before the parent exists" flows (new docket, new
-ticket, new logo). **Retire `FilesHelper`** (dead, unvalidated, unscoped). **Consolidate three delete
-mechanisms into one** tenant-scoped soft-delete-to-trash + scheduled purge. **Fix the quota race** with an
-atomic counter. Reject chunked/resumable upload and async scan/transcode as unneeded machinery now
-(revisit only on a named trigger). This is hardening + a scoped migration, **not** a rewrite.
+---
+---
 
-Design axes decided (from the Architect lens): **A2** collapse to one pipeline · **B2** add the tenant
-column (don't eliminate the split) · **C2** one soft-delete path + scheduled purge · **D2** keep the
-polymorphic pointer + compensating controls · **E1** keep presigned-at-read (no cache/CDN/proxy) · **F3**
-atomic counter for quota (with `SELECT … FOR UPDATE` as an acceptable interim).
+# PART D — PRE-PRODUCTION REVIEW FINDINGS (open, verified against code)
 
-## C2. Target data model & authority
+An architecture review (recorded here so the gaps are tracked, not lost) surfaced the following. Each is
+**verified against the current code**, with severity and the recommended fix. The verdict: the core
+design is sound (local capture → durable local queue → wait for parent sync → backend stage → backend
+commit → private presigned reads); these are the items to close **before production**.
 
-- **`files`** stays the single source of truth. Tighten `company_fk` to **`NOT NULL`**, validated at
-  write time through **one shared access helper** (not scattered `save()` calls). Add composite indexes:
-  `(company_fk, is_active)`, `(file_key)`, `(record_id, entity_fk, file_type_fk, is_active)`.
-- **`temporary_files`** gains **`company_fk`** (populated from the authenticated principal at upload
-  time, never from client input) and a **`status` column** (`PENDING`/`COMMITTED`/`FAILED`). Add
-  `(file_key)` index. Still ephemeral.
-- **`company_storage`** gains a materialised **`used_size_kb`** counter, backfilled once from the existing
-  `SUM`, which remains the rebuild source of truth if the counter drifts.
-- **`files_config`** unchanged (already has real referential integrity).
-- **Polymorphic `(entity_fk, record_id)`** pointer stays (D2) — a per-entity FK table for ~90 consumers
-  would contradict the one-implementation design; instead add a guarded write helper + an **orphan-audit
-  job** that makes a stale `record_id` *detectable and rebuildable*, not DB-prevented.
+**Release blockers (do before production):**
 
-## C3. Target upload / link / retrieve / delete flows
+- **D1 — ✅ FIXED (HIGH): per-record attachment budget concurrency race.** `persistFiles` now takes a
+  **transaction-scoped advisory lock** on `(store, record_guuid)` (`FilesRepository.lockRecordForCommit`
+  → `pg_advisory_xact_lock`) and **re-checks the budget inside that locked tx** before inserting
+  ([`files.service.ts` persistFiles](../../apps/backend/src/files/files.service.ts)). Two concurrent
+  commits to the same record now queue on the lock; the second sees the first's inserted rows and can't
+  overshoot `maxAttachmentsAllowed` / consolidated size. The pre-copy check remains as a fast fail. *(The
+  `uk_files_record_sha` index still only dedupes identical bytes — orthogonal.)*
 
-**Upload (validated, tenant-attributed, at ingestion):**
-1. Client uploads to the temp endpoint **with** the authenticated tenant context.
-2. The endpoint runs the existing `validateTempFileUploadRestrictions` **immediately** (extension, size,
-   consolidated size, count, quota) — using the newly-required `company_fk`.
-3. Short transaction inserts `temporary_files` with `status=PENDING` + `company_fk`; S3 write happens
-   **outside** the DB transaction; short transaction flips `status=COMMITTED` (or `FAILED`).
+- **D2 — ✅ FIXED (HIGH): per-parent-entity authorization.** Every write now requires the parent entity's
+  **`edit`** CRUD grant in the store: `FilesService.assertCanEditEntity` calls
+  `RbacService.getCachedPermissions` + `checkCrud(entity, 'edit')` on **stage** and **commit** (entity from
+  the request), and `assertCanEditEntityById` resolves the file's `entity_type_fk` → code for **delete**
+  and **restore** ([`files.service.ts`](../../apps/backend/src/files/files.service.ts),
+  [`entity-types.repository.ts` findById](../../apps/backend/src/entity-types/entity-types.repository.ts)).
+  Fail-closed: an unknown/unregistered entity has no `edit` grant, so it's denied. A read-only store member
+  can no longer stage/commit/delete/restore attachments.
 
-**One-step (for surfaces where the parent already exists — the default going forward):** upload directly
-against the parent entity's endpoint (like tickets), tenant-scoped by construction, no floating temp
-state, no orphan class.
+- **D3 — ✅ FIXED (HIGH): `kind=image` accepted non-images (e.g. PDF).** The seed now inserts a
+  **kind-specific `image` rule** (`jpg,jpeg,png,webp,gif` — no PDF) alongside the entity-wide null-kind
+  fallback for every attachment-supporting entity ([`db/scripts/seed.ts`](../../apps/backend/src/db/scripts/seed.ts)).
+  `findRule` prefers the kind-specific rule, so `kind='image'` now rejects a PDF at ingestion. *(Requires
+  re-running the seed against existing environments to add the `image` rules.)*
 
-**Link/promotion (only for pre-save attach flows):** look up the temp row **by `fileKey` AND
-`company_fk`** (closes the cross-tenant adoption gap); promote to a permanent `files` row; a retried
-promotion for an already-committed key is a **no-op** (idempotent).
+**Correctness / robustness (close before or shortly after launch):**
 
-**Retrieve:** unchanged — fresh presigned GET at read time, tenant-scoped (E1). Fix
-`generatePreSignedUrl` to return `null`/throw on failure. Drop the raw `fileUrl`/`fileKey` from
-client-facing responses.
+- **D4 — MEDIUM: commit is not retry-idempotent on a lost response.** `claimed_at` prevents two commits
+  from consuming the same temp, and `uk_files_record_sha` prevents duplicate live rows — but if the server
+  commits successfully and the **client loses the response**, the retry finds the temp already deleted
+  (`persistFiles` deletes it in-tx) and gets `TempFileNotFoundError` (404), which the offline uploader then
+  marks `failed` even though the file *was* committed. **Fix:** accept a durable client
+  attachment/idempotency key at commit and return the prior committed `FileResponse` for a repeated
+  request. Only after this is "idempotent effect" accurate (A/B previously overstated it).
 
-**Delete:** one tenant-scoped soft-delete-to-trash path (C2); retire the two unscoped mechanisms
-(A3.3-A, A3.3-C); a scheduled purge job physically removes trashed files past a retention window. The
-`DELETE temp/upload` endpoint is either wired up as the missing "cancel my in-progress upload" action or
-removed.
+- **D5 — MEDIUM: separate subscription-blocked from permission-denied on the client.** The **code** already
+  does the right thing — only `startsWith('subscription')` → `blocked`; a permission 403 falls through to
+  `failed` ([`image-uploader.ts:358`](../../apps/mobile/src/core/sync/image-uploader.ts#L358)). The
+  **mobile doc** was self-contradictory (said both). It is now corrected: subscription lapse → `blocked`
+  (auto-requeue on `subscription_version` bump); permission denied → `failed` (re-evaluated only on a
+  permission change). This matters once D2 lands and 403s actually occur on these routes.
 
-## C4. Concurrency, idempotency, failure semantics
+- **D6 — ✅ FIXED (MEDIUM): sweeper vs. commit-claim race.** `findExpiredTemps` now reaps only rows that
+  are **unclaimed, or whose claim is older than a grace window** (`TEMP_FILE_CLAIM_GRACE_MINUTES`, default
+  60) — so it can't delete a temp a commit just claimed, while a claim left by a crashed commit is still
+  eventually recovered ([`files.repository.ts` findExpiredTemps](../../apps/backend/src/files/files.repository.ts),
+  [`files.service.ts` sweepExpiredTemps](../../apps/backend/src/files/files.service.ts)). *(Follow-up: an
+  integration test that runs commit at the expiry boundary while the sweeper executes.)*
 
-- **Quota (F3):** replace the live `SUM` with a single guarded
-  `UPDATE company_storage SET used_size_kb = used_size_kb + :delta WHERE company_fk = :id AND
-  used_size_kb + :delta <= allocated_size` — check rows-affected (0 = over quota). Atomic, no lock
-  statement, and O(1) instead of a full-table scan. Symmetric decrement on delete/purge.
-- **Idempotency:** an optional client-generated idempotency key per file-pick (or a short-window
-  `(company, entity, record, file-hash)` fallback) so a retried upload doesn't create/bill a duplicate.
-  Also fixes the mobile double-tap once the pick buttons are disabled during upload.
-- **Failure semantics (commit-by-status):** partial failure leaves `PENDING`/`FAILED`, never `COMMITTED`
-  with a missing object. A lightweight **scheduled sweeper** (reusing the existing `@Scheduled` pattern)
-  reaps stuck/abandoned rows past a grace window and cleans half-written S3 objects. Reorder the update
-  path to **upload-new → swap pointer → delete-old-after-commit** so failure always leaves the old file
-  valid.
+- **D7 — ✅ FIXED (MEDIUM): no per-S3-call timeout / cancellation.** Each object-store call now runs with a
+  per-call `AbortSignal.timeout(STORAGE_REQUEST_TIMEOUT_MS)` (default 15 s) and the S3 client sets
+  `maxAttempts` (`STORAGE_MAX_ATTEMPTS`, default 3) for bounded retries
+  ([`s3-storage.provider.ts`](../../apps/backend/src/files/storage/s3-storage.provider.ts)) — a hung store
+  can no longer hold a request slot, independent of the global request timeout.
 
-## C5. Security & isolation model
+- **D8 — MEDIUM (OPEN): cross-device grid display is not wired.** The batched read (`/files/by-records`), the
+  api-manager hook, and `RecordImage.remoteFile` all exist, but **no product-grid screen consumes them**,
+  so the cross-device-visibility promise isn't delivered yet (tracked in the mobile doc). **Fix:** wire
+  the product grid to the batched read.
 
-- **Every** read/delete/promote filters by the caller's resolved `companyId` through **one shared access
-  helper** — the current inconsistency (some paths filter, some don't, by omission) is the root cause,
-  more than any single endpoint.
-- **Fail closed:** any company/record resolution failure **rejects** the operation — never proceed with a
-  null company (which the current code does).
-- **Content validation server-side:** extension allow-list enforced at ingestion; **content sniffing**
-  (magic bytes) so a spoofed `Content-Type` can't smuggle an executable/script; **remove `image/svg+xml`**
-  from the image allow-list (or sanitise + force `Content-Disposition: attachment`).
-- **`@PreAuthorize`** on the temp-upload and any remaining delete routes.
-- **Rate limiting** on upload/delete (the mechanism already exists in the codebase).
-- **Fix the global exception handler** (rename the shadowing classes; add a real `java.lang.Exception`
-  handler; assert HTTP status matches the body).
+**Lifecycle / policy (decisions still needed):**
 
-## C6. Build order & what to defer
-
-**Build now (security/data-integrity, small blast radius):**
-1. **Disable/gate the two unscoped delete endpoints** (`DELETE /files/delete/{id}`, `DELETE /files/delete`)
-   — highest severity, smallest diff, do it first and independently. Add `@PreAuthorize` + company filter,
-   or remove.
-2. **Fix the global exception handler** (P0-1) — affects every flow.
-3. **Add `company_fk` to `temporary_files`**; thread it through the delete, promotion, and generic-delete
-   call sites (P0-4).
-4. **Move validation into the raw-upload method** (P0-2), using the new tenant id.
-5. **Remove SVG from the allow-list + add content sniffing** (stored-XSS).
-6. **Atomic quota counter** (P1-5).
-7. **Fix mobile:** FormData double-append, document-picker filename, error surfacing, request timeout,
-   pick-button disabled guard (P1 FE).
-8. **Re-enable the ticket-form link step** (A4.8 — silent data loss).
-9. **Fix `generatePreSignedUrl`** fail-open string and the **mail-attachment UUID key** (P1-8, P3).
-
-**Build soon (not urgent):** the `PENDING/COMMITTED/FAILED` status column + sweeper job; the update-path
-reorder; retire `FilesHelper` (confirm zero callers + check `Files.fileData` for rows to backfill first);
-migrate the remaining "parent-exists" surfaces to the one-step pattern; re-enable/decide the four
-commented-out client size checks; add the missing indexes; add correlation-id/observability.
-
-**Explicitly deferred, with the trigger that flips the call:**
-- **Direct-to-S3 presigned PUT** — until backend bandwidth/hot-path cost is a measured problem (and only
-  after the one-step migration builds the confirm/link endpoint it would reuse).
-- **Chunked/resumable upload** — until a genuine large-file (>20MB) use case appears.
-- **Async scan/transcode worker** — scope narrowly to the inbound-email path only if a virus-scan/
-  transcode requirement is confirmed.
-- **CDN / signed-URL caching / streaming proxy** — until a view renders hundreds of attachments per
-  request (signing is local, not a bottleneck at this scale).
-- **Reservation/hold quota pattern** — until overage stops being a billing correction and becomes a hard
-  capacity/compliance constraint.
-- **Collapsing `temporary_files` into `files`** — the tenant-column fix solves the actual defect at a
-  fraction of the migration cost.
-
-## C7. Acceptance criteria (traceable to the test set)
-
-The feature is production-ready when every **Critical** and **High** case in `image-upload-testcases.md`
-passes. The Critical gate:
-- Cross-tenant read / temp-delete / link-adoption / hard-delete-by-id all **denied**
-  (TC-RULE-11/12/13/16, TC-PERM-01…04).
-- Unvalidated upload / spoofed MIME / script SVG all **rejected server-side** (TC-RULE-02, TC-NEG-01/02).
-- Quota race **cannot overshoot** (TC-CONC-01).
-- Global exception handler returns the **correct envelope + status** (TC-FAIL-09).
-
-High gate: each surface works (TC-HAPPY-01…05), ticket-form attachments persist (TC-CROSS-03), orphans
-are reaped (TC-STATE-03/TC-CROSS-02), partial-failure paths reconcile (TC-FAIL-01/02/03), mobile shows
-errors + times out (TC-FAIL-04/05), S3 latency can't exhaust the pool (TC-FAIL-06), retries don't double
-(TC-FAIL-07), size + quota enforced server-side (TC-RULE-04/10), email keys don't collide (TC-CROSS-04),
-no null-company rows (TC-PERM-08).
-
-## C8. Open questions (must be answered to finalise expected behaviour)
-
-1. **Promotion mechanics** — does temp→permanent move the S3 object or re-point the key? (Untraced; blocks
-   the exact behaviour of the link step and its idempotency.)
-2. **Rate limiting** — is any limit in front of `/temp/upload` today?
-3. **`FilesConfig` real values** — the full `validExtensions`/`maxFileSize`/`maxConsolidatedSize`/
-   `maxAttachmentsAllowed` per entity/file-type.
-4. **Trash retention window** — how long before a trashed file is purged? (Product/compliance decision.)
-5. **SVG requirement** — is SVG genuinely needed anywhere? (Decides remove-vs-sanitise.)
-6. **`Files.fileData` blob rows** — do any exist in production? (Decides whether `FilesHelper` removal
-   needs a one-time backfill to S3 first.)
-7. **Default quota reality** — is 1GB the shipping default for all plans, or plan-dependent?
-8. **`FilesHelper` external callers** — anything outside this repo (a batch job, admin tool, sibling
-   service)? Prefer a brief warn-if-invoked deprecation before hard removal.
-9. **Hard-delete-by-id as admin tooling** — is any operational tool relying on it intentionally, needing a
-   scoped replacement rather than a straight removal?
+- **D9 — LOW:** trash retention + hard-purge window; account/store storage quota; **server-generated
+  thumbnails** (especially valuable — cross-device grids currently download full-size images); malware
+  scanning if general documents remain supported. All deferred (Part C) pending product/compliance
+  decisions.
 
 ---
 
-*This is the consolidated architecture of record. The current-state trace lives in `image-upload-flow.md`,
-the reasoning behind the target in `image-upload-flow-review.md`, and the acceptance tests in
-`image-upload-testcases.md`. When the Part C build-order lands and the Part C7 gates pass, this document's
-Part A should be updated to describe the new steady state.*
+*This is the backend architecture of record for file/image upload as built in `apps/backend/src/files`.
+The client-side offline capture/upload/display layer is documented in
+[`docs/mobile/image-offline-architecture.md`](../mobile/image-offline-architecture.md). Keep both in sync
+as the feature evolves.*

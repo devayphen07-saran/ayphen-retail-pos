@@ -3,7 +3,8 @@ import { mutationQueue } from '../db/schema';
 import type { SyncDb } from '../db/types';
 
 export type MutationAction = 'create' | 'update' | 'delete';
-export type MutationQueueStatus = 'pending' | 'inflight' | 'applied' | 'rejected' | 'conflict' | 'dead';
+export type MutationQueueStatus =
+  'pending' | 'inflight' | 'applied' | 'rejected' | 'conflict' | 'dead';
 export type MutationQueueRow = typeof mutationQueue.$inferSelect;
 
 export interface EnqueueInput {
@@ -17,6 +18,9 @@ export interface EnqueueInput {
   clientModifiedAt: string;
   parentGuuid?: string;
   priority?: number;
+  /** Prior row state for action='update'/'delete' — restored on terminal
+   *  rejection (C5). Omit for 'create' (there is no prior row). */
+  preImage?: unknown;
   now: string;
 }
 
@@ -45,6 +49,8 @@ export const mutationQueueRepository = {
       clientModifiedAt: entry.clientModifiedAt,
       parentGuuid: entry.parentGuuid ?? null,
       priority: entry.priority ?? 0,
+      preImage:
+        entry.preImage === undefined ? null : JSON.stringify(entry.preImage),
       status: 'pending',
       attempts: 0,
       createdAt: entry.now,
@@ -55,11 +61,20 @@ export const mutationQueueRepository = {
    *  parent-before-child ordering (parent_guuid dependency) is the caller's
    *  job once composite/POS mutations exist; master-data writes have no
    *  cross-mutation dependency today. */
-  async takeDrainable(db: SyncDb, storeId: string, limit: number): Promise<MutationQueueRow[]> {
+  async takeDrainable(
+    db: SyncDb,
+    storeId: string,
+    limit: number,
+  ): Promise<MutationQueueRow[]> {
     return db
       .select()
       .from(mutationQueue)
-      .where(and(eq(mutationQueue.storeId, storeId), eq(mutationQueue.status, 'pending')))
+      .where(
+        and(
+          eq(mutationQueue.storeId, storeId),
+          eq(mutationQueue.status, 'pending'),
+        ),
+      )
       .orderBy(desc(mutationQueue.priority), asc(mutationQueue.createdAt))
       .limit(limit);
   },
@@ -82,7 +97,13 @@ export const mutationQueueRepository = {
 
   /** Terminal — caller must roll back whatever was optimistically applied
    *  locally BEFORE calling this (this only updates queue bookkeeping). */
-  async markRejected(db: SyncDb, mutationId: string, errorCode: string, errorMessage: string, now: string): Promise<void> {
+  async markRejected(
+    db: SyncDb,
+    mutationId: string,
+    errorCode: string,
+    errorMessage: string,
+    now: string,
+  ): Promise<void> {
     await db
       .update(mutationQueue)
       .set({ status: 'rejected', errorCode, errorMessage, lastFailureAt: now })
@@ -92,7 +113,11 @@ export const mutationQueueRepository = {
   /** Stale row_version — keep queued with the server's row attached; the
    *  resolver rebases and enqueues a FRESH mutation (new mutation_id), it
    *  never resurrects this row. */
-  async markConflict(db: SyncDb, mutationId: string, serverRow: unknown): Promise<void> {
+  async markConflict(
+    db: SyncDb,
+    mutationId: string,
+    serverRow: unknown,
+  ): Promise<void> {
     await db
       .update(mutationQueue)
       .set({ status: 'conflict', serverRow: JSON.stringify(serverRow) })
@@ -107,7 +132,11 @@ export const mutationQueueRepository = {
    * toward 'dead' would wrongly quarantine an honest queued write. Stays
    * 'pending'; only observability fields move.
    */
-  async recordRetryLater(db: SyncDb, mutationId: string, now: string): Promise<void> {
+  async recordRetryLater(
+    db: SyncDb,
+    mutationId: string,
+    now: string,
+  ): Promise<void> {
     await db
       .update(mutationQueue)
       .set({ status: 'pending', lastFailureAt: now })
@@ -177,6 +206,33 @@ export const mutationQueueRepository = {
   },
 
   /**
+   * Immediately dead-letter mutations too old to safely replay (C2 / S-35).
+   * A mutation older than the server's idempotency TTL may have had its
+   * idempotency row purged already, so re-pushing it would re-execute the
+   * business write (a double sale). Unlike `recordPoisonFailureBatch` this does
+   * NOT count attempts — the mutation is terminally unsafe to resend, so it goes
+   * straight to 'dead' for owner review rather than aging there over retries.
+   */
+  async markExpiredBatch(
+    db: SyncDb,
+    mutationIds: string[],
+    now: string,
+  ): Promise<void> {
+    if (mutationIds.length === 0) return;
+    await db
+      .update(mutationQueue)
+      .set({
+        status: 'dead',
+        errorCode: 'IDEMPOTENCY_EXPIRED',
+        errorMessage:
+          'mutation exceeded the server idempotency window and was not resent (would risk a duplicate)',
+        firstFailureAt: sql`COALESCE(${mutationQueue.firstFailureAt}, ${now})`,
+        lastFailureAt: now,
+      })
+      .where(inArray(mutationQueue.mutationId, mutationIds));
+  },
+
+  /**
    * Crash recovery — reset any rows orphaned in 'inflight' by a hard app-kill
    * between `markInflight` and reconcile back to 'pending'. Called once on store
    * open, INSIDE the scheduler's exclusive guard, so no push can be genuinely
@@ -186,14 +242,67 @@ export const mutationQueueRepository = {
     await db
       .update(mutationQueue)
       .set({ status: 'pending' })
-      .where(and(eq(mutationQueue.storeId, storeId), eq(mutationQueue.status, 'inflight')));
+      .where(
+        and(
+          eq(mutationQueue.storeId, storeId),
+          eq(mutationQueue.status, 'inflight'),
+        ),
+      );
   },
 
   async listByStore(db: SyncDb, storeId: string): Promise<MutationQueueRow[]> {
-    return db.select().from(mutationQueue).where(eq(mutationQueue.storeId, storeId));
+    return db
+      .select()
+      .from(mutationQueue)
+      .where(eq(mutationQueue.storeId, storeId));
+  },
+
+  /**
+   * Entity guuids with an UNRESOLVED local mutation — pending (queued), inflight
+   * (mid-push), or conflict (awaiting user rebase). The pull applier uses this
+   * as the pending-mutation shadow (B1 / INV-11): it must NOT overwrite a row
+   * whose local value is still authoritative-pending, or a delta pull landing
+   * between a local optimistic edit and its push silently clobbers the edit.
+   *
+   * 'rejected'/'dead' are deliberately EXCLUDED: those are terminal, so the
+   * pulled server row is the truth and should be allowed to correct the
+   * never-accepted optimistic value. Only upserts are shadowed against this set,
+   * never deletes — a skipped delete would not re-deliver (the server advances
+   * the cursor by what it sent) and would resurrect the row (§8, worse).
+   */
+  async liveGuuids(db: SyncDb, storeId: string): Promise<Set<string>> {
+    const rows = await db
+      .select({ entityGuuid: mutationQueue.entityGuuid })
+      .from(mutationQueue)
+      .where(
+        and(
+          eq(mutationQueue.storeId, storeId),
+          inArray(mutationQueue.status, ['pending', 'inflight', 'conflict']),
+        ),
+      );
+    return new Set(rows.map((r) => r.entityGuuid));
+  },
+
+  /**
+   * All queue rows for a record's client guuid (image-offline-architecture.md
+   * P1-11). The image uploader reads this to answer "has this record's create
+   * synced, or did it permanently fail?" — `entity_guuid` is globally unique, so
+   * no entity-type filter is needed and the check stays polymorphic. The queue is
+   * small (only undrained mutations), so an un-indexed scan is fine.
+   */
+  async findByEntityGuuid(
+    db: SyncDb,
+    entityGuuid: string,
+  ): Promise<MutationQueueRow[]> {
+    return db
+      .select()
+      .from(mutationQueue)
+      .where(eq(mutationQueue.entityGuuid, entityGuuid));
   },
 
   async remove(db: SyncDb, mutationId: string): Promise<void> {
-    await db.delete(mutationQueue).where(eq(mutationQueue.mutationId, mutationId));
+    await db
+      .delete(mutationQueue)
+      .where(eq(mutationQueue.mutationId, mutationId));
   },
 };

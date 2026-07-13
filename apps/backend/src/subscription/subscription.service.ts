@@ -1,4 +1,5 @@
 import { Inject, Injectable } from '@nestjs/common';
+import { MS_PER_DAY } from '#common/time.js';
 import {
   ForbiddenError,
   NotFoundError,
@@ -93,7 +94,7 @@ export class SubscriptionService {
     if (!accountId) return null;
     const withPlan = await this.repo.findWithPlan(accountId);
     if (!withPlan) return null;
-    const { bannerSeverity, showUpgradeBanner } = this.computeBanner(withPlan.subscription);
+    const { bannerSeverity, showUpgradeBanner } = this.computeBanner(withPlan.subscription, withPlan.planCode);
     // Current list price for the billed cadence — this app doesn't lock in
     // pricing at subscription time, so this reflects PLAN_PRICING today, not
     // necessarily what was charged on a past invoice.
@@ -186,7 +187,7 @@ export class SubscriptionService {
     // because it shares a planFk with the monthly variant.
     const billingCycle = resolvePlanPrice(planCode)?.billingCycle ?? 'monthly';
     const periodDays = billingCycle === 'annual' ? ANNUAL_BILLING_PERIOD_DAYS : BILLING_PERIOD_DAYS;
-    const periodEnd = new Date(now.getTime() + periodDays * 86_400_000);
+    const periodEnd = new Date(now.getTime() + periodDays * MS_PER_DAY);
     await this.transact(accountId, 'SUBSCRIPTION_ACTIVATED', { providerRef }, async (tx) => {
       // Lock accounts BEFORE writing account_subscriptions — canonical lock
       // order (accounts → account_subscriptions), matching
@@ -199,6 +200,19 @@ export class SubscriptionService {
 
       const claimed = await this.repo.claimPaymentEvent(accountId, orderId, providerRef, tx);
       if (!claimed) return null; // already activated by an earlier call — no-op, no outbox row
+
+      // 'paused' is an admin/abuse suspension (SubscriptionStatusGuard treats
+      // it as an operator-imposed block outside the normal lifecycle), not a
+      // lapsed-payment state a successful payment should ever clear. No code
+      // path sets 'paused' today (it's read-only), but activateFromPayment
+      // unconditionally overwriting status below must not be able to silently
+      // un-suspend an account once one does (backend-standard review finding
+      // — preemptive, not an active exploit).
+      const current = await this.repo.findByAccountId(accountId, tx);
+      if (current?.status === 'paused') {
+        throw new ForbiddenError(ErrorCodes.SUBSCRIPTION_SUSPENDED, 'Account is suspended');
+      }
+
       const activated = await this.repo.applyTransition(accountId, {
         status: 'active',
         planFk,
@@ -206,6 +220,12 @@ export class SubscriptionService {
         currentPeriodStart: now,
         currentPeriodEnd:   periodEnd,
         accessValidUntil:   periodEnd,
+        // A successful payment is, by definition, intent to continue — always
+        // clear any pending cancellation. Without this, re-subscribing after a
+        // cancel (§13 case B) or re-paying/upgrading while cancel_at_period_end
+        // is set leaves the flag true, so expireCancelledAtPeriodEnd cancels the
+        // freshly-paid period at the next period end. Harmless no-op on renewals.
+        cancelAtPeriodEnd:  false,
       }, tx);
 
       // Every plan switch (upgrade or downgrade) funnels through this same
@@ -216,7 +236,19 @@ export class SubscriptionService {
       // (subscription §15D, device-management §19, POST /subscription/reconciliation).
       const overLimit = await this.downgradeDetection.isOverLimit(accountId, tx);
       if (overLimit) {
-        return this.repo.applyTransition(accountId, { reconciliationStatus: 'pending' }, tx);
+        const pending = await this.repo.applyTransition(accountId, { reconciliationStatus: 'pending' }, tx);
+        // Durable audit trail for a downgrade putting the account over its
+        // new plan's limits — ReconciliationService.apply()'s
+        // DOWNGRADE_RECONCILED and autoRestore()'s DOWNGRADE_AUTO_RESTORED
+        // both get a dedicated outbox row for their own transitions; this
+        // detection path had none until now (backend-standard review finding).
+        await this.repo.enqueueOutbox(
+          accountId,
+          'DOWNGRADE_DETECTED',
+          { planCode, version: pending.subscriptionVersion },
+          tx,
+        );
+        return pending;
       }
 
       // Not over limit on the new plan: if a prior downgrade left anything
@@ -244,7 +276,7 @@ export class SubscriptionService {
    * second call while already pending is a no-op (no second outbox row).
    */
   async cancel(userId: string): Promise<SubscriptionActionResult> {
-    const accountId = await this.requireOwnedAccount(userId);
+    const accountId = await this.repo.requireOwnedAccountId(userId);
     const sub = await this.transact(accountId, 'SUBSCRIPTION_CANCEL_REQUESTED', {}, async (tx) => {
       // Atomic compare-and-swap — status='active' AND cancel_at_period_end=false
       // is re-checked in the same UPDATE, not read-then-branched, so a
@@ -277,7 +309,7 @@ export class SubscriptionService {
    * case B), which reuses the existing payment-activation path.
    */
   async reactivate(userId: string): Promise<SubscriptionActionResult> {
-    const accountId = await this.requireOwnedAccount(userId);
+    const accountId = await this.repo.requireOwnedAccountId(userId);
     const sub = await this.transact(accountId, 'SUBSCRIPTION_REACTIVATED', {}, async (tx) => {
       // Same atomic compare-and-swap as cancel() above.
       const updated = await this.repo.applyTransitionIf(
@@ -325,14 +357,6 @@ export class SubscriptionService {
     };
   }
 
-  /** Resolve the account a user owns, or reject. Mirrors `BillingService`'s
-   *  gate — cancel/reactivate are owner-only billing actions (subscription §12/§13). */
-  private async requireOwnedAccount(userId: string): Promise<string> {
-    const accountId = await this.repo.findOwnedAccountId(userId);
-    if (!accountId) throw new ForbiddenError(ErrorCodes.NOT_ACCOUNT_OWNER, 'You are not the account owner');
-    return accountId;
-  }
-
   /**
    * Run a transition + its outbox row atomically, then invalidate the cache.
    * Cache DEL is deliberately post-commit: never inside the txn.
@@ -367,14 +391,21 @@ export class SubscriptionService {
     return sub;
   }
 
-  /** Banner severity from status + remaining window (subscription §22). */
-  private computeBanner(sub: AccountSubscription): {
+  /**
+   * Banner severity from status + remaining window (subscription §22). Covers
+   * every gated/at-risk state the client renders off the payload, not just the
+   * trial: a past_due grace window, a pending cancellation still inside its paid
+   * period, an admin suspension, and an active-but-free account all carry a
+   * banner. `planName` is the machine plan code ('free', 'starter', …) — needed
+   * only to nudge free-plan accounts to upgrade.
+   */
+  private computeBanner(sub: AccountSubscription, planName: string): {
     bannerSeverity: BannerSeverity;
     showUpgradeBanner: boolean;
   } {
     const now = Date.now();
     const daysUntil = (d: Date | null) =>
-      d ? Math.ceil((d.getTime() - now) / 86_400_000) : Infinity;
+      d ? Math.ceil((d.getTime() - now) / MS_PER_DAY) : Infinity;
 
     switch (sub.status) {
       case 'trialing': {
@@ -383,11 +414,32 @@ export class SubscriptionService {
         if (left <= 3) return { bannerSeverity: 'warning',  showUpgradeBanner: true };
         return { bannerSeverity: 'info', showUpgradeBanner: true };
       }
+      // In the 7-day grace window: full access, but escalate as it runs out
+      // (>3 days warning, ≤3 days critical). Grace-over collapses to `expired`.
+      case 'past_due': {
+        const left = daysUntil(sub.pastDueGraceUntil);
+        if (left <= 3) return { bannerSeverity: 'critical', showUpgradeBanner: true };
+        return { bannerSeverity: 'warning', showUpgradeBanner: true };
+      }
+      // Grace-over / cancelled-period-over — access has ended.
       case 'expired':
         return { bannerSeverity: 'critical', showUpgradeBanner: true };
-      case 'active':
-      default:
+      // Terminal cancellation (paid period elapsed); admin/abuse suspension.
+      case 'cancelled':
+      case 'paused':
+        return { bannerSeverity: 'critical', showUpgradeBanner: true };
+      case 'active': {
+        // Pending cancellation, still inside the paid period — "access ends {date}".
+        if (sub.cancelAtPeriodEnd) return { bannerSeverity: 'info', showUpgradeBanner: true };
+        // Active on the free plan — soft nudge to upgrade.
+        if (planName === 'free') return { bannerSeverity: 'info', showUpgradeBanner: true };
         return { bannerSeverity: 'none', showUpgradeBanner: false };
+      }
+      default: {
+        const unreachable: never = sub.status;
+        void unreachable;
+        return { bannerSeverity: 'none', showUpgradeBanner: false };
+      }
     }
   }
 }

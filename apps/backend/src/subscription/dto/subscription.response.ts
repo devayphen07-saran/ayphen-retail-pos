@@ -35,7 +35,7 @@ export interface SubscriptionActionResponse {
   subscription_version: number;
 }
 
-/** GET /me/subscription/sv — the bare version counter poll target (§16). */
+/** GET /me/subscription/version — the bare version counter poll target (§16). */
 export interface SubscriptionVersionResponse {
   subscription_version: number;
 }
@@ -70,7 +70,7 @@ export interface ReconciliationResponse {
 }
 
 /** One billing-cycle option for a plan in GET /me/subscription/plans.
- *  `plan_code` is what `POST /me/account/subscription/checkout` accepts.
+ *  `plan_code` is what `POST /me/subscription/checkout` accepts.
  *  `savings_percentage` is relative to this plan's monthly cycle (0 on the
  *  monthly option itself; computed off the live prices, never hand-entered). */
 export interface PlanPricingOption {

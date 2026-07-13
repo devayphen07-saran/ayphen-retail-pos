@@ -396,7 +396,13 @@ export class RefreshTokenService {
           'A concurrent refresh is in progress; please retry',
         );
       }
+      // Reuse of an already-used token means the whole session is
+      // compromised, not just this token family — revoke the session too
+      // (mirrors AuthLogoutService.logout) so the thief's already-issued
+      // access token doesn't stay valid until its own natural JWT expiry.
       await this.tokenRepo.revokeFamily(record.familyId, 'reuse_detected');
+      await this.sessionRepo.revokeSession(session.id, 'reuse_detected');
+      await this.emitReuseSideEffects(session);
       throw new UnauthorizedError(
         ErrorCodes.REFRESH_TOKEN_REUSE,
         'Refresh token has already been used',
@@ -473,8 +479,19 @@ export class RefreshTokenService {
           const isRecent =
             usedAt !== null && Date.now() - usedAt.getTime() < REUSE_GRACE_MS;
           if (isRecent) return 'lost_recent';
+          // Same reasoning as assertTokenUsable()'s reuse branch: this is a
+          // concurrent-race twin of the same detected-reuse condition, so it
+          // must revoke the session in the same transaction as the family
+          // revocation — committing inside the tx here (not throwing) is
+          // deliberate, matching the pattern the rest of this method already
+          // uses for revokeFamily.
           await this.tokenRepo.revokeFamily(
             record.familyId,
+            'reuse_detected',
+            tx,
+          );
+          await this.sessionRepo.revokeSession(
+            session.id,
             'reuse_detected',
             tx,
           );
@@ -508,12 +525,49 @@ export class RefreshTokenService {
       );
     }
     if (raceResult === 'lost') {
+      // Post-commit best-effort teardown, same as assertTokenUsable()'s reuse
+      // branch — the family+session revocation already committed above.
+      await this.emitReuseSideEffects(session);
       throw new UnauthorizedError(
         ErrorCodes.REFRESH_TOKEN_REUSE,
         'Refresh token has already been used',
       );
     }
     return raw;
+  }
+
+  /**
+   * Best-effort teardown of the live access token belonging to a session
+   * whose refresh token was just detected as reused: blacklist its current
+   * JTI and invalidate the session cache, mirroring what a normal logout
+   * does. Called after the durable session/family revocation has already
+   * committed — a failure here must not block reporting the reuse to the
+   * caller (the durable revocation already stands regardless).
+   */
+  private async emitReuseSideEffects(
+    session: RefreshTokenWithSession['session'],
+  ): Promise<void> {
+    if (session.currentJti && session.currentJtiExp) {
+      try {
+        await this.blacklist.addToBlacklist(
+          session.currentJti,
+          session.currentJtiExp,
+        );
+      } catch (err) {
+        this.logger.warn(
+          `Failed to blacklist JTI for reuse-detected session ${session.id}`,
+          err as Error,
+        );
+      }
+    }
+    try {
+      await this.cacheInvalidator.invalidate(session.id);
+    } catch (err) {
+      this.logger.warn(
+        `Failed to invalidate session cache for reuse-detected session ${session.id}`,
+        err as Error,
+      );
+    }
   }
 
   /**

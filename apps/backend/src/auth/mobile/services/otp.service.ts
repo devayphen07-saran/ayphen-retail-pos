@@ -6,15 +6,19 @@ import { ErrorCodes } from '#common/error-codes.js';
 import { AppConfigService } from '#config/app-config.service.js';
 import { CryptoService } from '../../core/crypto.service.js';
 import { Msg91Service } from '../../core/msg91.service.js';
-import { OtpRequestRepository, type OtpPurpose, type OtpRequest } from '../repositories/otp-request.repository.js';
+import { OtpRequestRepository, type OtpRequest } from '../repositories/otp-request.repository.js';
 import { REDIS } from '#common/redis/redis.provider.js';
 
-// Scoped by purpose (matches otp-request.service.ts's `otp_lock:{phone}:{purpose}`
-// convention) — a bare `otp:{phone}` key let an unauthenticated caller who only
-// knows a victim's phone number overwrite a DIFFERENT in-flight flow's code
-// (e.g. call the public signup endpoint to clobber the victim's pending login
-// OTP), silently breaking a legitimate flow with no auth required to do it.
-const otpKey = (phone: string, purpose: OtpPurpose) => `otp:${phone}:${purpose}`;
+// Scoped by the otpRequests row id — NOT by (phone, purpose). Multiple live
+// rows can exist for the same phone+purpose (e.g. two resends before the
+// first expires), each with its own independent `maxAttempts` counter in the
+// DB. Keying the code by (phone, purpose) let all of those rows share a
+// single Redis code, so their attempt budgets summed instead of each row
+// bounding its own — multiplying the effective brute-force budget. Scoping by
+// request id gives each row its own code, closing that amplification and
+// also fixing "used code still verifies a different still-live sibling row"
+// (see verifyOtp, which now also deletes this key on success).
+const otpKey = (requestId: string) => `otp:${requestId}`;
 
 @Injectable()
 export class OtpService {
@@ -28,11 +32,11 @@ export class OtpService {
     private readonly msg91:    Msg91Service,
   ) {}
 
-  async generateAndSend(phone: string, purpose: OtpPurpose, ttlSeconds: number): Promise<string> {
+  async generateAndSend(requestId: string, phone: string, ttlSeconds: number): Promise<string> {
     const code = String(randomInt(100_000, 999_999));
 
     // Store only a HASH at rest — a Redis read never yields a usable code.
-    await this.redis.setex(otpKey(phone, purpose), ttlSeconds, this.crypto.hashToken(code));
+    await this.redis.setex(otpKey(requestId), ttlSeconds, this.crypto.hashToken(code));
 
     if (this.config.isProduction) {
       // Real delivery. Throws OTP_SEND_FAILED on gateway error, so the caller
@@ -70,7 +74,7 @@ export class OtpService {
 
     let valid = false;
 
-    const storedHash = await this.redis.get(otpKey(phone, request.purpose));
+    const storedHash = await this.redis.get(otpKey(request.id));
     if (storedHash) {
       const a = Buffer.from(storedHash);
       const b = Buffer.from(this.crypto.hashToken(submitted));
@@ -82,5 +86,9 @@ export class OtpService {
     }
 
     await this.otpRepo.markConsumed(request.id);
+    // One-time-use: remove the code so it can't be replayed against this
+    // (now-consumed) row, and — belt-and-suspenders with the id-scoped key
+    // above — can never be reused against any other row either.
+    await this.redis.del(otpKey(request.id));
   }
 }

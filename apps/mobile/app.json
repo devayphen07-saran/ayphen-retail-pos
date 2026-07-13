@@ -60,7 +60,14 @@
           ]
         }
       ],
-      "expo-secure-store"
+      "expo-secure-store",
+      [
+        "expo-image-picker",
+        {
+          "photosPermission": "Allow $(PRODUCT_NAME) to access your photos so you can attach images to your records.",
+          "cameraPermission": "Allow $(PRODUCT_NAME) to use the camera so you can capture and attach photos to your records."
+        }
+      ]
     ]
   }
 }

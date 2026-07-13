@@ -58,11 +58,11 @@ export async function deleteWithIsolation(
 ): Promise<void> {
   if (guuids.length === 0) return;
   try {
-    await applier.applyDeletes(tx, guuids);
+    await applier.applyDeletes(tx, storeId, guuids);
   } catch {
     for (const guuid of guuids) {
       try {
-        await applier.applyDeletes(tx, [guuid]);
+        await applier.applyDeletes(tx, storeId, [guuid]);
       } catch (rowErr) {
         await failedAppliesRepository.record(tx, {
           storeId,

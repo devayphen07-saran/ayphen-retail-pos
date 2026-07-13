@@ -1,51 +1,31 @@
-/**
- * db:seed — inserts reference / master data into a freshly migrated database.
- * Safe to re-run: uses onConflictDoUpdate so it is idempotent.
- *
- * Seeds:
- *   - system-wide roles (USER, SUPER_ADMIN — immutable, store_fk NULL) (rbac.md §4)
- *   - subscription plans (+ entitlements + features); 'free' is the trial plan
- *   - sequences (order, refund, adjustment)
- *
- * STORE_OWNER is NOT seeded here: it is a system role but store-scoped
- * (store_fk set), created per store by the store-creation flow.
- * Account ownership is accounts.owner_user_fk, not a role — nothing to seed.
- *
- * Usage:  pnpm db:seed
- * Full reset:  pnpm db:flush && pnpm db:seed
- */
 import 'dotenv/config';
+
+import { and, eq, isNull, sql } from 'drizzle-orm';
 import { drizzle } from 'drizzle-orm/postgres-js';
-import { and, eq, isNull } from 'drizzle-orm';
-import * as schema from '../schema.js';
+
 import { ENTITIES } from '#common/rbac/permission-matrix.constants.js';
+
+import * as schema from '../schema.js';
 import { createPgClient } from '../create-pg-client.js';
 
-const url = process.env.DATABASE_URL;
-if (!url) {
-  console.error('[seed] DATABASE_URL is not set');
-  process.exit(1);
-}
+// ─── Reference data ──────────────────────────────────────────────────────────
 
-// statementTimeoutMs: 0 — seeding runs large idempotent upserts that can exceed
-// the app-level statement timeout.
-const client = createPgClient(url, { max: 1, statementTimeoutMs: 0 });
-const db = drizzle(client, { schema });
-
-// ─── System roles ─────────────────────────────────────────────────────────────
-// Immutable (isEditable=false), system-wide (storeFk=NULL). Custom roles
-// (manager/cashier/accountant) are store-scoped and seeded per store from
-// DEFAULT_ROLE_CRUD when an owner creates them (rbac.md §4, §9).
-
+/*
+ * System roles: immutable (isEditable=false), system-wide (storeFk=NULL). Custom
+ * roles (manager/cashier/accountant) are store-scoped and seeded per store from
+ * DEFAULT_ROLE_CRUD when an owner creates them (rbac.md §4, §9). STORE_OWNER is a
+ * system role but store-scoped, so it is created by the store-creation flow.
+ */
 const SYSTEM_ROLES = [
   { code: 'USER', name: 'User' },
   { code: 'SUPER_ADMIN', name: 'Super Admin' },
 ] as const;
 
-// ─── Subscription plans ─────────────────────────────────────────────────────────
-// 'free' is the plan every new signup starts on (15-day trial). Entitlement
-// value null = unlimited (rbac.md §26.6). Features default off unless listed true.
-
+/*
+ * Subscription plans. 'free' is the plan every new signup starts on (15-day
+ * trial). Entitlement value null = unlimited (rbac.md §26.6). Features default
+ * off unless listed true.
+ */
 const PLANS = [
   {
     name: 'free',
@@ -91,11 +71,12 @@ const PLANS = [
   },
 ] as const;
 
-// ─── Lookup types + global values (lookup-entity-prd.md §8) ──────────────────
-// System-seeded (is_system=true, storeFk=null) reference data for the ~15 POS
-// dropdown categories. Everything logic-bearing (order.status, tracking_type,
-// …) stays a text enum and is intentionally NOT seeded here (D1).
-
+/*
+ * Lookup types + global values (lookup-entity-prd.md §8). System-seeded
+ * (isSystem=true, storeFk=null) reference data for the POS dropdown categories.
+ * Everything logic-bearing (order.status, tracking_type, …) stays a text enum
+ * and is intentionally NOT seeded here (D1).
+ */
 const LOOKUP_TYPES = [
   {
     code: 'PAYMENT_TERMS',
@@ -318,10 +299,10 @@ const LOOKUP_TYPES = [
   },
 ] as const;
 
-// ─── Countries (ISO 3166-1 alpha-2) ──────────────────────────────────────────
-// A working common-country set, not the full ISO-3166 list (195 countries) —
-// covers the target market (India) plus the world's other major economies.
-
+/*
+ * Countries (ISO 3166-1 alpha-2). A working common-country set, not the full
+ * ISO-3166 list — covers the target market (India) plus other major economies.
+ */
 const COUNTRIES = [
   { code: 'IN', name: 'India', callingCode: '+91' },
   { code: 'US', name: 'United States', callingCode: '+1' },
@@ -367,8 +348,7 @@ const COUNTRIES = [
   { code: 'BH', name: 'Bahrain', callingCode: '+973' },
 ] as const;
 
-// ─── Currencies (ISO 4217) ───────────────────────────────────────────────────
-
+// Currencies (ISO 4217).
 const CURRENCIES = [
   { code: 'INR', name: 'Indian Rupee', symbol: '₹' },
   { code: 'USD', name: 'US Dollar', symbol: '$' },
@@ -405,77 +385,157 @@ const CURRENCIES = [
   { code: 'BHD', name: 'Bahraini Dinar', symbol: '.د.ب' },
 ] as const;
 
-// ─── Sequences ────────────────────────────────────────────────────────────────
+// Sequences. counter starts at 0 and is never reset on re-seed (see seedSequences).
+const CURRENT_YEAR = new Date().getFullYear();
 
 const SEQUENCES = [
-  { type: 'order', prefix: 'ORD', counter: 0, year: new Date().getFullYear() },
-  { type: 'refund', prefix: 'REF', counter: 0, year: new Date().getFullYear() },
+  { type: 'order', prefix: 'ORD', counter: 0, year: CURRENT_YEAR },
+  { type: 'refund', prefix: 'REF', counter: 0, year: CURRENT_YEAR },
+  { type: 'adjustment', prefix: 'ADJ', counter: 0, year: CURRENT_YEAR },
+] as const;
+
+// ─── File configuration ──────────────────────────────────────────────────────
+
+const MB = 1024 * 1024;
+
+const FILE_CONFIG_COMMON = {
+  maxFileSizeBytes: 10 * MB,
+  maxConsolidatedSizeBytes: 50 * MB,
+  maxAttachmentsAllowed: 10,
+  isActive: true,
+} as const;
+
+/**
+ * The image-specific rule prevents a valid PDF from being committed while the
+ * client declares kind=image.
+ *
+ * The null rule is an entity-wide fallback for document-style attachments.
+ * SVG remains deliberately excluded.
+ */
+const FILE_CONFIG_RULES = [
   {
-    type: 'adjustment',
-    prefix: 'ADJ',
-    counter: 0,
-    year: new Date().getFullYear(),
+    fileKind: null,
+    validExtensions: 'jpg,jpeg,png,webp,gif,pdf',
+  },
+  {
+    fileKind: 'image',
+    validExtensions: 'jpg,jpeg,png,webp,gif',
   },
 ] as const;
 
-// ─── Runner ───────────────────────────────────────────────────────────────────
+// ─── Database setup ──────────────────────────────────────────────────────────
 
-async function seed() {
+const databaseUrl = process.env.DATABASE_URL;
+
+if (!databaseUrl) {
+  throw new Error('[seed] DATABASE_URL is not set');
+}
+
+const client = createPgClient(databaseUrl, {
+  max: 1,
+  statementTimeoutMs: 0,
+});
+
+const db = drizzle(client, { schema });
+
+// ─── Seed functions ──────────────────────────────────────────────────────────
+
+async function seedSystemRoles(): Promise<void> {
   console.log('[seed] Seeding system roles...');
+
   for (const role of SYSTEM_ROLES) {
-    await db
-      .insert(schema.roles)
-      .values({
+    /*
+     * roles_system_code_uq is a partial unique index, so it may not be usable as
+     * a regular ON CONFLICT target through Drizzle. Update first, then insert if
+     * no system role exists.
+     */
+    const [updated] = await db
+      .update(schema.roles)
+      .set({
+        name: role.name,
+        isEditable: false,
+      })
+      .where(
+        and(eq(schema.roles.code, role.code), isNull(schema.roles.storeFk)),
+      )
+      .returning({ id: schema.roles.id });
+
+    if (!updated) {
+      await db.insert(schema.roles).values({
         code: role.code,
         name: role.name,
         isEditable: false,
         storeFk: null,
-      })
-      .onConflictDoNothing();
+      });
+    }
   }
-  console.log(`[seed] ${SYSTEM_ROLES.length} system roles seeded.`);
 
-  console.log('[seed] Seeding plans...');
+  console.log(`[seed] ${SYSTEM_ROLES.length} system roles seeded.`);
+}
+
+async function seedPlans(): Promise<void> {
+  console.log('[seed] Seeding subscription plans...');
+
   for (const plan of PLANS) {
-    await db
+    const [planRow] = await db
       .insert(schema.plans)
       .values({
         name: plan.name,
         displayName: plan.displayName,
         isActive: true,
       })
-      .onConflictDoNothing({ target: schema.plans.name });
+      .onConflictDoUpdate({
+        target: schema.plans.name,
+        set: {
+          displayName: plan.displayName,
+          isActive: true,
+        },
+      })
+      .returning({ id: schema.plans.id });
 
-    const [row] = await db
-      .select({ id: schema.plans.id })
-      .from(schema.plans)
-      .where(eq(schema.plans.name, plan.name));
-    if (!row) continue;
+    if (!planRow) {
+      throw new Error(`[seed] Failed to upsert plan ${plan.name}`);
+    }
 
     for (const [key, value] of Object.entries(plan.entitlements)) {
       await db
         .insert(schema.planEntitlements)
-        .values({ planFk: row.id, key, value })
+        .values({
+          planFk: planRow.id,
+          key,
+          value,
+        })
         .onConflictDoUpdate({
           target: [schema.planEntitlements.planFk, schema.planEntitlements.key],
           set: { value },
         });
     }
+
     for (const [key, enabled] of Object.entries(plan.features)) {
       await db
         .insert(schema.planFeatures)
-        .values({ planFk: row.id, key, enabled })
+        .values({
+          planFk: planRow.id,
+          key,
+          enabled,
+        })
         .onConflictDoUpdate({
           target: [schema.planFeatures.planFk, schema.planFeatures.key],
           set: { enabled },
         });
     }
   }
-  console.log(`[seed] ${PLANS.length} plans seeded.`);
 
+  console.log(`[seed] ${PLANS.length} subscription plans seeded.`);
+}
+
+async function seedEntityTypes(): Promise<Map<string, string>> {
   console.log('[seed] Seeding entity types...');
+
+  const entityIds = new Map<string, string>();
+
   for (const entity of ENTITIES) {
-    await db
+    const [row] = await db
       .insert(schema.entityTypes)
       .values({
         code: entity.code,
@@ -490,68 +550,144 @@ async function seed() {
           isOfflineSafe: entity.isOfflineSafe,
           supportsAttachments: entity.supportsAttachments,
         },
+      })
+      .returning({
+        id: schema.entityTypes.id,
+        code: schema.entityTypes.code,
       });
+
+    if (!row) {
+      throw new Error(`[seed] Failed to upsert entity type ${entity.code}`);
+    }
+
+    entityIds.set(row.code, row.id);
   }
+
   console.log(`[seed] ${ENTITIES.length} entity types seeded.`);
 
-  // ── files_config — per-entity upload rules (table-architecture §33.3) ─────
-  // An entity-wide rule (file_kind = null) for every attachment-supporting
-  // entity. Uploads fail closed (FILE_CONFIG_NOT_FOUND) without a rule, so this
-  // must exist before the Files feature works. Idempotent: skips entities that
-  // already have an entity-wide rule (the unique index treats NULL file_kind as
-  // distinct, so onConflict can't dedupe it — check-then-insert instead).
-  const MB = 1024 * 1024;
-  const FILE_CONFIG_DEFAULTS = {
-    maxFileSizeBytes: 10 * MB,          // matches UPLOAD_MAX_FILE_SIZE_MB default
-    maxConsolidatedSizeBytes: 50 * MB,  // total per (entity, record)
-    validExtensions: 'jpg,jpeg,png,webp,gif,pdf', // images + pdf; SVG deliberately excluded
-    maxAttachmentsAllowed: 10,
-  };
-  let fileConfigCount = 0;
-  for (const entity of ENTITIES) {
-    if (!entity.supportsAttachments) continue;
-    const [et] = await db
-      .select({ id: schema.entityTypes.id })
-      .from(schema.entityTypes)
-      .where(eq(schema.entityTypes.code, entity.code));
-    if (!et) continue;
-    const [existing] = await db
-      .select({ id: schema.filesConfig.id })
-      .from(schema.filesConfig)
-      .where(and(eq(schema.filesConfig.entityTypeFk, et.id), isNull(schema.filesConfig.fileKind)));
-    if (existing) continue;
-    await db.insert(schema.filesConfig).values({
-      entityTypeFk: et.id,
-      fileKind: null,
-      ...FILE_CONFIG_DEFAULTS,
-    });
-    fileConfigCount += 1;
-  }
-  console.log(`[seed] ${fileConfigCount} files_config rule(s) seeded.`);
+  return entityIds;
+}
 
-  console.log('[seed] Seeding lookup types + values...');
+async function seedFileConfigurations(
+  entityIds: Map<string, string>,
+): Promise<void> {
+  console.log('[seed] Seeding file configurations...');
+
+  /*
+   * Prevent two concurrently running seed processes from performing the
+   * nullable fallback-rule update/insert sequence simultaneously.
+   */
+  await db.execute(
+    sql`select pg_advisory_lock(hashtext('db-seed:files-config'))`,
+  );
+
+  let seededCount = 0;
+
+  try {
+    for (const entity of ENTITIES) {
+      if (!entity.supportsAttachments) {
+        continue;
+      }
+
+      const entityTypeFk = entityIds.get(entity.code);
+
+      if (!entityTypeFk) {
+        throw new Error(`[seed] Missing entity type id for ${entity.code}`);
+      }
+
+      for (const rule of FILE_CONFIG_RULES) {
+        const values = {
+          entityTypeFk,
+          fileKind: rule.fileKind,
+          validExtensions: rule.validExtensions,
+          ...FILE_CONFIG_COMMON,
+        };
+
+        if (rule.fileKind === null) {
+          /*
+           * This explicit update also works before the NULLS NOT DISTINCT
+           * migration is deployed. After the migration, the subsequent insert
+           * is protected against concurrent duplicates as well.
+           */
+          const [updated] = await db
+            .update(schema.filesConfig)
+            .set({
+              validExtensions: rule.validExtensions,
+              ...FILE_CONFIG_COMMON,
+            })
+            .where(
+              and(
+                eq(schema.filesConfig.entityTypeFk, entityTypeFk),
+                isNull(schema.filesConfig.fileKind),
+              ),
+            )
+            .returning({
+              id: schema.filesConfig.id,
+            });
+
+          if (!updated) {
+            await db.insert(schema.filesConfig).values(values);
+          }
+        } else {
+          await db
+            .insert(schema.filesConfig)
+            .values(values)
+            .onConflictDoUpdate({
+              target: [
+                schema.filesConfig.entityTypeFk,
+                schema.filesConfig.fileKind,
+              ],
+              set: {
+                validExtensions: rule.validExtensions,
+                ...FILE_CONFIG_COMMON,
+              },
+            });
+        }
+
+        seededCount += 1;
+      }
+    }
+  } finally {
+    await db.execute(
+      sql`select pg_advisory_unlock(hashtext('db-seed:files-config'))`,
+    );
+  }
+
+  console.log(`[seed] ${seededCount} file configuration rules seeded.`);
+}
+
+async function seedLookupTypesAndValues(): Promise<void> {
+  console.log('[seed] Seeding lookup types and values...');
+
   let lookupValueCount = 0;
+
   for (const type of LOOKUP_TYPES) {
-    await db
+    const [lookupType] = await db
       .insert(schema.lookupType)
-      .values({ code: type.code, title: type.title })
+      .values({
+        code: type.code,
+        title: type.title,
+      })
       .onConflictDoUpdate({
         target: schema.lookupType.code,
-        set: { title: type.title },
+        set: {
+          title: type.title,
+        },
+      })
+      .returning({
+        id: schema.lookupType.id,
       });
 
-    const [row] = await db
-      .select({ id: schema.lookupType.id })
-      .from(schema.lookupType)
-      .where(eq(schema.lookupType.code, type.code));
-    if (!row) continue;
+    if (!lookupType) {
+      throw new Error(`[seed] Failed to upsert lookup type ${type.code}`);
+    }
 
     for (const [index, value] of type.values.entries()) {
       await db
         .insert(schema.lookup)
         .values({
-          lookupTypeFk: row.id,
-          storeFk: null, // global seed value
+          lookupTypeFk: lookupType.id,
+          storeFk: null,
           code: value.code,
           label: value.label,
           sortOrder: index + 1,
@@ -559,56 +695,137 @@ async function seed() {
         })
         .onConflictDoUpdate({
           target: [schema.lookup.lookupTypeFk, schema.lookup.code],
-          set: { label: value.label, sortOrder: index + 1 },
+          set: {
+            label: value.label,
+            sortOrder: index + 1,
+            isSystem: true,
+            storeFk: null,
+          },
         });
-      lookupValueCount++;
+
+      lookupValueCount += 1;
     }
   }
+
   console.log(
-    `[seed] ${LOOKUP_TYPES.length} lookup types / ${lookupValueCount} lookup values seeded.`,
+    `[seed] ${LOOKUP_TYPES.length} lookup types and ` +
+      `${lookupValueCount} lookup values seeded.`,
   );
-
-  console.log('[seed] Seeding countries...');
-  for (const c of COUNTRIES) {
-    await db
-      .insert(schema.country)
-      .values({ code: c.code, name: c.name, callingCode: c.callingCode })
-      .onConflictDoUpdate({
-        target: schema.country.code,
-        set: { name: c.name, callingCode: c.callingCode },
-      });
-  }
-  console.log(`[seed] ${COUNTRIES.length} countries seeded.`);
-
-  console.log('[seed] Seeding currencies...');
-  for (const c of CURRENCIES) {
-    await db
-      .insert(schema.currency)
-      .values({ code: c.code, name: c.name, symbol: c.symbol })
-      .onConflictDoUpdate({
-        target: schema.currency.code,
-        set: { name: c.name, symbol: c.symbol },
-      });
-  }
-  console.log(`[seed] ${CURRENCIES.length} currencies seeded.`);
-
-  console.log('[seed] Seeding sequences...');
-  for (const seq of SEQUENCES) {
-    await db
-      .insert(schema.sequences)
-      .values(seq)
-      .onConflictDoUpdate({
-        target: schema.sequences.type,
-        set: { prefix: seq.prefix, year: seq.year },
-      });
-  }
-  console.log(`[seed] ${SEQUENCES.length} sequences seeded.`);
-
-  console.log('[seed] Done.');
-  await client.end();
 }
 
-seed().catch((err) => {
-  console.error('[seed] Failed:', err);
-  process.exit(1);
-});
+async function seedCountries(): Promise<void> {
+  console.log('[seed] Seeding countries...');
+
+  for (const country of COUNTRIES) {
+    await db
+      .insert(schema.country)
+      .values({
+        code: country.code,
+        name: country.name,
+        callingCode: country.callingCode,
+      })
+      .onConflictDoUpdate({
+        target: schema.country.code,
+        set: {
+          name: country.name,
+          callingCode: country.callingCode,
+        },
+      });
+  }
+
+  console.log(`[seed] ${COUNTRIES.length} countries seeded.`);
+}
+
+async function seedCurrencies(): Promise<void> {
+  console.log('[seed] Seeding currencies...');
+
+  for (const currency of CURRENCIES) {
+    await db
+      .insert(schema.currency)
+      .values({
+        code: currency.code,
+        name: currency.name,
+        symbol: currency.symbol,
+      })
+      .onConflictDoUpdate({
+        target: schema.currency.code,
+        set: {
+          name: currency.name,
+          symbol: currency.symbol,
+        },
+      });
+  }
+
+  console.log(`[seed] ${CURRENCIES.length} currencies seeded.`);
+}
+
+async function seedSequences(): Promise<void> {
+  console.log('[seed] Seeding sequences...');
+
+  for (const sequence of SEQUENCES) {
+    await db
+      .insert(schema.sequences)
+      .values(sequence)
+      .onConflictDoUpdate({
+        target: schema.sequences.type,
+        set: {
+          /*
+           * Never reset the counter during a seed rerun.
+           */
+          prefix: sequence.prefix,
+          year: sequence.year,
+        },
+      });
+  }
+
+  console.log(`[seed] ${SEQUENCES.length} sequences seeded.`);
+}
+
+// ─── Runner ──────────────────────────────────────────────────────────────────
+
+async function seed(): Promise<void> {
+  console.log('[seed] Starting database seed...');
+
+  /*
+   * Reference data is intentionally seeded in dependency order.
+   *
+   * Each individual upsert is idempotent. The entire seed is not wrapped in one
+   * long transaction because installations may contain substantial reference
+   * data and statementTimeout is intentionally disabled for this process.
+   */
+  await seedSystemRoles();
+  await seedPlans();
+
+  const entityIds = await seedEntityTypes();
+
+  await seedFileConfigurations(entityIds);
+  await seedLookupTypesAndValues();
+  await seedCountries();
+  await seedCurrencies();
+  await seedSequences();
+
+  console.log('[seed] Done.');
+}
+
+async function main(): Promise<void> {
+  try {
+    await seed();
+  } catch (error) {
+    process.exitCode = 1;
+
+    console.error(
+      '[seed] Failed:',
+      error instanceof Error ? (error.stack ?? error.message) : error,
+    );
+  } finally {
+    /*
+     * Do not call process.exit(). It can terminate while buffered database work
+     * or logs are still pending.
+     */
+    await client.end({
+      timeout: 5,
+    });
+  }
+}
+
+void main();

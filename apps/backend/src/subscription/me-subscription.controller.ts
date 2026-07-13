@@ -2,6 +2,7 @@ import {
   Body,
   Controller,
   Get,
+  HttpCode,
   Post,
   UseGuards,
 } from '@nestjs/common';
@@ -70,7 +71,7 @@ export class MeSubscriptionController {
    * whether to pull the full `GET /me/subscription` payload without paying for
    * the plan/entitlement joins on every poll.
    */
-  @Get('subscription/sv')
+  @Get('subscription/version')
   async getSubscriptionVersion(
     @CurrentUser() user: MobilePrincipal,
   ): Promise<SubscriptionVersionResponse> {
@@ -82,7 +83,8 @@ export class MeSubscriptionController {
   /** Create a payment order for a plan (§9). Owner-gated only — no step-up
    *  (product decision: checkout/verify don't require re-auth, unlike
    *  cancel/reactivate below). */
-  @Post('account/subscription/checkout')
+  @Post('subscription/checkout')
+  @HttpCode(200)
   async checkout(
     @CurrentUser() user: MobilePrincipal,
     @Body() body: unknown,
@@ -94,7 +96,8 @@ export class MeSubscriptionController {
 
   /** Verify a client-reported payment → activate (§9). Owner-gated only — see
    *  `checkout` above for why this doesn't require step-up. */
-  @Post('account/subscription/verify')
+  @Post('subscription/verify')
+  @HttpCode(200)
   async verify(
     @CurrentUser() user: MobilePrincipal,
     @Body() body: unknown,
@@ -110,6 +113,7 @@ export class MeSubscriptionController {
 
   /** Request cancellation at period end (§12). Owner + step-up. */
   @Post('subscription/cancel')
+  @HttpCode(200)
   @StepUpAuth({ within: '5m' })
   async cancel(@CurrentUser() user: MobilePrincipal): Promise<SubscriptionActionResponse> {
     const sub = await this.subscriptions.cancel(user.userId);
@@ -118,6 +122,7 @@ export class MeSubscriptionController {
 
   /** Undo a pending cancellation, still within the paid period (§13 case A). Owner + step-up. */
   @Post('subscription/reactivate')
+  @HttpCode(200)
   @StepUpAuth({ within: '5m' })
   async reactivate(@CurrentUser() user: MobilePrincipal): Promise<SubscriptionActionResponse> {
     const sub = await this.subscriptions.reactivate(user.userId);
@@ -142,6 +147,7 @@ export class MeSubscriptionController {
    * access, not a cosmetic setting.
    */
   @Post('subscription/reconciliation')
+  @HttpCode(200)
   @StepUpAuth({ within: '5m' })
   async resolveReconciliation(
     @CurrentUser() user: MobilePrincipal,
@@ -161,6 +167,7 @@ export class MeSubscriptionController {
    * endpoint above — this locks/revokes real store access.
    */
   @Post('subscription/active-store')
+  @HttpCode(200)
   @StepUpAuth({ within: '5m' })
   async swapActiveStore(
     @CurrentUser() user: MobilePrincipal,

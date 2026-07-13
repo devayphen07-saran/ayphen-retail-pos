@@ -7,6 +7,7 @@ import type { MobilePrincipal } from '#common/types/principal.js';
 import { LookupService } from './lookup.service.js';
 import { LookupTypeMapper, type LookupTypeResponse } from './lookup-type.mapper.js';
 import { CreateLookupTypeDtoSchema } from './dto/lookup.dto.js';
+import { LookupRequestMapper } from './lookup.request-mapper.js';
 
 /** Lookup category management (lookup-entity-prd.md §7) — platform-admin only. */
 @Controller('lookup/types')
@@ -27,11 +28,10 @@ export class LookupTypeController {
     @Body() body: unknown,
   ): Promise<LookupTypeResponse> {
     const dto = parse(body, CreateLookupTypeDtoSchema);
-    const row = await this.lookup.createType(user.userId, {
-      code:        dto.code,
-      title:       dto.title,
-      description: dto.description,
-    });
+    const row = await this.lookup.createType(
+      user.userId,
+      LookupRequestMapper.toCreateTypeCommand(dto),
+    );
     return LookupTypeMapper.toResponse(row);
   }
 }

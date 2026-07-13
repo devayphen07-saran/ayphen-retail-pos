@@ -6,6 +6,9 @@
  */
 import { isEntityCode } from './permission-matrix.constants.js';
 import type { CrudAction, EntityCode } from './permission-matrix.constants.js';
+import { ForbiddenError } from '#common/exceptions/app.exception.js';
+import { ErrorCodes } from '#common/error-codes.js';
+import type { RbacService } from './rbac.service.js';
 
 /** Special action codes are SCREAMING_SNAKE_CASE (rbac.md §7). */
 const SPECIAL_CODE_REGEX = /^[A-Z][A-Z0-9]*(_[A-Z0-9]+)*$/;
@@ -152,34 +155,10 @@ function parsePermissionsBody(parsed: Record<string, unknown>): EffectivePermiss
 }
 
 /**
- * Deserialize cached permissions.
- *
- * Throws on malformed JSON or unexpected shape.
- * Caller should treat a thrown error as cache corruption and rebuild from DB.
- */
-export function deserializePermissions(raw: string): EffectivePermissions {
-  let parsed: unknown;
-
-  try {
-    parsed = JSON.parse(raw);
-  } catch {
-    throw new Error('Malformed cached permissions payload: invalid JSON.');
-  }
-
-  if (!isRecord(parsed)) {
-    throw new Error(
-      'Malformed cached permissions payload: root must be an object.',
-    );
-  }
-
-  return parsePermissionsBody(parsed);
-}
-
-/**
  * Deserialize a cache entry written by serializePermissions, including its
  * resolvedAt freshness tag. Throws on malformed JSON, unexpected shape, or a
- * missing/non-numeric resolvedAt — same cache-corruption contract as
- * deserializePermissions.
+ * missing/non-numeric resolvedAt — the caller treats a throw as cache
+ * corruption and rebuilds from DB.
  */
 export function deserializeCachedEntry(raw: string): CachedPermissionsEntry {
   let parsed: unknown;
@@ -228,4 +207,41 @@ export function checkSpecial(
   actionCode: string,
 ): boolean {
   return permissions.special.get(entity)?.has(actionCode) ?? false;
+}
+
+/**
+ * Escalation guard (rbac.md) shared by RoleService.updatePermissions,
+ * RoleAssignmentService.assignRole, and InvitationService.validateContactAndRole
+ * — an actor must never grant, assign, or invite someone into a role broader
+ * than their own live grants in this store (otherwise Role.edit +
+ * UserRoleMapping.create/Invitation.create is enough to mint full CRUD for
+ * every entity and self-assign it). `entityCodeOf` extracts the entity code
+ * from each caller's own grant shape (they differ: `{entity}` vs
+ * `{entityCode}`) so the thrown error's `details.grants` stays exactly the
+ * caller's original shape instead of a normalized one.
+ *
+ * Critical read: `getCachedPermissions`'s `isCritical` flag must stay `true`
+ * — this must reflect the actor's live grants, not a standard-request-stale
+ * cache.
+ */
+export async function assertGrantsWithinActorScope<T extends { action: CrudAction }>(
+  rbac: RbacService,
+  actorId: string,
+  storeId: string,
+  grants: T[],
+  entityCodeOf: (grant: T) => string,
+  message: string,
+): Promise<void> {
+  const actorPermissions = await rbac.getCachedPermissions(actorId, storeId, true);
+  const beyondActor = grants.filter((g) => {
+    const code = entityCodeOf(g);
+    return isEntityCode(code) && !checkCrud(actorPermissions, code, g.action);
+  });
+  if (beyondActor.length > 0) {
+    throw new ForbiddenError(
+      ErrorCodes.GRANT_EXCEEDS_ACTOR_PERMISSIONS,
+      message,
+      { grants: beyondActor },
+    );
+  }
 }

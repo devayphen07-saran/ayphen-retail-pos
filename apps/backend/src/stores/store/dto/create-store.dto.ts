@@ -9,5 +9,8 @@ export const CreateStoreDtoSchema = z.object({
   address:    z.string().max(500).optional(),
   phone:      z.string().max(20).optional(),
   email:      z.string().email().optional(),
+  // F1 (docs/prd/accounts-and-ledger.md) — cash already in the drawer today.
+  // Integer paise; omitted/zero starts the seeded Cash account at 0.
+  opening_cash_balance_paise: z.number().int().positive().optional(),
 });
 export type CreateStoreDto = z.infer<typeof CreateStoreDtoSchema>;

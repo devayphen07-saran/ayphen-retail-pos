@@ -73,9 +73,9 @@ export const LOGOUT_ALL = new APIData('auth/mobile/logout/all', APIMethod.POST);
 /** List active sessions (paginated: `?limit=&cursor=`). Auth required. */
 export const GET_SESSIONS = new APIData('auth/mobile/sessions', APIMethod.GET);
 
-/** Revoke one session by id. Path: `:id`. Auth required. */
+/** Revoke one session by id. Path: `:sessionId`. Auth required. */
 export const REVOKE_SESSION = new APIData(
-  'auth/mobile/sessions/:id',
+  'auth/mobile/sessions/:sessionId',
   APIMethod.DELETE,
 );
 

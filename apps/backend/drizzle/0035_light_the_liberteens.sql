@@ -1,0 +1,1 @@
+ALTER TABLE "payment_accounts" ADD COLUMN "kind" text DEFAULT 'other' NOT NULL;

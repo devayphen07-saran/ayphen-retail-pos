@@ -9,5 +9,7 @@ export const SYNC_ENTITY_PERMISSION: Readonly<Record<string, string>> = {
   product: 'Product',
   product_case: 'Product',
   customer: 'Customer',
+  supplier: 'Supplier',
   payment_method: 'Payment',
+  paymentaccount: 'Payment',
 };

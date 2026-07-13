@@ -1,4 +1,5 @@
 import { Inject, Injectable, Logger, OnModuleInit } from '@nestjs/common';
+import { MS_PER_DAY } from '#common/time.js';
 import { SchedulerRegistry } from '@nestjs/schedule';
 import { CronJob } from 'cron';
 import type { Redis } from 'ioredis';
@@ -80,7 +81,7 @@ export class DeviceSlotExpiryCronService implements OnModuleInit {
     if (!lock) return;
     const start = Date.now();
     try {
-      const staleBefore = new Date(Date.now() - STALE_DAYS * 24 * 60 * 60 * 1000);
+      const staleBefore = new Date(Date.now() - STALE_DAYS * MS_PER_DAY);
       let expiredCount = 0;
       for (;;) {
         const batch = await this.uow.execute((tx: DbTransaction) =>

@@ -1,13 +1,12 @@
 import {
   CanActivate,
   ExecutionContext,
-  ForbiddenException,
   Injectable,
-  NotFoundException,
-  UnauthorizedException,
 } from '@nestjs/common';
 import { Reflector } from '@nestjs/core';
 import type { Request } from 'express';
+import { ForbiddenError, NotFoundError, UnauthorizedError } from '#common/exceptions/app.exception.js';
+import { ErrorCodes } from '#common/error-codes.js';
 import { RbacService } from '../rbac.service.js';
 import { RbacRepository } from '../rbac.repository.js';
 import {
@@ -51,16 +50,16 @@ export class TenantGuard implements CanActivate {
 
     const req = ctx.switchToHttp().getRequest<Request>();
     const principal = req.user;
-    if (!principal) throw new UnauthorizedException('MISSING_AUTH');
+    if (!principal) throw new UnauthorizedError(ErrorCodes.MISSING_AUTH);
 
     const raw = readScopedSource(req, source);
-    if (!raw) throw new ForbiddenException('STORE_CONTEXT_MISSING');
+    if (!raw) throw new ForbiddenError(ErrorCodes.STORE_CONTEXT_MISSING, 'A store context is required');
 
     const accessibleIds = await this.rbac.userStoreIds(principal.userId);
     const store = await this.repo.resolveAccessibleStore(raw, accessibleIds);
 
     // Same error for missing + inaccessible (timing-oracle protection, §19).
-    if (!store) throw new NotFoundException('STORE_NOT_ACCESSIBLE');
+    if (!store) throw new NotFoundError(ErrorCodes.STORE_NOT_ACCESSIBLE, 'Store not found or not accessible');
 
     const context: ResolvedStoreContext = {
       storeId:   store.id,

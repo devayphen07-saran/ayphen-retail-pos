@@ -127,6 +127,21 @@ export class RoleRepository {
       .where(and(eq(rolePermissions.roleFk, roleId), isNull(rolePermissions.revokedAt)));
   }
 
+  /**
+   * Row-lock a role for the duration of the transaction (SELECT ... FOR
+   * UPDATE), modeled on InvitationRepository.lockStore/StoreRepository.lockAccount.
+   * Serializes a delete's member/invite-count recheck against a concurrent
+   * assign/invite targeting the same role, so the recheck inside the
+   * transaction is actually trustworthy (not just another unlocked read).
+   */
+  async lockRole(roleId: string, tx: DbExecutor): Promise<void> {
+    await tx
+      .select({ id: roles.id })
+      .from(roles)
+      .where(eq(roles.id, roleId))
+      .for('update');
+  }
+
   /** Count active members of a role (any store scope). */
   async countActiveMembers(roleId: string, tx?: DbExecutor): Promise<number> {
     const [row] = await this.client(tx)

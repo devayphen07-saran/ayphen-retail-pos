@@ -1,8 +1,11 @@
+import { useState } from 'react';
 import { router } from 'expo-router';
+import * as Crypto from 'expo-crypto';
 import { Input, Switch } from '@ayphen/mobile-ui-components';
-import { useActiveStoreStore } from '@store';
+import { useActiveStoreStore, useAuthStore } from '@store';
 import { enqueueCreateProduct } from '@core/sync/mutations/enqueue-create-product';
 import { FormScreen, FormFieldAnchor } from '../../../components/FormScreen';
+import { ProductImageCaptureField } from '../components/ProductImageCaptureField';
 import {
   createProductSchema,
   DEFAULT_CREATE_PRODUCT_VALUES,
@@ -19,6 +22,11 @@ import { toCreateProductInput } from '../utils/transform';
  */
 export function CreateProductScreen() {
   const storeId = useActiveStoreStore((s) => s.storeId) ?? '';
+  const userId = useAuthStore((s) => s.snapshot?.userId) ?? '';
+  // Draft product guuid, stable for this form instance — an image captured
+  // before Save is attached to it, and Save creates the product under the same
+  // guuid so the uploader can later commit against it.
+  const [productGuuid] = useState(() => Crypto.randomUUID());
 
   return (
     <FormScreen<CreateProductForm>
@@ -28,12 +36,19 @@ export function CreateProductScreen() {
       submitLabel="Create"
       fallbackError="Could not create the product."
       onSubmit={async (values) => {
-        await enqueueCreateProduct(storeId, toCreateProductInput(values));
+        await enqueueCreateProduct(storeId, toCreateProductInput(values), productGuuid);
       }}
       onSuccess={() => router.back()}
     >
       {({ control, isSubmitting, submitOnLast, form, registerFieldOffset }) => (
         <>
+          <ProductImageCaptureField
+            storeId={storeId}
+            productGuuid={productGuuid}
+            userId={userId}
+            label="Product"
+            disabled={isSubmitting}
+          />
           <FormFieldAnchor name="name" registerFieldOffset={registerFieldOffset}>
             <Input<CreateProductForm>
               name="name"
