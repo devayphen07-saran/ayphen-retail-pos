@@ -73,7 +73,12 @@ export function SuppliersScreen() {
   );
 
   const renderItem = useCallback(
-    ({ item }: { item: LocalSupplier }) => <SupplierCard supplier={item} />,
+    ({ item }: { item: LocalSupplier }) => (
+      <SupplierCard
+        supplier={item}
+        onPress={() => router.push({ pathname: '/(store)/supplier-detail', params: { supplierGuuid: item.guuid } })}
+      />
+    ),
     [],
   );
 
@@ -85,7 +90,7 @@ export function SuppliersScreen() {
         data={filtered}
         keyExtractor={(item) => item.id}
         renderItem={renderItem}
-        isThemed
+        isThemed={false}
         listProps={{ refetch: () => undefined }}
         loaderProps={{
           isLoading: false,

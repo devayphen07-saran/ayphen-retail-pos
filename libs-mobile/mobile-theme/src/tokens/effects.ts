@@ -105,4 +105,20 @@ export const componentSizing = {
   btnHeightMd: 40,
   btnHeightLg: 48,
   btnHeightXlg: 56,
+  /** Chip pill height ladder — fixed heights, off the spacing scale. */
+  chipHeightSm: 30,
+  chipHeightMd: 32,
+  /** Chip horizontal padding for the `sm` size — off the spacing scale. */
+  chipPaddingHorizontalSm: 10,
+  /** Tag vertical padding for the two smallest sizes — off the spacing scale. */
+  tagPaddingVerticalXsm: 2,
+  tagPaddingVerticalSm: 3,
+  /** SegmentedTabs vertical padding ladder — off the spacing scale. */
+  segmentedTabsPaddingXSmall: 2,
+  segmentedTabsPaddingSmall: 6,
+  segmentedTabsPaddingMedium: 10,
+  /** SegmentedTabs extra horizontal padding added on top of the vertical value. */
+  segmentedTabsPaddingHorizontalOffset: 2,
+  /** Screen header min-height — touch-target/layout constant, off the spacing scale. */
+  headerMinHeight: 64,
 } as const;

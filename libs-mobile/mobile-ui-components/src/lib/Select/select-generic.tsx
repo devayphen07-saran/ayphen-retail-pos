@@ -7,7 +7,7 @@ import {
   SelectTouchable,
   Separator,
 } from "./styles";
-import { useTheme } from "styled-components/native";
+import styled, { useTheme } from "styled-components/native";
 import { useBreakpoint } from "@ayphen/mobile-theme";
 import { Typography } from "../typography";
 import { LucideIcon } from "../lucide-icon";
@@ -191,14 +191,10 @@ export function SelectGeneric<T>({
   return (
     <SelectGenericContainer style={style}>
       {label && (
-        <Typography.Caption style={{ paddingBottom: 4, marginLeft: 3 }}>
+        <LabelCaption>
           {label}
-          {required && (
-            <Typography.Body type="secondary" style={{ color: theme.colorRed }}>
-              {" *"}
-            </Typography.Body>
-          )}
-        </Typography.Caption>
+          {required && <RequiredMark type="secondary">{" *"}</RequiredMark>}
+        </LabelCaption>
       )}
 
       <SelectTouchable
@@ -207,7 +203,7 @@ export function SelectGeneric<T>({
         disabled={disabled}
         $hasError={!!errorMessage}
         $scale={scale}
-        style={{ opacity: disabled ? 0.6 : 1 }}
+        $disabled={disabled}
       >
         <SelectLabelText $fontScale={fontScale}>{displayRenderer(selectedValue)}</SelectLabelText>
         {!selectedValue && (
@@ -226,12 +222,26 @@ export function SelectGeneric<T>({
         )}
       </SelectTouchable>
       {errorMessage && (
-        <Typography.Caption type="secondary" style={{ color: theme.colorRed, marginLeft: 3 }}>
-          * {errorMessage}
-        </Typography.Caption>
+        <ErrorCaption type="secondary">* {errorMessage}</ErrorCaption>
       )}
     </SelectGenericContainer>
   );
 }
 
 export default SelectGeneric;
+
+// ─── Styles ─────────────────────────────────────────────────────────────────
+
+const LabelCaption = styled(Typography.Caption)`
+  padding-bottom: ${({ theme }) => theme.sizing.xxSmall}px;
+  margin-left: ${({ theme }) => theme.sizing.xxSmall}px;
+`;
+
+const RequiredMark = styled(Typography.Body)`
+  color: ${({ theme }) => theme.colorRed};
+`;
+
+const ErrorCaption = styled(Typography.Caption)`
+  color: ${({ theme }) => theme.colorRed};
+  margin-left: ${({ theme }) => theme.sizing.xxSmall}px;
+`;

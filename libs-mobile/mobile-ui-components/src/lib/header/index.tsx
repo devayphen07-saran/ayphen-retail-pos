@@ -47,7 +47,7 @@ const HeaderSafe = styled(SafeAreaView)`
 `;
 
 const HeaderContainer = styled(View)`
-  min-height: 64px;
+  min-height: ${({ theme }) => theme.componentSizing.headerMinHeight}px;
   flex-direction: row;
   align-items: center;
   justify-content: space-between;

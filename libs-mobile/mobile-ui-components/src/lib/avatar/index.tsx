@@ -373,9 +373,12 @@ const StyledImage = styled.Image<{
 // ─── InitialsText ─────────────────────────────────────────────────────────────
 //
 // Typography.H5 carries its own line-height which causes vertical misalignment
-// when centred inside a fixed-size circle. Setting line-height equal to the
-// font-size (1:1 ratio) and using the container's align-items: center for
-// vertical positioning produces pixel-accurate centring on both iOS and Android.
+// when centred inside a fixed-size circle. We give the line box a little
+// headroom over the font-size (1.25:1) — a 1:1 line-height is shorter than
+// Poppins Bold's cap height, so the glyph top overflows the box and the
+// circular container (overflow: hidden) clips it. The extra space distributes
+// symmetrically, so the container's align-items/justify-content: center keeps
+// the initials pixel-centred on both iOS and Android.
 
 const InitialsText = styled(Typography.H5)<{
   $color: string;
@@ -383,7 +386,8 @@ const InitialsText = styled(Typography.H5)<{
 }>`
   color: ${({ $color }) => $color};
   font-size: ${({ $fontSize }) => $fontSize}px;
-  line-height: ${({ $fontSize }) => $fontSize}px;
+  line-height: ${({ $fontSize }) => Math.round($fontSize * 1.25)}px;
+  text-align: center;
   font-family: ${({ theme }) => theme.fontFamily.poppinsBold};
   include-font-padding: false;
 `;

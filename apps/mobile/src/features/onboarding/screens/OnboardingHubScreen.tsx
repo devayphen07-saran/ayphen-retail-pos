@@ -116,7 +116,7 @@ export function OnboardingHubScreen() {
 
   const layout = useMemo(() => {
     const cardWidth = clamp(screenWidth * 0.65, MIN_CARD_WIDTH, MAX_CARD_WIDTH);
-    const cardGap = 12;
+    const cardGap = theme.sizing.small;
     const sidePadding = Math.max((screenWidth - cardWidth) / 2, theme.sizing.large);
     const snapInterval = cardWidth + cardGap;
 
@@ -125,8 +125,13 @@ export function OnboardingHubScreen() {
       cardGap,
       sidePadding,
       snapInterval,
+      contentStyle: {
+        paddingHorizontal: sidePadding,
+        paddingVertical: theme.sizing.large,
+        gap: cardGap,
+      },
     };
-  }, [screenWidth, theme.sizing.large]);
+  }, [screenWidth, theme.sizing.large, theme.sizing.small]);
 
   const scrollToIndex = useCallback(
     (index: number, animated = true) => {
@@ -224,12 +229,7 @@ export function OnboardingHubScreen() {
 
   return (
     <Root edges={['top', 'bottom']}>
-      <Row
-        justify="flex-end"
-        align="center"
-        gap={theme.sizing.small}
-        style={{ minHeight: 44, paddingHorizontal: theme.sizing.large }}
-      >
+      <TopBarRow justify="flex-end" align="center" gap={theme.sizing.small}>
         <TouchableOpacity
           onPress={handleLogout}
           accessibilityRole="button"
@@ -262,18 +262,14 @@ export function OnboardingHubScreen() {
 
             {hasInvites ? (
               <BadgeDot>
-                <Typography.Caption
-                  weight={700}
-                  color={theme.colorWhite}
-                  style={{ fontSize: 10, lineHeight: 12 }}
-                >
+                <BadgeCountText weight={700} color={theme.colorWhite}>
                   {pendingCount > 9 ? '9+' : pendingCount}
-                </Typography.Caption>
+                </BadgeCountText>
               </BadgeDot>
             ) : null}
           </BadgeIconWrap>
         </TouchableOpacity>
-      </Row>
+      </TopBarRow>
 
       <Column flex={1} align="center" justify="center">
         <AnimatedCarousel
@@ -292,11 +288,7 @@ export function OnboardingHubScreen() {
           onScrollBeginDrag={handleScrollBeginDrag}
           onScrollEndDrag={handleScrollEndDrag}
           onMomentumScrollEnd={handleMomentumScrollEnd}
-          contentContainerStyle={{
-            paddingHorizontal: layout.sidePadding,
-            paddingVertical: 24,
-            gap: layout.cardGap,
-          }}
+          contentContainerStyle={layout.contentStyle}
         >
           {SLIDES.map((slide, index) => {
             const inputRange = [
@@ -334,34 +326,21 @@ export function OnboardingHubScreen() {
           })}
         </AnimatedCarousel>
 
-        <Gap $h={16} />
+        <Gap $h={theme.sizing.medium} />
 
-        <Column
-          align="center"
-          justify="center"
-          height={64}
-          width="100%"
-          style={{ paddingHorizontal: theme.sizing.xLarge }}
-        >
-          <Typography.Body
-            weight="bold"
-            color={theme.colorText}
-            style={{ letterSpacing: 0.1, textAlign: 'center' }}
-          >
+        <TitleColumn align="center" justify="center" height={64} width="100%">
+          <SlideTitleText weight="bold" color={theme.colorText}>
             {SLIDES[activeIndex].title}
-          </Typography.Body>
-          <Gap $h={4} />
-          <Typography.Caption
-            color={theme.colorTextSecondary}
-            style={{ textAlign: 'center', lineHeight: 16 }}
-          >
+          </SlideTitleText>
+          <Gap $h={theme.sizing.xxSmall} />
+          <SlideCaptionText color={theme.colorTextSecondary}>
             {SLIDES[activeIndex].caption}
-          </Typography.Caption>
-        </Column>
+          </SlideCaptionText>
+        </TitleColumn>
 
-        <Gap $h={16} />
+        <Gap $h={theme.sizing.medium} />
 
-        <Row align="center" gap={6}>
+        <Row align="center" gap={theme.sizing.xxSmall}>
           {SLIDES.map((slide, index) => (
             <Dot
               key={slide.title}
@@ -372,44 +351,32 @@ export function OnboardingHubScreen() {
         </Row>
       </Column>
 
-      <Gap $h={16} />
+      <Gap $h={theme.sizing.medium} />
 
-      <Column align="center" style={{ paddingHorizontal: theme.sizing.xLarge }}>
-        <Typography.H2 style={{ textAlign: 'center' }} color={theme.colorText}>
+      <CtaHeadingColumn align="center">
+        <CenteredH2 color={theme.colorText}>
           Let's set up your store
-        </Typography.H2>
+        </CenteredH2>
 
-        <Gap $h={8} />
+        <Gap $h={theme.sizing.xSmall} />
 
-        <Typography.Body
-          color={theme.colorTextSecondary}
-          style={{ textAlign: 'center', maxWidth: 280 }}
-        >
+        <CtaBodyText color={theme.colorTextSecondary}>
           Add a few details about your business and start selling in minutes.
-        </Typography.Body>
-      </Column>
+        </CtaBodyText>
+      </CtaHeadingColumn>
 
-      <Gap $h={24} />
+      <Gap $h={theme.sizing.large} />
 
-      <Column
-        style={{
-          paddingHorizontal: theme.sizing.large,
-          paddingBottom: theme.sizing.large,
-        }}
-      >
+      <BottomCtaColumn>
         <PillButton
           onPress={handleCreateStore}
           activeOpacity={0.85}
           accessibilityRole="button"
           accessibilityLabel="Create your store"
         >
-          <Typography.Body
-            weight={600}
-            color={theme.colorBgContainer}
-            style={{ letterSpacing: 0.2 }}
-          >
+          <CtaLabelText weight={600} color={theme.colorBgContainer}>
             Create your store
-          </Typography.Body>
+          </CtaLabelText>
 
           <LucideIcon
             name="ArrowRight"
@@ -417,7 +384,7 @@ export function OnboardingHubScreen() {
             color={theme.colorBgContainer}
           />
         </PillButton>
-      </Column>
+      </BottomCtaColumn>
     </Root>
   );
 }
@@ -441,10 +408,56 @@ const Gap = styled.View<{ $h: number }>`
   height: ${({ $h }) => $h}px;
 `;
 
+const TopBarRow = styled(Row)`
+  min-height: ${({ theme }) => theme.componentSizing.headerMinHeight}px;
+  padding-horizontal: ${({ theme }) => theme.sizing.large}px;
+`;
+
+const BadgeCountText = styled(Typography.Caption)`
+  font-size: ${({ theme }) => theme.fontSize.xxSmall}px;
+  line-height: 12px;
+`;
+
+const TitleColumn = styled(Column)`
+  padding-horizontal: ${({ theme }) => theme.sizing.xLarge}px;
+`;
+
+const SlideTitleText = styled(Typography.Body)`
+  letter-spacing: 0.1px;
+  text-align: center;
+`;
+
+const SlideCaptionText = styled(Typography.Caption)`
+  text-align: center;
+  line-height: ${({ theme }) => theme.sizing.medium}px;
+`;
+
+const CtaHeadingColumn = styled(Column)`
+  padding-horizontal: ${({ theme }) => theme.sizing.xLarge}px;
+`;
+
+const CenteredH2 = styled(Typography.H2)`
+  text-align: center;
+`;
+
+const CtaBodyText = styled(Typography.Body)`
+  text-align: center;
+  max-width: ${({ theme }) => theme.sizing.xxLarge * 6}px;
+`;
+
+const BottomCtaColumn = styled(Column)`
+  padding-horizontal: ${({ theme }) => theme.sizing.large}px;
+  padding-bottom: ${({ theme }) => theme.sizing.large}px;
+`;
+
+const CtaLabelText = styled(Typography.Body)`
+  letter-spacing: 0.2px;
+`;
+
 const Dot = styled.View<{ $active: boolean }>`
-  width: ${({ $active }) => ($active ? 18 : 6)}px;
-  height: 6px;
-  border-radius: 3px;
+  width: ${({ $active, theme }) => ($active ? theme.sizing.regular : theme.sizing.xxSmall)}px;
+  height: ${({ theme }) => theme.sizing.xxSmall}px;
+  border-radius: ${({ theme }) => theme.borderRadius.full}px;
   background-color: ${({ $active, theme }) =>
     $active ? theme.colorPrimary : theme.colorBorder};
 `;
@@ -454,23 +467,19 @@ const PillButton = styled(TouchableOpacity)`
   align-items: center;
   justify-content: center;
   align-self: stretch;
-  gap: 8px;
+  gap: ${({ theme }) => theme.sizing.xSmall}px;
   background-color: ${({ theme }) => theme.colorPrimary};
   border-radius: ${({ theme }) => theme.borderRadius.full}px;
-  padding-vertical: 16px;
+  padding-vertical: ${({ theme }) => theme.sizing.medium}px;
 `;
 
 const SlideCard = styled.View`
   height: ${CARD_HEIGHT}px;
-  border-radius: 20px;
+  border-radius: ${({ theme }) => theme.borderRadius.xxLarge + theme.borderRadius.medium}px;
   background-color: ${({ theme }) => theme.colorBgContainer};
-  border-width: 1px;
+  border-width: ${({ theme }) => theme.borderWidth.thin}px;
   border-color: ${({ theme }) => theme.colorBorderSecondary};
-  shadow-color: #0d0b26;
-  shadow-offset: 0px 4px;
-  shadow-opacity: 0.03;
-  shadow-radius: 8px;
-  elevation: 1;
+  ${({ theme }) => theme.shadow.sm}
   width: 100%;
   overflow: hidden;
 `;
@@ -502,10 +511,10 @@ const BadgeDot = styled.View`
   min-width: 16px;
   height: 16px;
   border-radius: ${({ theme }) => theme.borderRadius.regular}px;
-  padding-horizontal: 3px;
+  padding-horizontal: ${({ theme }) => theme.sizing.xxSmall}px;
   align-items: center;
   justify-content: center;
   background-color: ${({ theme }) => theme.colorError};
-  border-width: 1.5px;
+  border-width: ${({ theme }) => theme.borderWidth.light}px;
   border-color: ${({ theme }) => theme.colorBgContainer};
 `;

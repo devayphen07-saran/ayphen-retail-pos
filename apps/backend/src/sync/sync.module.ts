@@ -27,6 +27,11 @@ import { CustomerMutationHandler } from './push/handlers/customer.handler.js';
 import { SupplierMutationHandler } from './push/handlers/supplier.handler.js';
 import { PaymentAccountMutationHandler } from './push/handlers/payment-account.handler.js';
 import { CashMovementMutationHandler } from './push/handlers/cash-movement.handler.js';
+import { SaleMutationHandler } from './push/handlers/sale.handler.js';
+import { RefundMutationHandler } from './push/handlers/refund.handler.js';
+import { CustomerPaymentMutationHandler } from './push/handlers/customer-payment.handler.js';
+import { SupplierBillMutationHandler } from './push/handlers/supplier-bill.handler.js';
+import { SupplierPaymentMutationHandler } from './push/handlers/supplier-payment.handler.js';
 
 /**
  * The offline-first sync engine (docs/prd/sync-engine.md). Pull: /sync/initial
@@ -62,6 +67,11 @@ import { CashMovementMutationHandler } from './push/handlers/cash-movement.handl
     SupplierMutationHandler,
     PaymentAccountMutationHandler,
     CashMovementMutationHandler,
+    SaleMutationHandler,
+    RefundMutationHandler,
+    CustomerPaymentMutationHandler,
+    SupplierBillMutationHandler,
+    SupplierPaymentMutationHandler,
     {
       provide: MutationHandlerRegistry,
       useFactory: (...handlers: SyncMutationHandler[]) => new MutationHandlerRegistry(handlers),
@@ -73,6 +83,11 @@ import { CashMovementMutationHandler } from './push/handlers/cash-movement.handl
         SupplierMutationHandler,
         PaymentAccountMutationHandler,
         CashMovementMutationHandler,
+        SaleMutationHandler,
+        RefundMutationHandler,
+        CustomerPaymentMutationHandler,
+        SupplierBillMutationHandler,
+        SupplierPaymentMutationHandler,
       ],
     },
   ],

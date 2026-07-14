@@ -62,6 +62,22 @@ export class StoreRepository {
   }
 
   /**
+   * Non-blocking claim on "creating a store for this account" (§11.5 F9).
+   * Unlike `lockAccount`'s FOR UPDATE — which blocks a concurrent request
+   * then lets it through once the first commits, so a double-tap/network-
+   * retry still ends up with two indistinguishable stores when there's room
+   * under max_stores — `pg_try_advisory_xact_lock` returns immediately: the
+   * loser gets `false` and must bail out with a retryable error instead of
+   * proceeding. Auto-released at transaction commit/rollback.
+   */
+  async tryLockAccountForStoreCreate(accountId: string, tx: DbExecutor): Promise<boolean> {
+    const [row] = await tx.execute<{ acquired: boolean }>(
+      sql`select pg_try_advisory_xact_lock(hashtextextended(${`store-create:${accountId}`}, 0)) as acquired`,
+    );
+    return row?.acquired ?? false;
+  }
+
+  /**
    * Count active (non-locked, non-deleted) stores for an account — the
    * denominator of the max_stores gate (device F0). Locked stores don't count.
    */

@@ -2,6 +2,7 @@ import { useCallback, useMemo, useState } from 'react';
 import { eq } from 'drizzle-orm';
 import { useLiveQuery } from 'drizzle-orm/expo-sqlite/query';
 import { router } from 'expo-router';
+import styled from 'styled-components/native';
 import { useMobileTheme } from '@ayphen/mobile-theme';
 import {
   AppLayout,
@@ -106,17 +107,10 @@ export function AccountDetailScreen({ accountGuuid }: { accountGuuid: string }) 
 
   return (
     <AppLayout title={account?.name ?? 'Account'} onBack={() => router.back()} rightElement={addButton}>
-      <Column
-        style={{
-          paddingHorizontal: theme.sizing.medium,
-          paddingTop: theme.sizing.small,
-          paddingBottom: theme.sizing.small,
-        }}
-        gap={2}
-      >
+      <ScreenPad gap={theme.sizing.xxSmall}>
         <Typography.Caption type="secondary">Balance</Typography.Caption>
         <Typography.H5 weight="bold">{formatMinorUnits(balancePaise, { currency: 'INR' })}</Typography.H5>
-      </Column>
+      </ScreenPad>
 
       <SegmentedTabs
         items={[
@@ -149,3 +143,9 @@ export function AccountDetailScreen({ accountGuuid }: { accountGuuid: string }) 
     </AppLayout>
   );
 }
+
+const ScreenPad = styled(Column)`
+  padding-horizontal: ${({ theme }) => theme.sizing.medium}px;
+  padding-top: ${({ theme }) => theme.sizing.small}px;
+  padding-bottom: ${({ theme }) => theme.sizing.small}px;
+`;

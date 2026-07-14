@@ -1,8 +1,18 @@
 import { useMemo } from 'react';
-import { ScrollView, View } from 'react-native';
+import { ScrollView } from 'react-native';
+import { Redirect } from 'expo-router';
 import styled from 'styled-components/native';
 import { useMobileTheme } from '@ayphen/mobile-theme';
-import { AppLayout, Column, LucideIcon, Row, Typography, OverlayLoader } from '@ayphen/mobile-ui-components';
+import {
+  AppLayout,
+  Avatar,
+  Card,
+  Column,
+  LucideIcon,
+  Row,
+  Typography,
+  OverlayLoader,
+} from '@ayphen/mobile-ui-components';
 import { useAuthStore, type StoreContext } from '@store';
 import { setLastOpenedStoreId } from '../../shared/utils/prefs';
 import { useEnterStore } from '../../shared/hooks/useEnterStore';
@@ -22,6 +32,13 @@ export function StorePickerScreen() {
   const { enterStore, checking, cancelChecking } = useEnterStore();
   const stores = useMemo(() => snapshot?.stores ?? [], [snapshot]);
 
+  // Defense-in-depth: AppGate only routes here when there's >1 store to choose
+  // from, but a snapshot that empties while mounted (e.g. a server-side flush,
+  // or a fresh-login snapshot replacing a stale persisted one) would otherwise
+  // strand the user on an empty picker with no CTA. Bounce back to the gate so
+  // it re-routes to onboarding instead of showing a dead end.
+  if (stores.length === 0) return <Redirect href="/(app)" />;
+
   const openStore = async (store: StoreContext) => {
     // A tap fires a network device-slot claim (below). Ignore further taps
     // while one is in flight so the user can't kick off two claims — the
@@ -36,32 +53,44 @@ export function StorePickerScreen() {
 
   return (
     <AppLayout title="Choose a store">
-      <ScrollView contentContainerStyle={{ padding: theme.sizing.large, flexGrow: 1 }}>
-        <Typography.Caption type="secondary" style={{ marginBottom: theme.sizing.medium }}>
+      <PickerScroll>
+        <SelectHint type="secondary">
           Select a store to continue.
-        </Typography.Caption>
-        <Column gap={10}>
+        </SelectHint>
+
+        <Column gap={theme.sizing.small}>
           {stores.map((store) => {
+            const name = store.name || 'Unnamed store';
+            const initials = name.trim().slice(0, 2).toUpperCase() || '?';
             return (
-              <StoreCard key={store.store_id} onPress={() => openStore(store)} activeOpacity={0.7}>
-                <Row align="center" gap={12}>
-                  <IconSlot>
-                    <LucideIcon name="Store" size={20} color={theme.color.primary.main} />
-                  </IconSlot>
-                  <Column flex={1} gap={4}>
+              <Card
+                key={store.store_id}
+                onPress={() => openStore(store)}
+                shadow
+                bordered={false}
+                padding="none"
+              >
+                <Row align="center" gap="small" padding="medium">
+                  <Avatar initials={initials} size={44} shape="square" />
+                  <Column flex={1} gap={2}>
                     <Typography.Body weight="semiBold" numberOfLines={1}>
-                      {store.name || 'Unnamed store'}
+                      {name}
                     </Typography.Body>
+                    <Typography.Caption type="secondary" numberOfLines={1}>
+                      Tap to open
+                    </Typography.Caption>
                   </Column>
-                  <ChevronSlot>
-                    <LucideIcon name="ChevronRight" size={16} color={theme.colorTextTertiary} />
-                  </ChevronSlot>
+                  <LucideIcon
+                    name="ChevronRight"
+                    size={20}
+                    color={theme.colorTextTertiary}
+                  />
                 </Row>
-              </StoreCard>
+              </Card>
             );
           })}
         </Column>
-      </ScrollView>
+      </PickerScroll>
       {/* The slot claim is a network round-trip with no other on-screen
           feedback — block the UI so the tap doesn't read as a no-op and the
           store can't be double-entered (loading-agent.md §3). If the call
@@ -77,29 +106,16 @@ export function StorePickerScreen() {
   );
 }
 
-const StoreCard = styled.TouchableOpacity`
-  background-color: ${({ theme }) => theme.colorBgContainer};
-  border-radius: ${({ theme }) => theme.borderRadius.xLarge}px;
-  border-width: ${({ theme }) => theme.borderWidth.thin}px;
-  border-color: ${({ theme }) => theme.colorBorder};
-  padding: ${({ theme }) => theme.sizing.medium}px;
-  ${({ theme }) => theme.shadow.sm}
-`;
+// ─── Styles ───────────────────────────────────────────────────────────────────
 
-const IconSlot = styled(View)`
-  width: 44px;
-  height: 44px;
-  border-radius: ${({ theme }) => theme.borderRadius.large}px;
-  align-items: center;
-  justify-content: center;
-  background-color: ${({ theme }) => theme.color.primary.bg};
-`;
+const PickerScroll = styled(ScrollView).attrs(({ theme }) => ({
+  contentContainerStyle: {
+    paddingHorizontal: theme.sizing.large,
+    paddingTop: theme.sizing.medium,
+    paddingBottom: theme.sizing.large,
+  },
+}))``;
 
-const ChevronSlot = styled(View)`
-  width: 28px;
-  height: 28px;
-  border-radius: ${({ theme }) => theme.borderRadius.full}px;
-  align-items: center;
-  justify-content: center;
-  background-color: ${({ theme }) => theme.colorFillSecondary ?? theme.colorBgLayout};
+const SelectHint = styled(Typography.Caption)`
+  margin-bottom: ${({ theme }) => theme.sizing.medium}px;
 `;

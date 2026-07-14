@@ -4,7 +4,6 @@ import { unwrapPgError } from '#db/rethrow-unique-violation.js';
 import { SubscriptionRepository, type SubscriptionSyncState } from '../../subscription/subscription.repository.js';
 import { ErrorCodes, type ErrorCode } from '#common/error-codes.js';
 import { ServiceUnavailableError } from '#common/exceptions/app.exception.js';
-import { parse } from '#common/validation/parse.js';
 import { RbacService } from '#common/rbac/rbac.service.js';
 import { RbacRepository } from '#common/rbac/rbac.repository.js';
 import type { CrudAction } from '#common/rbac/permission-matrix.constants.js';
@@ -12,7 +11,7 @@ import type { EffectivePermissions } from '#common/rbac/effective-permissions.js
 import type { MobilePrincipal } from '#common/types/principal.js';
 import { AuthSessionRepository } from '#auth/mobile/repositories/auth-session.repository.js';
 import { SnapshotService } from '#auth/mobile/services/snapshot.service.js';
-import { SyncChangesService, type ChangesResult } from '../pull/changes.service.js';
+import { SyncChangesService } from '../pull/changes.service.js';
 import { SyncCursorService } from '../cursor/sync-cursor.service.js';
 import { SyncIdempotencyRepository } from '../repositories/sync-idempotency.repository.js';
 import { SyncMutationFailureRepository } from '../repositories/sync-mutation-failure.repository.js';
@@ -20,7 +19,7 @@ import { SyncConflictRepository, type ConflictType } from '../repositories/sync-
 import { DeviceSyncHealthRepository } from '../repositories/device-sync-health.repository.js';
 import { MutationHandlerRegistry } from './mutation-handler.registry.js';
 import type { HandlerOutcome, SyncMutationHandler } from './mutation.types.js';
-import { SyncDeltaSchema, type SyncDeltaRequest, type SyncMutation } from '../dto/sync-delta.schema.js';
+import type { SyncDeltaRequest, SyncMutation } from '../dto/sync-delta.schema.js';
 import {
   FUTURE_SKEW_TOLERANCE_MS,
   IDEMPOTENCY_RACE_POLL_INTERVAL_MS,
@@ -31,31 +30,11 @@ import {
   WAVE_CONCURRENCY,
 } from '../sync.constants.js';
 import { runBounded } from '../bounded.js';
+import { DeltaResponseMapper } from '../mappers/response/delta.response-mapper.js';
+import type { ChangesPullResponse } from '../dto/response/pull.response.js';
+import type { SyncDeltaResponse, MutationResultWire } from '../dto/response/delta.response.js';
 
-// ─── Wire shapes (§9 response) ────────────────────────────────────────────────
-
-export type MutationResultWire =
-  | { mutation_id: string; status: 'applied'; entity_id?: string; entity_guuid?: string; row_version?: number; data?: unknown }
-  | { mutation_id: string; status: 'duplicate'; cached: unknown }
-  | { mutation_id: string; status: 'rejected'; code: ErrorCode; message: string; conflict_type?: ConflictType }
-  // A TRANSIENT block (subscription paused / reconciliation pending / not yet
-  // loaded). Distinct from `rejected` on purpose: the server does NOT cache it
-  // (the state can heal), so the CLIENT must keep the mutation queued and
-  // re-push later — NEVER roll it back like a terminal `rejected` (a sale rung
-  // during a lapse-then-renew would otherwise be silently lost). See §20/F2.
-  | { mutation_id: string; status: 'retry_later'; code: ErrorCode; message: string; conflict_type?: ConflictType }
-  | { mutation_id: string; status: 'conflict'; conflict_type: 'MASTER_DATA'; server_row: unknown; message: string };
-
-export interface SyncDeltaResult {
-  mutation_results: MutationResultWire[];
-  changes: ChangesResult['changes'];
-  sync_cursor: string | null;
-  has_more: boolean;
-  server_time: string;
-  permissions_version: number;
-  snapshot?: unknown;
-  snapshot_signature?: string;
-}
+export type { MutationResultWire } from '../dto/response/delta.response.js';
 
 // ─── Internal signals ─────────────────────────────────────────────────────────
 
@@ -118,9 +97,8 @@ export class SyncDeltaService {
   async process(
     principal: MobilePrincipal,
     store: { storeId: string; accountId: string },
-    rawBody: unknown,
-  ): Promise<SyncDeltaResult> {
-    const body = parse(rawBody, SyncDeltaSchema);
+    body: SyncDeltaRequest,
+  ): Promise<SyncDeltaResponse> {
     const now = new Date();
 
     // Validate the pull cursor BEFORE applying anything: an invalid/horizon
@@ -247,13 +225,13 @@ export class SyncDeltaService {
     body: SyncDeltaRequest,
     env: MutationEnv,
     results: Map<string, MutationResultWire>,
-  ): Promise<SyncDeltaResult> {
+  ): Promise<SyncDeltaResponse> {
     // Stamp device sync health — S-34's `min(last_sync_at)` oversell gate reads
     // this. Shared with the pull/initial paths so a pull-only device still
     // advances the watermark (F1).
     await this.health.touch(principal.deviceId, env.now);
 
-    let pulled: ChangesResult | null = null;
+    let pulled: ChangesPullResponse | null = null;
     if (body.sync_cursor) {
       const supported = body.supported_entity_types;
       pulled = await this.changes.pull(principal.userId, env.storeId, body.sync_cursor, supported);
@@ -263,15 +241,15 @@ export class SyncDeltaService {
     // null means the client's snapshot version is current.
     const snapshot = await this.snapshots.getOrBuild(principal.userId, body.permissions_version);
 
-    return {
-      mutation_results: body.mutations.map((m) => results.get(m.mutation_id)!),
+    return DeltaResponseMapper.toResponse({
+      mutationResults: body.mutations.map((m) => results.get(m.mutation_id)!),
       changes: pulled?.changes ?? {},
-      sync_cursor: pulled?.sync_cursor ?? null,
-      has_more: pulled?.has_more ?? false,
-      server_time: env.now.toISOString(),
-      permissions_version: principal.permissionsVersion,
-      ...(snapshot ? { snapshot: snapshot.snapshot, snapshot_signature: snapshot.signature } : {}),
-    };
+      syncCursor: pulled?.sync_cursor ?? null,
+      hasMore: pulled?.has_more ?? false,
+      serverTime: env.now.toISOString(),
+      permissionsVersion: principal.permissionsVersion,
+      snapshot: snapshot ? { snapshot: snapshot.snapshot, signature: snapshot.signature } : undefined,
+    });
   }
 
   // ─── One mutation through the full preflight + tx (§9 submit loop) ──────────

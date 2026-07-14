@@ -58,15 +58,11 @@ export function StoreHomeScreen() {
   };
 
   const headerRow = (
-    <Header>
+    <Header align="center" justify="space-between">
       <Column flex={1} gap={3}>
-        <Typography.H4
-          numberOfLines={1}
-          color={theme.colorText}
-          style={{ letterSpacing: -0.3 }}
-        >
+        <TightH4 numberOfLines={1} color={theme.colorText}>
           {greeting}!
-        </Typography.H4>
+        </TightH4>
         <TouchableOpacity
           onPress={switchStore}
           activeOpacity={0.7}
@@ -75,14 +71,13 @@ export function StoreHomeScreen() {
         >
           <Row align="center" gap={5}>
             <LucideIcon name="Store" size={13} color={theme.colorPrimary} />
-            <Typography.Caption
+            <StoreNameCaption
               numberOfLines={1}
               weight={500}
               color={theme.colorTextSecondary}
-              style={{ maxWidth: 180 }}
             >
               {storeName}
-            </Typography.Caption>
+            </StoreNameCaption>
             <LucideIcon name="ChevronDown" size={13} color={theme.colorTextSecondary} />
           </Row>
         </TouchableOpacity>
@@ -111,10 +106,7 @@ export function StoreHomeScreen() {
 
   return (
     <AppLayout title="Home" headerRow={headerRow}>
-      <Content
-        showsVerticalScrollIndicator={false}
-        contentContainerStyle={{ paddingBottom: 24 }}
-      >
+      <Content showsVerticalScrollIndicator={false}>
         {/* ── Metrics card ─────────────────────────────────────────── */}
         <HeroCard>
           <Row align="stretch">
@@ -122,13 +114,8 @@ export function StoreHomeScreen() {
               <Typography.Caption weight={500} color={theme.colorTextSecondary}>
                 Today's sales
               </Typography.Caption>
-              <Typography.H4 color={theme.colorText} style={{ letterSpacing: -0.3 }}>
-                ₹0
-              </Typography.H4>
-              <Typography.Caption
-                color={theme.colorTextTertiary}
-                style={{ color: theme.colorPrimary }}
-              >
+              <TightH4 color={theme.colorText}>₹0</TightH4>
+              <Typography.Caption color={theme.colorPrimary}>
                 Start a sale →
               </Typography.Caption>
             </HeroMetric>
@@ -139,13 +126,8 @@ export function StoreHomeScreen() {
               <Typography.Caption weight={500} color={theme.colorTextSecondary}>
                 Products
               </Typography.Caption>
-              <Typography.H4 color={theme.colorText} style={{ letterSpacing: -0.3 }}>
-                0
-              </Typography.H4>
-              <Typography.Caption
-                color={theme.colorTextTertiary}
-                style={{ color: theme.colorPrimary }}
-              >
+              <TightH4 color={theme.colorText}>0</TightH4>
+              <Typography.Caption color={theme.colorPrimary}>
                 Add first →
               </Typography.Caption>
             </HeroMetric>
@@ -167,46 +149,34 @@ export function StoreHomeScreen() {
               <QuickIcon $bg={theme.colorPrimary}>
                 <LucideIcon name="ShoppingCart" size={22} color={theme.colorWhite} />
               </QuickIcon>
-              <Typography.Caption
-                weight={600}
-                color={theme.colorText}
-                style={{ textAlign: 'center' }}
-              >
+              <QuickLabel weight={600} color={theme.colorText}>
                 Open POS
-              </Typography.Caption>
+              </QuickLabel>
             </QuickItem>
 
             <QuickItem onPress={openProducts} accessibilityRole="button" accessibilityLabel="Add product">
               <QuickIcon $bg={theme.colorSuccessBg}>
                 <LucideIcon name="PackagePlus" size={22} color={theme.colorSuccess} />
               </QuickIcon>
-              <Typography.Caption
-                weight={600}
-                color={theme.colorText}
-                style={{ textAlign: 'center' }}
-              >
+              <QuickLabel weight={600} color={theme.colorText}>
                 Add Product
-              </Typography.Caption>
+              </QuickLabel>
             </QuickItem>
 
             <QuickItem onPress={openCustomers} accessibilityRole="button" accessibilityLabel="View customers">
               <QuickIcon $bg={`${resolveInfoColor(theme)}14`}>
                 <LucideIcon name="Users" size={22} color={resolveInfoColor(theme)} />
               </QuickIcon>
-              <Typography.Caption
-                weight={600}
-                color={theme.colorText}
-                style={{ textAlign: 'center' }}
-              >
+              <QuickLabel weight={600} color={theme.colorText}>
                 View Customers
-              </Typography.Caption>
+              </QuickLabel>
             </QuickItem>
           </QuickRow>
         </Section>
 
         {/* ── Recent products ─────────────────────────────────────────── */}
         <Section>
-          <SectionHeaderRow>
+          <SectionHeaderRow align="center" justify="space-between">
             <Typography.Caption weight={600} color={theme.colorTextSecondary}>
               Recent products
             </Typography.Caption>
@@ -219,12 +189,9 @@ export function StoreHomeScreen() {
             <Typography.Body weight={700} color={theme.colorText}>
               No products yet
             </Typography.Body>
-            <Typography.Caption
-              color={theme.colorTextSecondary}
-              style={{ textAlign: 'center', maxWidth: 240 }}
-            >
+            <EmptyCardCaption color={theme.colorTextSecondary}>
               Tap "Add Product" above to get started
-            </Typography.Caption>
+            </EmptyCardCaption>
           </EmptyCard>
         </Section>
       </Content>
@@ -312,7 +279,7 @@ function SetupProgressCard({
             </Row>
           </Row>
 
-          <ProgressTrack style={{ marginTop: theme.sizing.small }}>
+          <ProgressTrack>
             <ProgressFill $percent={status.completion_percentage} $color={theme.colorPrimary} />
           </ProgressTrack>
         </TouchableOpacity>
@@ -335,13 +302,13 @@ function SetupProgressCard({
                     size={18}
                     color={done ? theme.colorSuccess : theme.colorTextTertiary}
                   />
-                  <Typography.Caption
+                  <ChecklistLabel
                     weight={500}
                     color={done ? theme.colorTextTertiary : theme.colorText}
-                    style={done ? { textDecorationLine: 'line-through' } : undefined}
+                    $done={done}
                   >
                     {item.label}
-                  </Typography.Caption>
+                  </ChecklistLabel>
                 </Row>
                 {!done && (
                   <LucideIcon name="ChevronRight" size={16} color={theme.colorTextTertiary} />
@@ -358,16 +325,21 @@ function SetupProgressCard({
 
 // ── Header ────────────────────────────────────────────────────────────────────
 
-const Header = styled(View)`
-  flex-direction: row;
-  align-items: center;
-  justify-content: space-between;
+const Header = styled(Row)`
   min-height: 64px;
   padding-left: ${({ theme }) => theme.sizing.medium}px;
   padding-right: ${({ theme }) => theme.sizing.small}px;
-  padding-top: 10px;
-  padding-bottom: 10px;
+  padding-top: ${({ theme }) => theme.sizing.xSmall}px;
+  padding-bottom: ${({ theme }) => theme.sizing.xSmall}px;
   background-color: ${({ theme }) => theme.colorBgContainer};
+`;
+
+const TightH4 = styled(Typography.H4)`
+  letter-spacing: -0.3px;
+`;
+
+const StoreNameCaption = styled(Typography.Caption)`
+  max-width: 180px;
 `;
 
 const HeaderIconBtn = styled(TouchableOpacity)`
@@ -383,7 +355,9 @@ const HeaderIconBtn = styled(TouchableOpacity)`
 
 // ── Content ───────────────────────────────────────────────────────────────────
 
-const Content = styled(ScrollView)`
+const Content = styled(ScrollView).attrs(({ theme }) => ({
+  contentContainerStyle: { paddingBottom: theme.sizing.large },
+}))`
   flex: 1;
   background-color: ${({ theme }) => theme.colorBgLayout};
 `;
@@ -396,13 +370,13 @@ const HeroCard = styled(View)`
   border-radius: ${({ theme }) => theme.borderRadius.xLarge}px;
   border-width: ${({ theme }) => theme.borderWidth.thin}px;
   border-color: ${({ theme }) => theme.colorBorderSecondary};
-  padding: 14px 0;
+  padding: ${({ theme }) => theme.sizing.small}px 0;
 `;
 
 const HeroMetric = styled(Pressable)`
   flex: 1;
   align-items: center;
-  gap: 2px;
+  gap: ${({ theme }) => theme.sizing.xxSmall}px;
 `;
 
 const HeroDivider = styled(View)`
@@ -425,15 +399,16 @@ const SetupCard = styled(View)`
 
 const ProgressTrack = styled(View)`
   height: 6px;
-  border-radius: 3px;
+  border-radius: ${({ theme }) => theme.borderRadius.full}px;
   background-color: ${({ theme }) => theme.colorFillTertiary};
   overflow: hidden;
+  margin-top: ${({ theme }) => theme.sizing.small}px;
 `;
 
 const ProgressFill = styled(View)<{ $percent: number; $color: string }>`
   height: 100%;
   width: ${({ $percent }) => $percent}%;
-  border-radius: 3px;
+  border-radius: ${({ theme }) => theme.borderRadius.full}px;
   background-color: ${({ $color }) => $color};
 `;
 
@@ -441,7 +416,11 @@ const ChecklistRow = styled(TouchableOpacity)`
   flex-direction: row;
   align-items: center;
   justify-content: space-between;
-  padding: 6px 0;
+  padding: ${({ theme }) => theme.sizing.xxSmall}px 0;
+`;
+
+const ChecklistLabel = styled(Typography.Caption)<{ $done?: boolean }>`
+  text-decoration-line: ${({ $done }) => ($done ? 'line-through' : 'none')};
 `;
 
 // ── Sections ──────────────────────────────────────────────────────────────────
@@ -450,10 +429,7 @@ const Section = styled(View)`
   padding: ${({ theme }) => theme.sizing.medium}px ${({ theme }) => theme.sizing.medium}px 0;
 `;
 
-const SectionHeaderRow = styled(View)`
-  flex-direction: row;
-  align-items: center;
-  justify-content: space-between;
+const SectionHeaderRow = styled(Row)`
   margin-bottom: ${({ theme }) => theme.sizing.xSmall}px;
 `;
 
@@ -465,22 +441,26 @@ const QuickRow = styled(View)`
   border-radius: ${({ theme }) => theme.borderRadius.xLarge}px;
   border-width: ${({ theme }) => theme.borderWidth.thin}px;
   border-color: ${({ theme }) => theme.colorBorderSecondary};
-  padding: 14px ${({ theme }) => theme.sizing.xSmall}px ${({ theme }) => theme.sizing.small}px;
+  padding: ${({ theme }) => theme.sizing.small}px ${({ theme }) => theme.sizing.xSmall}px ${({ theme }) => theme.sizing.small}px;
 `;
 
 const QuickItem = styled(Pressable)`
   flex: 1;
   align-items: center;
-  gap: 6px;
+  gap: ${({ theme }) => theme.sizing.xxSmall}px;
 `;
 
 const QuickIcon = styled(View)<{ $bg: string }>`
   width: 48px;
   height: 48px;
-  border-radius: 14px;
+  border-radius: ${({ theme }) => theme.borderRadius.xxLarge}px;
   background-color: ${({ $bg }) => $bg};
   align-items: center;
   justify-content: center;
+`;
+
+const QuickLabel = styled(Typography.Caption)`
+  text-align: center;
 `;
 
 // ── Empty state ───────────────────────────────────────────────────────────────
@@ -488,11 +468,16 @@ const QuickIcon = styled(View)<{ $bg: string }>`
 const EmptyCard = styled(View)`
   background-color: ${({ theme }) => theme.colorBgContainer};
   border-radius: ${({ theme }) => theme.borderRadius.xLarge}px;
-  padding: 28px ${({ theme }) => theme.sizing.regular}px;
+  padding: ${({ theme }) => theme.sizing.large}px ${({ theme }) => theme.sizing.regular}px;
   align-items: center;
   border-width: ${({ theme }) => theme.borderWidth.thin}px;
   border-color: ${({ theme }) => theme.colorBorderSecondary};
-  gap: 6px;
+  gap: ${({ theme }) => theme.sizing.xxSmall}px;
+`;
+
+const EmptyCardCaption = styled(Typography.Caption)`
+  text-align: center;
+  max-width: 240px;
 `;
 
 const EmptyIconBox = styled(View)`
@@ -502,5 +487,5 @@ const EmptyIconBox = styled(View)`
   background-color: ${({ theme }) => theme.colorFillTertiary};
   align-items: center;
   justify-content: center;
-  margin-bottom: 6px;
+  margin-bottom: ${({ theme }) => theme.sizing.xxSmall}px;
 `;

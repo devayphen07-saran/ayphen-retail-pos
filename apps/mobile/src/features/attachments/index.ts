@@ -5,4 +5,5 @@ export * from './components/AttachmentField';
 export * from './offline/persistCapturedImage';
 export * from './offline/useRecordImageCapture';
 export * from './offline/useRecordImage';
+export * from './offline/useRecordRemoteImages';
 export * from './offline/RecordImage';

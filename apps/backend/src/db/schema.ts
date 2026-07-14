@@ -1380,7 +1380,7 @@ export const accountTransactions = pgTable(
       ],
     }).notNull(),
     sourceType: text('source_type', {
-      enum: ['sale', 'refund', 'cash_movement', 'opening', 'shift'],
+      enum: ['sale', 'refund', 'cash_movement', 'opening', 'shift', 'customer_payment', 'supplier_payment'],
     }).notNull(),
     sourceFk: uuid('source_fk').notNull(), // the event row this posting was derived from
     shiftSessionFk: uuid('shift_session_fk'), // deferred FK — no shift_sessions table yet (F7)
@@ -1518,8 +1518,10 @@ export const sales = pgTable(
       .notNull()
       .references(() => stores.id, { onDelete: 'cascade' }),
     // shift_session_fk deferred to F7 — no shift_sessions table yet.
-    // customer_fk / on-credit tender deferred to Phase 3 (F5) — every Phase 2
-    // sale is paid in full by a real account at completion time.
+    // Required when any sale_payments row has on_credit=true (BR-2/V-5) —
+    // enforced in sale.handler.ts, not a DB constraint (offline mutations
+    // only reach the handler's check at sync time).
+    customerFk: uuid('customer_fk').references(() => customers.id),
     totalPaise: integer('total_paise').notNull(), // server-recomputed from lines (BR-1)
     status: text('status', {
       enum: ['completed', 'partially_refunded', 'refunded'],
@@ -1543,6 +1545,12 @@ export const saleLines = pgTable(
   'sale_lines',
   {
     id: uuid('id').primaryKey().defaultRandom(),
+    // Denormalized from sale_fk's own store_fk — every other synced table
+    // carries a direct store_fk so the pull filter can scope with a plain
+    // WHERE instead of a join; kept consistent here rather than special-cased.
+    storeFk: uuid('store_fk')
+      .notNull()
+      .references(() => stores.id, { onDelete: 'cascade' }),
     saleFk: uuid('sale_fk')
       .notNull()
       .references(() => sales.id, { onDelete: 'cascade' }),
@@ -1554,10 +1562,12 @@ export const saleLines = pgTable(
     discountPaise: integer('discount_paise').notNull().default(0),
     lineTotalPaise: integer('line_total_paise').notNull(), // server-computed = qty*unitPrice - discount
     guuid: uuid('guuid').notNull().defaultRandom().unique(),
+    rowVersion: integer('row_version').notNull().default(1), // vestigial — pull-only, never updated
     modifiedAt: timestamp('modified_at', { withTimezone: true }).notNull().defaultNow(),
     createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
   },
   (t) => [
+    index('idx_sale_lines_sync').on(t.storeFk, t.modifiedAt, t.id),
     index('idx_sale_lines_sale').on(t.saleFk),
     check('ck_sale_lines_qty_positive', sql`${t.qty} > 0`),
     check('ck_sale_lines_line_total_nonnegative', sql`${t.lineTotalPaise} >= 0`),
@@ -1568,23 +1578,33 @@ export const salePayments = pgTable(
   'sale_payments',
   {
     id: uuid('id').primaryKey().defaultRandom(),
+    storeFk: uuid('store_fk') // denormalized — see sale_lines' comment above
+      .notNull()
+      .references(() => stores.id, { onDelete: 'cascade' }),
     saleFk: uuid('sale_fk')
       .notNull()
       .references(() => sales.id, { onDelete: 'cascade' }),
-    accountFk: uuid('account_fk')
-      .notNull()
-      .references(() => paymentAccounts.id),
+    // Null exactly when on_credit is true (Phase 3 F5) — a credit tender
+    // settles nothing at completion time, so there is no account to post to.
+    accountFk: uuid('account_fk').references(() => paymentAccounts.id),
     tender: text('tender', {
       enum: ['cash', 'card', 'upi', 'wallet', 'other'],
     }).notNull(),
     amountPaise: integer('amount_paise').notNull(),
+    onCredit: boolean('on_credit').notNull().default(false),
     guuid: uuid('guuid').notNull().defaultRandom().unique(),
+    rowVersion: integer('row_version').notNull().default(1), // vestigial — pull-only, never updated
     modifiedAt: timestamp('modified_at', { withTimezone: true }).notNull().defaultNow(),
     createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
   },
   (t) => [
+    index('idx_sale_payments_sync').on(t.storeFk, t.modifiedAt, t.id),
     index('idx_sale_payments_sale').on(t.saleFk),
     check('ck_sale_payments_amount_positive', sql`${t.amountPaise} > 0`),
+    check(
+      'ck_sale_payments_credit_has_no_account',
+      sql`(${t.onCredit} AND ${t.accountFk} IS NULL) OR (NOT ${t.onCredit} AND ${t.accountFk} IS NOT NULL)`,
+    ),
   ],
 );
 
@@ -1620,6 +1640,9 @@ export const refundLines = pgTable(
   'refund_lines',
   {
     id: uuid('id').primaryKey().defaultRandom(),
+    storeFk: uuid('store_fk') // denormalized — see sale_lines' comment above
+      .notNull()
+      .references(() => stores.id, { onDelete: 'cascade' }),
     refundFk: uuid('refund_fk')
       .notNull()
       .references(() => refunds.id, { onDelete: 'cascade' }),
@@ -1629,10 +1652,12 @@ export const refundLines = pgTable(
     qty: numeric('qty', { precision: 12, scale: 3 }).notNull(),
     amountPaise: integer('amount_paise').notNull(),
     guuid: uuid('guuid').notNull().defaultRandom().unique(),
+    rowVersion: integer('row_version').notNull().default(1), // vestigial — pull-only, never updated
     modifiedAt: timestamp('modified_at', { withTimezone: true }).notNull().defaultNow(),
     createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
   },
   (t) => [
+    index('idx_refund_lines_sync').on(t.storeFk, t.modifiedAt, t.id),
     index('idx_refund_lines_refund').on(t.refundFk),
     check('ck_refund_lines_qty_positive', sql`${t.qty} > 0`),
     check('ck_refund_lines_amount_positive', sql`${t.amountPaise} > 0`),
@@ -1701,6 +1726,105 @@ export const customers = pgTable(
   ],
 );
 
+// ─── Customer credit & settlement (docs/prd/accounts-and-ledger.md F5, D10) ──
+// A credit sale posts NO account_transaction — it posts a
+// `customer_ledger_events` row instead (kind='credit_sale'); the customer's
+// book moves, no cash account does. Settlement ("Collect payment") is the
+// double-entry moment: `customer_payments` is the pushed composite mutation
+// (header + per-sale allocations), which posts customer_ledger_events(kind=
+// 'payment') AND an account_transactions(credit, credit_payment) together.
+// Refunding the credit portion of a credit sale posts customer_ledger_events
+// (kind='credit_note', sourceType='refund') instead of another 'payment' —
+// it reduces what's owed without implying money was actually collected.
+// `customer_ledger_events`/`payment_allocations` are pull-only projections,
+// exactly like account_transactions — server-derived, no push handler.
+
+export const customerLedgerEvents = pgTable(
+  'customer_ledger_events',
+  {
+    id: uuid('id').primaryKey().defaultRandom(),
+    storeFk: uuid('store_fk')
+      .notNull()
+      .references(() => stores.id, { onDelete: 'cascade' }),
+    customerFk: uuid('customer_fk')
+      .notNull()
+      .references(() => customers.id),
+    kind: text('kind', { enum: ['credit_sale', 'payment', 'adjustment', 'credit_note'] }).notNull(),
+    amountPaise: integer('amount_paise').notNull(),
+    sourceType: text('source_type', { enum: ['sale', 'customer_payment', 'refund'] }).notNull(),
+    sourceFk: uuid('source_fk').notNull(),
+    // D6/BR-10: set when a credit sale is accepted despite exceeding the
+    // customer's limit (two offline devices can't atomically claim the same
+    // headroom) — never a rejection, always accept + flag for manager review.
+    flagged: boolean('flagged').notNull().default(false),
+    guuid: uuid('guuid').notNull().defaultRandom().unique(),
+    rowVersion: integer('row_version').notNull().default(1), // vestigial — pull-only, never updated
+    modifiedAt: timestamp('modified_at', { withTimezone: true }).notNull().defaultNow(),
+    createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+    createdBy: uuid('created_by'),
+  },
+  (t) => [
+    index('idx_customer_ledger_events_sync').on(t.storeFk, t.modifiedAt, t.id),
+    index('idx_customer_ledger_events_customer').on(t.customerFk, t.createdAt),
+    check('ck_customer_ledger_events_amount_positive', sql`${t.amountPaise} > 0`),
+  ],
+);
+
+export const customerPayments = pgTable(
+  'customer_payments',
+  {
+    id: uuid('id').primaryKey().defaultRandom(),
+    storeFk: uuid('store_fk')
+      .notNull()
+      .references(() => stores.id, { onDelete: 'cascade' }),
+    customerFk: uuid('customer_fk')
+      .notNull()
+      .references(() => customers.id),
+    accountFk: uuid('account_fk')
+      .notNull()
+      .references(() => paymentAccounts.id),
+    amountPaise: integer('amount_paise').notNull(), // server-verified = Σ allocations (BR-5)
+    paidAt: timestamp('paid_at', { withTimezone: true }).notNull().defaultNow(),
+    ...syncColumns(),
+    createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+    createdBy: uuid('created_by'),
+    deviceFk: uuid('device_fk'),
+  },
+  (t) => [
+    index('idx_customer_payments_sync').on(t.storeFk, t.modifiedAt, t.id),
+    check('ck_customer_payments_amount_positive', sql`${t.amountPaise} > 0`),
+  ],
+);
+
+export const paymentAllocations = pgTable(
+  'payment_allocations',
+  {
+    id: uuid('id').primaryKey().defaultRandom(),
+    storeFk: uuid('store_fk')
+      .notNull()
+      .references(() => stores.id, { onDelete: 'cascade' }),
+    // Polymorphic, like target_fk below — no DB FK. Which table it points at
+    // is implied by target_type: 'sale' allocations always come from a
+    // customer_payments row, 'bill' allocations always from supplier_payments
+    // (Phase 4, F6) — the two are mutually exclusive, so no separate
+    // payment_type discriminator is needed.
+    paymentFk: uuid('payment_fk').notNull(),
+    targetType: text('target_type', { enum: ['sale', 'bill'] }).notNull(),
+    targetFk: uuid('target_fk').notNull(),
+    appliedPaise: integer('applied_paise').notNull(),
+    guuid: uuid('guuid').notNull().defaultRandom().unique(),
+    rowVersion: integer('row_version').notNull().default(1), // vestigial — pull-only, never updated
+    modifiedAt: timestamp('modified_at', { withTimezone: true }).notNull().defaultNow(),
+    createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [
+    index('idx_payment_allocations_sync').on(t.storeFk, t.modifiedAt, t.id),
+    index('idx_payment_allocations_payment').on(t.paymentFk),
+    index('idx_payment_allocations_target').on(t.targetType, t.targetFk),
+    check('ck_payment_allocations_applied_positive', sql`${t.appliedPaise} > 0`),
+  ],
+);
+
 // ─── Suppliers (order 21) — writable via sync ────────────────────────────────
 
 export const suppliers = pgTable(
@@ -1750,6 +1874,79 @@ export const suppliers = pgTable(
     uniqueIndex('uk_suppliers_store_email')
       .on(t.storeFk, sql`lower(${t.email})`)
       .where(sql`${t.email} IS NOT NULL AND ${t.deletedAt} IS NULL`),
+  ],
+);
+
+// ─── Vendor bills & payments (docs/prd/accounts-and-ledger.md F6, D10) ───────
+// `supplier_bills` records what a vendor billed us (a flat append-only
+// create — no lines, unlike a sale, since nothing here computes tax/inventory
+// from it). `supplier_payments` is the composite mutation that pays one or
+// more bills down (header + `payment_allocations(target_type='bill')`
+// together, same shape as customer_payments/Phase 3) and posts
+// account_transactions(debit, vendor_payment). The optional signature is a
+// plain files/attachment row keyed by this payment's guuid (see
+// entity-catalogue.ts's `SupplierPayment` entry) — NOT a direct FK column;
+// the existing two-phase upload pipeline (RecordExistenceService) already
+// requires the parent row to exist first, which fits an append-only payment
+// naturally: create the payment, then attach.
+
+export const supplierBills = pgTable(
+  'supplier_bills',
+  {
+    id: uuid('id').primaryKey().defaultRandom(),
+    storeFk: uuid('store_fk')
+      .notNull()
+      .references(() => stores.id, { onDelete: 'cascade' }),
+    supplierFk: uuid('supplier_fk')
+      .notNull()
+      .references(() => suppliers.id),
+    billNo: text('bill_no'), // the vendor's own bill/invoice number, free text
+    amountPaise: integer('amount_paise').notNull(),
+    billDate: timestamp('bill_date', { withTimezone: true }).notNull().defaultNow(),
+    dueDate: timestamp('due_date', { withTimezone: true }),
+    status: text('status', { enum: ['open', 'partially_paid', 'paid'] })
+      .notNull()
+      .default('open'), // server-internal only — never client-updated; see supplier-payment.handler.ts
+    notes: text('notes'),
+    ...syncColumns(),
+    createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+    createdBy: uuid('created_by'),
+    deviceFk: uuid('device_fk'),
+  },
+  (t) => [
+    index('idx_supplier_bills_sync').on(t.storeFk, t.modifiedAt, t.id),
+    index('idx_supplier_bills_supplier').on(t.supplierFk),
+    check('ck_supplier_bills_amount_positive', sql`${t.amountPaise} > 0`),
+  ],
+);
+
+export const supplierPayments = pgTable(
+  'supplier_payments',
+  {
+    id: uuid('id').primaryKey().defaultRandom(),
+    storeFk: uuid('store_fk')
+      .notNull()
+      .references(() => stores.id, { onDelete: 'cascade' }),
+    supplierFk: uuid('supplier_fk')
+      .notNull()
+      .references(() => suppliers.id),
+    accountFk: uuid('account_fk')
+      .notNull()
+      .references(() => paymentAccounts.id),
+    amountPaise: integer('amount_paise').notNull(), // server-verified = Σ allocations (BR-5)
+    paidAt: timestamp('paid_at', { withTimezone: true }).notNull().defaultNow(),
+    // Always null — never soft-deleted (append-only). Present solely so this
+    // table satisfies RecordExistenceService's RecordTable shape, which every
+    // attachment-parent table must expose uniformly.
+    deletedAt: timestamp('deleted_at', { withTimezone: true }),
+    ...syncColumns(),
+    createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+    createdBy: uuid('created_by'),
+    deviceFk: uuid('device_fk'),
+  },
+  (t) => [
+    index('idx_supplier_payments_sync').on(t.storeFk, t.modifiedAt, t.id),
+    check('ck_supplier_payments_amount_positive', sql`${t.amountPaise} > 0`),
   ],
 );
 

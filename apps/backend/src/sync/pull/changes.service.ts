@@ -3,24 +3,14 @@ import { DRIZZLE, type Database } from '#db/db.module.js';
 import { RbacService } from '#common/rbac/rbac.service.js';
 import { SyncCursorService, type EntityWatermark } from '../cursor/sync-cursor.service.js';
 import { SyncFilterRegistry } from '../registry/sync-filter.registry.js';
-import { ZERO_UUID, type SyncPullContext, type WireRow } from '../registry/entity-filter.js';
-import { TombstoneRepository, type TombstoneWireRow } from '../repositories/tombstone.repository.js';
+import { ZERO_UUID, type SyncPullContext } from '../registry/entity-filter.js';
+import { TombstoneRepository } from '../repositories/tombstone.repository.js';
 import { DeviceSyncHealthRepository } from '../repositories/device-sync-health.repository.js';
 import { DELTA_PAGE_SIZE, PER_ENTITY_FLOOR, WAVE_CONCURRENCY } from '../sync.constants.js';
 import { computeReadCutoff } from './read-cutoff.js';
 import { runBounded } from '../bounded.js';
-
-export interface EntityChanges {
-  upserts: WireRow[];
-  deletes: TombstoneWireRow[];
-}
-
-export interface ChangesResult {
-  changes: Record<string, EntityChanges>;
-  sync_cursor: string;
-  has_more: boolean;
-  server_time: string;
-}
+import { PullResponseMapper } from '../mappers/response/pull.response-mapper.js';
+import type { ChangesPullResponse, EntityChangesResponse } from '../dto/response/pull.response.js';
 
 /** Legacy cursors without a tombstone watermark start from epoch — over-delivery is idempotent, a skipped delete is a resurrected row. */
 const EPOCH_WATERMARK: EntityWatermark = { ts: '1970-01-01T00:00:00.000000Z', id: ZERO_UUID };
@@ -53,7 +43,7 @@ export class SyncChangesService {
     // so a pull-only device isn't stranded (F1). Omitted when called from
     // /sync/delta, which stamps once for the whole push+pull round trip.
     deviceId?: string,
-  ): Promise<ChangesResult> {
+  ): Promise<ChangesPullResponse> {
     const now = new Date();
     if (deviceId) await this.health.touch(deviceId, now);
     const cursor = this.cursors.decode(cursorToken, userId, storeId, now);
@@ -90,7 +80,7 @@ export class SyncChangesService {
       PER_ENTITY_FLOOR,
     );
 
-    const changes: Record<string, EntityChanges> = {};
+    const changes: Record<string, EntityChangesResponse> = {};
     const nextEntities: Record<string, EntityWatermark> = { ...cursor.e };
     let hasMore = false;
 
@@ -137,17 +127,17 @@ export class SyncChangesService {
     }
     hasMore ||= tombstonePage.hasMore;
 
-    return {
+    return PullResponseMapper.toChangesResponse({
       changes,
-      sync_cursor: this.cursors.mint(
+      syncCursor: this.cursors.mint(
         userId,
         storeId,
         nextEntities,
         tombstonePage.watermark ?? tombstoneAfter,
         now,
       ),
-      has_more: hasMore,
-      server_time: now.toISOString(),
-    };
+      hasMore,
+      serverTime: now.toISOString(),
+    });
   }
 }

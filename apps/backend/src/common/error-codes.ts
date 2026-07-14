@@ -69,6 +69,7 @@ export const ErrorCodes = {
   STORE_LIMIT_REACHED:                'STORE_LIMIT_REACHED',
   OVER_STORE_LIMIT:                   'OVER_STORE_LIMIT',
   NOT_ACCOUNT_OWNER:                  'NOT_ACCOUNT_OWNER',
+  STORE_CREATION_IN_PROGRESS:         'STORE_CREATION_IN_PROGRESS',
 
   // ── Roles & permissions ────────────────────────────────────────────────
   PERMISSION_DENIED:                  'PERMISSION_DENIED',
@@ -157,6 +158,10 @@ export const ErrorCodes = {
   SALE_NOT_FOUND:                     'SALE_NOT_FOUND',
   SALE_LINE_NOT_FOUND:                'SALE_LINE_NOT_FOUND',
   REFUND_EXCEEDS_SALE:                'REFUND_EXCEEDS_SALE',
+  CUSTOMER_NOT_FOUND:                 'CUSTOMER_NOT_FOUND',
+  TARGET_OVER_SETTLED:                'TARGET_OVER_SETTLED',
+  SUPPLIER_NOT_FOUND:                 'SUPPLIER_NOT_FOUND',
+  BILL_NOT_FOUND:                     'BILL_NOT_FOUND',
 
   // ── Sync engine (sync-engine.md) ───────────────────────────────────────
   SYNC_HORIZON_EXCEEDED:              'SYNC_HORIZON_EXCEEDED',

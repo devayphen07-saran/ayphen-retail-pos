@@ -193,7 +193,7 @@ export function SubscriptionScreen() {
                         color={theme.colorError}
                       />
                     </NoticeIconSlot>
-                    <Column gap={8} style={{ flex: 1 }}>
+                    <Column gap={8} flex={1}>
                       <Typography.Caption
                         color={theme.colorErrorText}
                         weight="semiBold"
@@ -236,12 +236,11 @@ export function SubscriptionScreen() {
                         }
                       />
                     </NoticeIconSlot>
-                    <Typography.Caption
+                    <BannerText
                       color={
                         theme.color[BANNER_COLOR_KEY[sub.banner_severity]]?.text
                       }
                       weight="medium"
-                      style={{ flex: 1 }}
                     >
                       {sub.status === 'trialing'
                         ? (daysLeftLabel(sub) ?? 'Your trial is ending soon')
@@ -250,7 +249,7 @@ export function SubscriptionScreen() {
                           : sub.status === 'expired'
                             ? 'Your plan has expired'
                             : 'Action needed on your subscription'}
-                    </Typography.Caption>
+                    </BannerText>
                   </NoticeBanner>
                 )}
 
@@ -286,10 +285,9 @@ export function SubscriptionScreen() {
                       </StatusPill>
                     </Row>
 
-                    <Row
+                    <PriceRow
                       align="baseline"
                       justify="space-between"
-                      style={{ marginTop: theme.sizing.small }}
                     >
                       <Typography.H2 weight="bold" color={theme.colorWhite}>
                         {sub.plan.name}
@@ -304,18 +302,16 @@ export function SubscriptionScreen() {
                           </Typography.Caption>
                         </Row>
                       )}
-                    </Row>
+                    </PriceRow>
 
                     {daysLeftLabel(sub) && (
-                      <Column gap={6} style={{ marginTop: theme.sizing.small }}>
+                      <BillingColumn gap={6}>
                         <Typography.Overline color={theme.overlay.onDark55} weight="bold">
                           {sub.status === 'trialing' ? 'TRIAL PERIOD' : 'BILLING CYCLE'}
                         </Typography.Overline>
                         <ProgressTrack>
                           <ProgressFill
-                            style={{
-                              width: `${(elapsedFraction(sub) ?? 0) * 100}%`,
-                            }}
+                            $widthPercent={(elapsedFraction(sub) ?? 0) * 100}
                           />
                         </ProgressTrack>
                         <Typography.Caption
@@ -324,17 +320,16 @@ export function SubscriptionScreen() {
                         >
                           {daysLeftLabel(sub)}
                         </Typography.Caption>
-                      </Column>
+                      </BillingColumn>
                     )}
 
                     {renewalLabel(sub) && (
-                      <Typography.Caption
+                      <RenewalCaption
                         color={theme.overlay.onDark55}
                         weight="medium"
-                        style={{ marginTop: theme.sizing.xSmall }}
                       >
                         {renewalLabel(sub)}
-                      </Typography.Caption>
+                      </RenewalCaption>
                     )}
 
                     <ViewPlansButton
@@ -365,13 +360,9 @@ export function SubscriptionScreen() {
                       const limit = sub.plan.entitlements[row.key];
                       return (
                         <View key={row.key}>
-                          <Row
+                          <LimitRow
                             align="center"
                             justify="space-between"
-                            style={{
-                              paddingVertical: theme.sizing.small,
-                              paddingHorizontal: theme.sizing.medium,
-                            }}
                           >
                             <Row align="center" gap={10}>
                               <LimitIconSlot>
@@ -388,7 +379,7 @@ export function SubscriptionScreen() {
                                 ? 'Unlimited'
                                 : limit}
                             </Typography.Body>
-                          </Row>
+                          </LimitRow>
                           {i < ENTITLEMENT_ROWS.length - 1 && (
                             <Divider
                               color={theme.colorBorderSecondary}
@@ -433,8 +424,20 @@ const PlanIconBadge = styled(View)`
   justify-content: center;
 `;
 
+const PriceRow = styled(Row)`
+  margin-top: ${({ theme }) => theme.sizing.small}px;
+`;
+
+const BillingColumn = styled(Column)`
+  margin-top: ${({ theme }) => theme.sizing.small}px;
+`;
+
+const RenewalCaption = styled(Typography.Caption)`
+  margin-top: ${({ theme }) => theme.sizing.xSmall}px;
+`;
+
 const StatusPill = styled(View)<{ $status: string }>`
-  padding: 5px 12px;
+  padding: ${({ theme }) => theme.sizing.xSmall}px ${({ theme }) => theme.sizing.small}px;
   border-radius: ${({ theme }) => theme.borderRadius.full}px;
   background-color: ${({ $status, theme }) =>
     $status === 'past_due' || $status === 'expired' || $status === 'paused'
@@ -449,24 +452,30 @@ const ProgressTrack = styled(View)`
   overflow: hidden;
 `;
 
-const ProgressFill = styled(View)`
+const ProgressFill = styled(View)<{ $widthPercent: number }>`
   height: 6px;
   border-radius: ${({ theme }) => theme.borderRadius.xSmall}px;
   background-color: ${({ theme }) => theme.colorWhite};
+  width: ${({ $widthPercent }) => $widthPercent}%;
 `;
 
 const ViewPlansButton = styled.TouchableOpacity`
   flex-direction: row;
   align-items: center;
   justify-content: center;
-  gap: 6px;
+  gap: ${({ theme }) => theme.sizing.xSmall}px;
   margin-top: ${({ theme }) => theme.sizing.medium}px;
   background-color: ${({ theme }) => theme.colorWhite};
   border-radius: ${({ theme }) => theme.borderRadius.large}px;
-  padding: 13px;
+  padding: ${({ theme }) => theme.sizing.small}px;
 `;
 
 // ─── Plan limits ────────────────────────────────────────────────────────────
+
+const LimitRow = styled(Row)`
+  padding-vertical: ${({ theme }) => theme.sizing.small}px;
+  padding-horizontal: ${({ theme }) => theme.sizing.medium}px;
+`;
 
 const LimitsCard = styled(View)`
   background-color: ${({ theme }) => theme.colorBgContainer};
@@ -525,6 +534,10 @@ const NoticeIconSlot = styled(View)<{ $severity: BannerSeverity }>`
 const ResolveLink = styled.TouchableOpacity`
   flex-direction: row;
   align-items: center;
-  gap: 4px;
+  gap: ${({ theme }) => theme.sizing.xxSmall}px;
   align-self: flex-start;
+`;
+
+const BannerText = styled(Typography.Caption)`
+  flex: 1;
 `;

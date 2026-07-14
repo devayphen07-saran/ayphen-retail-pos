@@ -3,7 +3,7 @@ import type { PgTable, AnyPgColumn } from 'drizzle-orm/pg-core';
 import type { ZodType } from 'zod';
 import { ErrorCodes } from '#common/error-codes.js';
 import type { EntityCode } from '#common/rbac/permission-matrix.constants.js';
-import { camelToSnake, type WireRow } from '../registry/entity-filter.js';
+import { SyncWireMapper } from '../mappers/response/sync-wire.mapper.js';
 import type { SyncEntityType } from '../sync.constants.js';
 import type {
   HandlerOutcome,
@@ -11,14 +11,6 @@ import type {
   MutationContext,
   SyncMutationHandler,
 } from './mutation.types.js';
-
-function wireRow(row: Record<string, unknown>): WireRow {
-  const out: WireRow = {};
-  for (const [key, value] of Object.entries(row)) {
-    out[camelToSnake(key)] = value instanceof Date ? value.toISOString() : value;
-  }
-  return out;
-}
 
 /**
  * Resolve a payload reference (usually a guuid) to the target row's id.
@@ -186,7 +178,7 @@ export abstract class AppendOnlySyncHandler implements SyncMutationHandler {
       kind: 'applied',
       entityId: String(inserted[this.columnKey(this.cfg.idColumn)]),
       entityGuuid: String(inserted[this.columnKey(this.cfg.guuidColumn)]),
-      data: wireRow(inserted),
+      data: SyncWireMapper.toAppliedRow(inserted),
     };
   }
 

@@ -8,6 +8,9 @@ import { type SyncEntityType } from '../sync.constants.js';
 import { assertMicroIso, microIso } from '../us-timestamp.js';
 import { readLagPredicate } from '../pull/read-cutoff.js';
 import type { EntityWatermark } from '../cursor/sync-cursor.service.js';
+import { SyncWireMapper, type WireRow } from '../mappers/response/sync-wire.mapper.js';
+
+export type { WireRow } from '../mappers/response/sync-wire.mapper.js';
 
 /** Floor id for a fresh keyset — every real uuid sorts after it. */
 export const ZERO_UUID = '00000000-0000-0000-0000-000000000000';
@@ -18,9 +21,6 @@ export interface SyncPullContext {
   userId: string;
   permissions: EffectivePermissions;
 }
-
-/** A wire row: snake_case, `modified_at` as the µs watermark string. */
-export type WireRow = Record<string, unknown>;
 
 export interface DeltaPage {
   rows: WireRow[];
@@ -54,30 +54,6 @@ export interface SyncEntityFilter {
   ): Promise<DeltaPage>;
   pullInitial(ctx: SyncPullContext, afterId: string | null, limit: number): Promise<InitialPage>;
   estimateCount(ctx: SyncPullContext): Promise<number>;
-}
-
-/** camelCase → snake_case key conversion for wire rows — shared with
- *  push/master-data.handler.ts's `wireRow`, which needs the identical rule
- *  for the conflict/applied-data serialization it does on the push side. */
-export const camelToSnake = (s: string) => s.replace(/[A-Z]/g, (c) => `_${c.toLowerCase()}`);
-
-/**
- * Serialize a DB row to the wire: snake_case keys, ISO timestamps, and
- * `modified_at` replaced by the SQL-rendered µs string (never the JS Date —
- * BR-SYNC-004). `assertMicroIso` is the S-8 runtime enforcement point.
- */
-function toWireRow(row: Record<string, unknown>, entityType: SyncEntityType): WireRow {
-  const out: WireRow = {};
-  const micro = row['__modifiedAtUs'];
-  for (const [key, value] of Object.entries(row)) {
-    if (key === '__modifiedAtUs') continue;
-    if (key === 'modifiedAt') {
-      out['modified_at'] = assertMicroIso(String(micro), entityType);
-      continue;
-    }
-    out[camelToSnake(key)] = value instanceof Date ? value.toISOString() : value;
-  }
-  return out;
 }
 
 interface GenericFilterConfig {
@@ -145,7 +121,7 @@ export class GenericSyncFilter implements SyncEntityFilter {
     const last = page.at(-1) as Record<string, unknown> | undefined;
 
     return {
-      rows: page.map((r) => toWireRow(r as Record<string, unknown>, this.entityType)),
+      rows: page.map((r) => SyncWireMapper.toWireRow(r as Record<string, unknown>, this.entityType)),
       // No-gap advance (§7, BR-SYNC-005): only to the last row actually
       // returned — never to a pre-query serverNow. Empty page → caller keeps
       // the previous watermark.
@@ -175,7 +151,7 @@ export class GenericSyncFilter implements SyncEntityFilter {
     const last = page.at(-1) as Record<string, unknown> | undefined;
 
     return {
-      rows: page.map((r) => toWireRow(r as Record<string, unknown>, this.entityType)),
+      rows: page.map((r) => SyncWireMapper.toWireRow(r as Record<string, unknown>, this.entityType)),
       lastId: last ? String(last[this.idKey()]) : null,
       hasMore,
     };

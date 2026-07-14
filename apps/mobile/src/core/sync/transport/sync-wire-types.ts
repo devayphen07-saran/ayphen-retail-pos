@@ -109,6 +109,9 @@ export interface ConflictResponse {
   resolved_at: string | null;
 }
 
+/** Matches backend's PaginatedResponse<ConflictResponse> (common/pagination). */
 export interface ConflictListResponse {
-  conflicts: ConflictResponse[];
+  data: ConflictResponse[];
+  next_cursor: string | null;
+  has_more: boolean;
 }

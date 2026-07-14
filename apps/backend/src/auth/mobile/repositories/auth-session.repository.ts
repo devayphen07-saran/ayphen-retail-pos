@@ -66,6 +66,30 @@ export class AuthSessionRepository {
       );
   }
 
+  /**
+   * Revoke every not-yet-revoked session for a device (block, F8; owner
+   * removal, F5) — device-scoped, unlike `revokeAllUserSessions` (user-scoped)
+   * or `revokeSession` (single session by id). Returns each revoked session's
+   * current access-JWT identity so the caller can blacklist it — revoking the
+   * DB row alone doesn't invalidate a token that's still unexpired and cached
+   * in MobileJwtGuard's session cache.
+   */
+  async revokeAllForDevice(
+    deviceFk: string,
+    reason: string,
+    tx?: DbExecutor,
+  ): Promise<{ id: string; currentJti: string | null; currentJtiExp: Date | null }[]> {
+    return (tx ?? this.db)
+      .update(deviceSessions)
+      .set({ revokedAt: new Date(), revokedReason: reason })
+      .where(and(eq(deviceSessions.deviceFk, deviceFk), isNull(deviceSessions.revokedAt)))
+      .returning({
+        id: deviceSessions.id,
+        currentJti: deviceSessions.currentJti,
+        currentJtiExp: deviceSessions.currentJtiExp,
+      });
+  }
+
   async updateLastUsed(id: string, tx?: DbExecutor): Promise<void> {
     await (tx ?? this.db)
       .update(deviceSessions)

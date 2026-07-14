@@ -2,6 +2,7 @@ import { Injectable } from '@nestjs/common';
 import { NotFoundError } from '#common/exceptions/app.exception.js';
 import { ErrorCodes } from '#common/error-codes.js';
 import { RbacService } from '#common/rbac/rbac.service.js';
+import type { CursorPage } from '#common/pagination/paginate.js';
 import { SyncFilterRegistry } from '../registry/sync-filter.registry.js';
 import {
   SyncConflictRepository,
@@ -40,24 +41,25 @@ export class SyncConflictService {
     storeId: string,
     userId: string,
     filter: { status?: ConflictStatus; conflictType?: ConflictType },
-  ): Promise<SyncConflictRow[]> {
+    page: { limit: number; cursor?: string },
+  ): Promise<CursorPage<SyncConflictRow>> {
     const permissions = await this.rbac.getCachedPermissions(
       userId,
       storeId,
       false,
     );
-    // The repo applies `.limit(200)` in SQL, so the permission filter must be
-    // pushed into the query itself rather than applied after fetching — else
-    // a store with >200 conflicts skewed toward types this caller can't view
-    // would silently return a short/empty page even though older, visible
-    // conflicts exist beyond the cutoff. Mirror `canView`'s rule (a type with
+    // The repo paginates in SQL, so the permission filter must be pushed into
+    // the query itself rather than applied after fetching — else a store with
+    // many conflicts skewed toward types this caller can't view would
+    // silently return a short/empty page even though older, visible
+    // conflicts exist beyond the cursor. Mirror `canView`'s rule (a type with
     // no registry entry is always visible) by only excluding types the
     // registry knows about AND the caller lacks `view` on.
     const excludeEntityTypes = this.registry
       .all()
       .filter((f) => !this.rbac.checkCrud(permissions, f.permissionEntity, 'view'))
       .map((f) => f.entityType);
-    return this.repo.list(storeId, { ...filter, excludeEntityTypes });
+    return this.repo.list(storeId, { ...filter, excludeEntityTypes }, page);
   }
 
   async resolve(

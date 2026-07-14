@@ -141,9 +141,9 @@ describe('Sync dedupe/poison/conflict repositories — store scoping', () => {
       entityType: 'product', conflictType: 'VALIDATION', clientPayload: { b: 1 },
     });
 
-    const [atA] = await conflicts.list(storeAId, {});
-    const [atB] = await conflicts.list(storeBId, {});
-    expect(atA!.conflictType).toBe('MASTER_DATA');
-    expect(atB!.conflictType).toBe('VALIDATION');
+    const atA = await conflicts.list(storeAId, {}, { limit: 20 });
+    const atB = await conflicts.list(storeBId, {}, { limit: 20 });
+    expect(atA.items[0]!.conflictType).toBe('MASTER_DATA');
+    expect(atB.items[0]!.conflictType).toBe('VALIDATION');
   });
 });

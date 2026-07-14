@@ -126,7 +126,11 @@ export function LocalTableDetailScreen() {
                     </HeaderCell>
                   ))}
                 </HeaderRow>
-                <ScrollView style={{ flex: 1 }} contentContainerStyle={{ paddingBottom: 40 }}>
+                <ScrollView
+                  style={{ flex: 1 }}
+                  // 40 has no exact token; nearest token is xxLarge (48).
+                  contentContainerStyle={{ paddingBottom: theme.sizing.xxLarge }}
+                >
                   {filteredRows.map((row, i) => (
                     <DataRow key={i} $striped={i % 2 === 1}>
                       {columns.map((col) => (
@@ -147,9 +151,9 @@ export function LocalTableDetailScreen() {
                     </DataRow>
                   ))}
                   {filteredRows.length === 0 && (
-                    <View style={{ padding: theme.sizing.medium }}>
+                    <EmptyRowsBox>
                       <Typography.Caption type="secondary">No matching rows.</Typography.Caption>
-                    </View>
+                    </EmptyRowsBox>
                   )}
                 </ScrollView>
               </View>
@@ -177,9 +181,15 @@ const HeaderRow = styled(View)`
 `;
 
 const HeaderCell = styled(View)`
-  padding: 8px 10px;
+  /* 8/10 have no exact tokens; nearest tokens are xSmall (8) / small (12). */
+  padding: ${({ theme }) => theme.sizing.xSmall}px ${({ theme }) => theme.sizing.small}px;
   border-right-width: ${({ theme }) => theme.borderWidth.thin}px;
   border-right-color: ${({ theme }) => theme.colorBorderSecondary};
+`;
+
+/** Empty-state box for the filtered-rows-empty message. */
+const EmptyRowsBox = styled(View)`
+  padding: ${({ theme }) => theme.sizing.medium}px;
 `;
 
 const DataRow = styled(View)<{ $striped: boolean }>`
@@ -190,7 +200,8 @@ const DataRow = styled(View)<{ $striped: boolean }>`
 `;
 
 const DataCell = styled(TouchableOpacity)`
-  padding: 8px 10px;
+  /* 8/10 have no exact tokens; nearest tokens are xSmall (8) / small (12). */
+  padding: ${({ theme }) => theme.sizing.xSmall}px ${({ theme }) => theme.sizing.small}px;
   border-right-width: ${({ theme }) => theme.borderWidth.thin}px;
   border-right-color: ${({ theme }) => theme.colorBorderSecondary};
 `;

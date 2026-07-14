@@ -124,11 +124,10 @@ export class BillingService {
   }
 
   /** Handle a provider webhook (authoritative backstop). No auth beyond signature. */
-  async handleWebhook(rawBody: Buffer, signatureHeader: string): Promise<{ handled: boolean }> {
+  async handleWebhook(rawBody: Buffer, signatureHeader: string): Promise<void> {
     const { ok, event } = this.payments.verifyWebhook({ rawBody, signatureHeader });
     if (!ok) throw new ForbiddenError(ErrorCodes.WEBHOOK_SIGNATURE_INVALID, 'Webhook signature is invalid');
     await this.dispatch(event);
-    return { handled: true };
   }
 
   // ─── Internals ──────────────────────────────────────────────────────────────

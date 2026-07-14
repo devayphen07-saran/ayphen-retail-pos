@@ -89,12 +89,13 @@ export function SessionsScreen() {
   return (
     <AppLayout title="Sessions" onBack={() => router.back()}>
       <ScrollView
-        contentContainerStyle={{ padding: theme.sizing.large, flexGrow: 1 }}
+        contentContainerStyle={{ flexGrow: 1 }}
         showsVerticalScrollIndicator={false}
         refreshControl={
           <RefreshControl refreshing={isRefetching && !isLoading} onRefresh={refetch} />
         }
       >
+        <Column padding={theme.sizing.large}>
         <ScreenStateRenderer
           isLoading={isLoading}
           isError={isError}
@@ -107,7 +108,7 @@ export function SessionsScreen() {
             <Column gap={20}>
               {current && (
                 <Column gap={10}>
-                  <SectionHeader title="This Device" containerStyle={{ paddingHorizontal: 0 }} />
+                  <SectionHeader title="This Device" containerStyle={{ paddingHorizontal: theme.sizing.zero }} />
                   <SessionCard $accent="primary">
                     <Row align="center" gap={12}>
                       <IconSlot $accent="primary">
@@ -145,7 +146,7 @@ export function SessionsScreen() {
               <Column gap={10}>
                 <SectionHeader
                   title={`Other Devices (${others.length})`}
-                  containerStyle={{ paddingHorizontal: 0 }}
+                  containerStyle={{ paddingHorizontal: theme.sizing.zero }}
                 />
                 {others.length === 0 ? (
                   <Typography.Caption type="secondary">
@@ -197,6 +198,7 @@ export function SessionsScreen() {
             </Column>
           )}
         </ScreenStateRenderer>
+        </Column>
       </ScrollView>
     </AppLayout>
   );
@@ -207,8 +209,9 @@ const SessionCard = styled(View)<{ $accent?: 'primary'; $busy?: boolean }>`
   border-radius: ${({ theme }) => theme.borderRadius.xLarge}px;
   border-width: ${({ theme }) => theme.borderWidth.thin}px;
   border-color: ${({ theme }) => theme.colorBorder};
-  border-left-width: 3px;
+  border-left-width: ${({ theme }) => theme.borderWidth.medium}px;
   border-left-color: ${({ theme, $accent }) =>
+    // 'transparent' is a CSS keyword, not a design value — no theme token needed.
     $accent === 'primary' ? theme.color.primary.main : 'transparent'};
   padding: ${({ theme }) => theme.sizing.medium}px;
   opacity: ${({ $busy }) => ($busy ? 0.55 : 1)};
@@ -216,6 +219,7 @@ const SessionCard = styled(View)<{ $accent?: 'primary'; $busy?: boolean }>`
 `;
 
 const IconSlot = styled(View)<{ $accent?: 'primary' }>`
+  /* 44px is an un-tokenized icon-slot size — no matching theme.componentSizing entry. */
   width: 44px;
   height: 44px;
   border-radius: ${({ theme }) => theme.borderRadius.large}px;
@@ -226,7 +230,7 @@ const IconSlot = styled(View)<{ $accent?: 'primary' }>`
 `;
 
 const LogOutButton = styled.TouchableOpacity`
-  padding: 8px 14px;
+  padding: ${({ theme }) => theme.sizing.xSmall}px ${({ theme }) => theme.sizing.small}px;
   border-radius: ${({ theme }) => theme.borderRadius.full}px;
   background-color: ${({ theme }) => theme.color.danger.bg};
 `;

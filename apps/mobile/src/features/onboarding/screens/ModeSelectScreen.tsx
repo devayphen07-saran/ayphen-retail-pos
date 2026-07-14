@@ -26,8 +26,8 @@ import { useAuthStore } from '@store';
 import { useAuth } from '@core/providers/AuthProvider';
 import { ModeCard } from '../components/ModeCard';
 
-const W50 = 'rgba(255,255,255,0.50)';
-const W55 = 'rgba(255,255,255,0.55)';
+/** Stable reference so ScrollView's contentContainerStyle isn't rebuilt inline every render. */
+const SCROLL_CONTENT_STYLE = { flexGrow: 1 };
 
 /** First business/personal choice after login — `last_account_mode` was null
  *  (mobile-03 §3c/3d). Re-routing after this always auto-routes to the chosen
@@ -89,52 +89,25 @@ export function ModeSelectScreen() {
         end={{ x: 0.9, y: 1 }}
         pointerEvents="none"
       />
-      <Orb1
-        pointerEvents="none"
-        style={{
-          width: SW * 0.72,
-          height: SW * 0.72,
-          top: -SW * 0.22,
-          right: -SW * 0.18,
-        }}
-      />
-      <Orb2
-        pointerEvents="none"
-        style={{
-          width: SW * 0.48,
-          height: SW * 0.48,
-          top: SH * 0.14,
-          left: -SW * 0.18,
-        }}
-      />
+      <Orb1 pointerEvents="none" $size={SW * 0.72} $top={-SW * 0.22} $right={-SW * 0.18} />
+      <Orb2 pointerEvents="none" $size={SW * 0.48} $top={SH * 0.14} $left={-SW * 0.18} />
 
-      <KeyboardAvoidingView
-        style={{ flex: 1 }}
-        behavior={Platform.OS === 'ios' ? 'padding' : undefined}
-      >
+      <FlexKAV behavior={Platform.OS === 'ios' ? 'padding' : undefined}>
         <ScrollView
-          contentContainerStyle={{ flexGrow: 1 }}
+          contentContainerStyle={SCROLL_CONTENT_STYLE}
           keyboardShouldPersistTaps="handled"
           showsVerticalScrollIndicator={false}
         >
-          <Row
-            align="center"
-            justify="space-between"
-            style={{
-              paddingHorizontal: theme.sizing.large,
-              paddingTop: theme.sizing.regular,
-              paddingBottom: theme.sizing.xSmall,
-            }}
-          >
+          <HeaderRow align="center" justify="space-between">
             <Row align="center" gap={theme.sizing.small}>
               <LogoBox>
                 <LucideIcon name="Store" size={20} color={theme.colorWhite} />
               </LogoBox>
-              <Column gap={1}>
+              <Column gap={theme.sizing.xxSmall}>
                 <Typography.Body weight="semiBold" color={theme.colorWhite}>
                   Ayphen Retail
                 </Typography.Body>
-                <Typography.Caption color={W50}>
+                <Typography.Caption color={theme.overlay.onDark50}>
                   Enterprise POS Platform
                 </Typography.Caption>
               </Column>
@@ -171,39 +144,29 @@ export function ModeSelectScreen() {
 
                   {hasInvites ? (
                     <BadgeDot>
-                      <Typography.Caption
-                        weight={700}
-                        color={theme.colorWhite}
-                        style={{ fontSize: 10, lineHeight: 12 }}
-                      >
+                      <BadgeCountText weight={700} color={theme.colorWhite}>
                         {pendingCount > 9 ? '9+' : pendingCount}
-                      </Typography.Caption>
+                      </BadgeCountText>
                     </BadgeDot>
                   ) : null}
                 </BadgeIconWrap>
               </TouchableOpacity>
             </Row>
-          </Row>
+          </HeaderRow>
 
-          <Column
-            style={{
-              paddingHorizontal: theme.sizing.large,
-              paddingTop: theme.sizing.xLarge,
-              paddingBottom: theme.sizing.large,
-            }}
-          >
+          <HeroTextColumn>
             <Typography.Overline color={theme.colorAccentLavender}>
               ACCOUNT TYPE
             </Typography.Overline>
-            <Gap $h={6} />
+            <Gap $h={theme.sizing.xxSmall} />
             <Typography.H1 color={theme.colorWhite}>
               {'How will you\nuse Ayphen?'}
             </Typography.H1>
-            <Gap $h={8} />
-            <Typography.Body color={W55}>
+            <Gap $h={theme.sizing.xSmall} />
+            <Typography.Body color={theme.overlay.onDark55}>
               Pick how you want to start. You can switch anytime from Settings.
             </Typography.Body>
-          </Column>
+          </HeroTextColumn>
 
           <Card>
             <ModeCard
@@ -218,7 +181,7 @@ export function ModeSelectScreen() {
               onPress={() => handleSelect('business')}
             />
 
-            <Gap $h={12} />
+            <Gap $h={theme.sizing.small} />
 
             <ModeCard
               icon="User"
@@ -233,11 +196,7 @@ export function ModeSelectScreen() {
             />
 
             {error ? (
-              <Row
-                align="center"
-                gap={theme.sizing.xSmall}
-                style={{ marginTop: theme.sizing.medium }}
-              >
+              <ErrorRow align="center" gap={theme.sizing.xSmall}>
                 <LucideIcon
                   name="TriangleAlert"
                   size={14}
@@ -246,25 +205,20 @@ export function ModeSelectScreen() {
                 <Typography.Caption color={theme.colorError}>
                   {error}
                 </Typography.Caption>
-              </Row>
+              </ErrorRow>
             ) : null}
 
-            <Row
-              wrap="wrap"
-              align="center"
-              justify="center"
-              style={{ marginTop: theme.sizing.large }}
-            >
+            <FooterRow wrap="wrap" align="center" justify="center">
               <Typography.Caption color={theme.color.grey.borderActive}>
                 You can switch anytime from{' '}
               </Typography.Caption>
               <Typography.Caption color={theme.colorPrimary} weight="semiBold">
                 Settings
               </Typography.Caption>
-            </Row>
+            </FooterRow>
           </Card>
         </ScrollView>
-      </KeyboardAvoidingView>
+      </FlexKAV>
     </Root>
   );
 }
@@ -284,18 +238,55 @@ const BgGrad = styled(LinearGradient)`
   bottom: 0;
 `;
 
-const Orb1 = styled.View`
+const Orb1 = styled.View<{ $size: number; $top: number; $right: number }>`
   position: absolute;
+  width: ${({ $size }) => $size}px;
+  height: ${({ $size }) => $size}px;
+  top: ${({ $top }) => $top}px;
+  right: ${({ $right }) => $right}px;
   border-radius: ${({ theme }) => theme.borderRadius.full}px;
   background-color: ${({ theme }) => theme.gradient.orbIndigo};
   opacity: 0.18;
 `;
 
-const Orb2 = styled.View`
+const Orb2 = styled.View<{ $size: number; $top: number; $left: number }>`
   position: absolute;
+  width: ${({ $size }) => $size}px;
+  height: ${({ $size }) => $size}px;
+  top: ${({ $top }) => $top}px;
+  left: ${({ $left }) => $left}px;
   border-radius: ${({ theme }) => theme.borderRadius.full}px;
   background-color: ${({ theme }) => theme.gradient.orbViolet};
   opacity: 0.15;
+`;
+
+const FlexKAV = styled(KeyboardAvoidingView)`
+  flex: 1;
+`;
+
+const HeaderRow = styled(Row)`
+  padding-horizontal: ${({ theme }) => theme.sizing.large}px;
+  padding-top: ${({ theme }) => theme.sizing.regular}px;
+  padding-bottom: ${({ theme }) => theme.sizing.xSmall}px;
+`;
+
+const HeroTextColumn = styled(Column)`
+  padding-horizontal: ${({ theme }) => theme.sizing.large}px;
+  padding-top: ${({ theme }) => theme.sizing.xLarge}px;
+  padding-bottom: ${({ theme }) => theme.sizing.large}px;
+`;
+
+const ErrorRow = styled(Row)`
+  margin-top: ${({ theme }) => theme.sizing.medium}px;
+`;
+
+const FooterRow = styled(Row)`
+  margin-top: ${({ theme }) => theme.sizing.large}px;
+`;
+
+const BadgeCountText = styled(Typography.Caption)`
+  font-size: ${({ theme }) => theme.fontSize.xxSmall}px;
+  line-height: 12px;
 `;
 
 const LogoBox = styled.View`
@@ -339,21 +330,17 @@ const BadgeDot = styled.View`
   align-items: center;
   justify-content: center;
   background-color: ${({ theme }) => theme.colorError};
-  border-width: 1.5px;
+  border-width: ${({ theme }) => theme.borderWidth.light}px;
   border-color: ${({ theme }) => theme.colorBgContainer};
 `;
 
 const Card = styled.View`
   flex: 1;
   background-color: ${({ theme }) => theme.colorBgContainer};
-  border-top-left-radius: 28px;
-  border-top-right-radius: 28px;
+  border-top-left-radius: ${({ theme }) => theme.borderRadius.xxLarge * 2}px;
+  border-top-right-radius: ${({ theme }) => theme.borderRadius.xxLarge * 2}px;
   padding-horizontal: ${({ theme }) => theme.sizing.large}px;
   padding-top: ${({ theme }) => theme.sizing.xLarge}px;
   padding-bottom: ${({ theme }) => theme.sizing.xxLarge}px;
-  shadow-color: #000;
-  shadow-offset: 0px -6px;
-  shadow-opacity: 0.18;
-  shadow-radius: 24px;
-  elevation: 24;
+  ${({ theme }) => theme.shadow.top}
 `;

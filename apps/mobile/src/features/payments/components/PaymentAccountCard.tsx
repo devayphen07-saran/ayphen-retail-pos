@@ -1,5 +1,6 @@
 import { memo } from 'react';
 import { TouchableOpacity } from 'react-native';
+import styled from 'styled-components/native';
 import { useMobileTheme } from '@ayphen/mobile-theme';
 import { Column, Typography } from '@ayphen/mobile-ui-components';
 
@@ -30,17 +31,10 @@ export const PaymentAccountCard = memo(function PaymentAccountCard({
     .join(' · ');
 
   const content = (
-    <Column
-      gap={2}
-      style={{
-        paddingVertical: theme.sizing.small,
-        paddingHorizontal: theme.sizing.medium,
-        opacity: inactive ? 0.5 : 1,
-      }}
-    >
+    <CardColumn gap={theme.sizing.xxSmall} $inactive={inactive}>
       <Typography.Body weight="medium">{name}</Typography.Body>
       {tags ? <Typography.Caption type="secondary">{tags}</Typography.Caption> : null}
-    </Column>
+    </CardColumn>
   );
 
   if (!onPress) return content;
@@ -50,3 +44,9 @@ export const PaymentAccountCard = memo(function PaymentAccountCard({
     </TouchableOpacity>
   );
 });
+
+const CardColumn = styled(Column)<{ $inactive?: boolean }>`
+  padding-vertical: ${({ theme }) => theme.sizing.small}px;
+  padding-horizontal: ${({ theme }) => theme.sizing.medium}px;
+  opacity: ${({ $inactive }) => ($inactive ? 0.5 : 1)};
+`;

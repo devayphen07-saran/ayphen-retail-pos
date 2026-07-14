@@ -29,38 +29,22 @@ export const SkeletonLoader: React.FC<SkeletonLoaderProps> = ({ rows = 2 }) => {
           <Card>
             <TopRow>
               <TitleGroup>
-                <Bone style={{ width: '58%', height: theme.sizing.small }} />
-                <Bone
-                  style={{
-                    width: '36%',
-                    height: theme.sizing.small,
-                    marginTop: theme.sizing.xSmall,
-                  }}
-                />
+                <Bone $width="58%" $height={theme.sizing.small} />
+                <Bone $width="36%" $height={theme.sizing.small} $marginTop={theme.sizing.xSmall} />
               </TitleGroup>
               <Bone
-                style={{
-                  width: theme.sizing.xxLarge,
-                  height: theme.sizing.large,
-                  borderRadius: theme.borderRadius.small,
-                }}
+                $width={theme.sizing.xxLarge}
+                $height={theme.sizing.large}
+                $borderRadius={theme.borderRadius.small}
               />
             </TopRow>
             <BottomRow>
               <Bone
-                style={{
-                  width: theme.sizing.medium,
-                  height: theme.sizing.medium,
-                  borderRadius: theme.borderRadius.full,
-                }}
+                $width={theme.sizing.medium}
+                $height={theme.sizing.medium}
+                $borderRadius={theme.borderRadius.full}
               />
-              <Bone
-                style={{
-                  width: '30%',
-                  height: theme.sizing.small,
-                  marginLeft: theme.sizing.xSmall,
-                }}
-              />
+              <Bone $width="30%" $height={theme.sizing.small} $marginLeft={theme.sizing.xSmall} />
             </BottomRow>
           </Card>
         </Animated.View>
@@ -99,7 +83,17 @@ const BottomRow = styled(View)`
   margin-top: ${({ theme }) => theme.sizing.small}px;
 `;
 
-const Bone = styled(View)`
+const Bone = styled(View)<{
+  $width: string | number;
+  $height: number;
+  $borderRadius?: number;
+  $marginTop?: number;
+  $marginLeft?: number;
+}>`
   background-color: ${({ theme }) => theme.colorFill ?? theme.colorBorder};
-  border-radius: ${({ theme }) => theme.borderRadius.medium}px;
+  border-radius: ${({ theme, $borderRadius }) => $borderRadius ?? theme.borderRadius.medium}px;
+  width: ${({ $width }) => (typeof $width === 'number' ? `${$width}px` : $width)};
+  height: ${({ $height }) => $height}px;
+  margin-top: ${({ $marginTop }) => $marginTop ?? 0}px;
+  margin-left: ${({ $marginLeft }) => $marginLeft ?? 0}px;
 `;

@@ -260,7 +260,7 @@ export function FormScreen<T extends FieldValues>({
           ref={scrollRef}
           contentContainerStyle={{
             padding: theme.sizing.large,
-            paddingBottom: 80,
+            paddingBottom: theme.sizing.xxLarge,
             flexGrow: 1,
           }}
           keyboardShouldPersistTaps="handled"

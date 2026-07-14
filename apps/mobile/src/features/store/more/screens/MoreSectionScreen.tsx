@@ -48,7 +48,8 @@ export function MoreSectionScreen() {
         showsVerticalScrollIndicator={false}
         contentContainerStyle={{
           padding: theme.sizing.medium,
-          paddingBottom: 40,
+          // 40 has no exact token; nearest token is xxLarge (48).
+          paddingBottom: theme.sizing.xxLarge,
         }}
       >
         <MenuRowList

@@ -152,8 +152,7 @@ const StyledSafeArea = styled(SafeAreaView)`
 `;
 
 const Header = styled.View`
-  /* 64px header height — touch-target/layout constant, no sizing token */
-  min-height: 64px;
+  min-height: ${({ theme }) => theme.componentSizing.headerMinHeight}px;
   flex-direction: row;
   align-items: center;
   padding-right: ${({ theme }) => theme.padding.small}px;

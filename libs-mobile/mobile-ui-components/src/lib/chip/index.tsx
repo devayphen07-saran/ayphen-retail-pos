@@ -109,10 +109,13 @@ const ChipButton = styled(TouchableOpacity)<{
   $size: ChipSize;
   $disabled: boolean;
 }>`
-  padding-left: ${({ $size }) => ($size === 'sm' ? 10 : 12)}px;
-  padding-right: ${({ $size }) => ($size === 'sm' ? 10 : 12)}px;
-  height: ${({ $size }) => ($size === 'sm' ? 30 : 32)}px;
-  border-radius: ${({ $size }) => ($size === 'sm' ? 16 : 20)}px;
+  padding-left: ${({ $size, theme }) =>
+    $size === 'sm' ? theme.componentSizing.chipPaddingHorizontalSm : theme.sizing.small}px;
+  padding-right: ${({ $size, theme }) =>
+    $size === 'sm' ? theme.componentSizing.chipPaddingHorizontalSm : theme.sizing.small}px;
+  height: ${({ $size, theme }) =>
+    $size === 'sm' ? theme.componentSizing.chipHeightSm : theme.componentSizing.chipHeightMd}px;
+  border-radius: ${({ theme }) => theme.borderRadius.full}px;
   justify-content: center;
   align-items: center;
   border-width: ${({ theme }) => theme.borderWidth.thin}px;
@@ -122,7 +125,8 @@ const ChipButton = styled(TouchableOpacity)<{
 `;
 
 const ChipLabel = styled(Typography.Body)<{ $size: ChipSize; $color: string }>`
-  font-size: ${({ $size }) => ($size === 'sm' ? 12 : 13)}px;
-  font-weight: 600;
+  font-size: ${({ $size, theme }) =>
+    $size === 'sm' ? theme.fontSize.xSmall : theme.fontSize.small}px;
+  font-weight: ${({ theme }) => theme.fontWeight['600']};
   color: ${({ $color }) => $color};
 `;

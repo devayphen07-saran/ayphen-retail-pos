@@ -1,5 +1,6 @@
 import { RefreshControl, ScrollView } from 'react-native';
 import { router } from 'expo-router';
+import styled from 'styled-components/native';
 import { useMobileTheme } from '@ayphen/mobile-theme';
 import {
   AppLayout,
@@ -32,11 +33,12 @@ function initialsFrom(name: string): string {
 export function ProfileScreen() {
   const { theme } = useMobileTheme();
   const { data: profile, isLoading, isError, refetch, isRefetching } = useProfileQuery();
+  const scrollContentStyle = { padding: theme.sizing.large, flexGrow: 1 };
 
   return (
     <AppLayout title="My Profile" onBack={() => router.back()}>
       <ScrollView
-        contentContainerStyle={{ padding: theme.sizing.large, flexGrow: 1 }}
+        contentContainerStyle={scrollContentStyle}
         showsVerticalScrollIndicator={false}
         refreshControl={
           <RefreshControl refreshing={isRefetching && !isLoading} onRefresh={refetch} />
@@ -56,7 +58,7 @@ export function ProfileScreen() {
             // only ever returns a single ProfileResponse, never an array.
             const p = data as ProfileResponse;
             return (
-            <Column gap={24} align="center">
+            <Column gap={theme.sizing.large} align="center">
               <Avatar
                 uri={p.profile_picture_url ?? undefined}
                 initials={p.profile_picture_url ? undefined : initialsFrom(p.name)}
@@ -65,21 +67,14 @@ export function ProfileScreen() {
               />
               <Typography.H4 color={theme.colorText}>{p.name}</Typography.H4>
 
-              <Column gap={10} style={{ width: '100%' }}>
-                <ListRow
+              <Column gap={theme.sizing.small} width="100%">
+                <ProfileListRow
                   icon="Mail"
                   title="Email"
                   subtitle={p.email ?? 'Not added'}
                   chevron={false}
-                  style={{
-                    backgroundColor: theme.colorBgContainer,
-                    borderRadius: theme.borderRadius.xLarge,
-                    borderWidth: theme.borderWidth.thin,
-                    borderColor: theme.colorBorderSecondary,
-                    paddingHorizontal: theme.sizing.medium,
-                  }}
                 />
-                <ListRow
+                <ProfileListRow
                   icon="Phone"
                   title="Phone"
                   subtitle={
@@ -88,13 +83,6 @@ export function ProfileScreen() {
                       : 'Not added'
                   }
                   chevron={false}
-                  style={{
-                    backgroundColor: theme.colorBgContainer,
-                    borderRadius: theme.borderRadius.xLarge,
-                    borderWidth: theme.borderWidth.thin,
-                    borderColor: theme.colorBorderSecondary,
-                    paddingHorizontal: theme.sizing.medium,
-                  }}
                 />
               </Column>
             </Column>
@@ -105,3 +93,13 @@ export function ProfileScreen() {
     </AppLayout>
   );
 }
+
+// ─── Styles ───────────────────────────────────────────────────────────────────
+
+const ProfileListRow = styled(ListRow)`
+  background-color: ${({ theme }) => theme.colorBgContainer};
+  border-radius: ${({ theme }) => theme.borderRadius.xLarge}px;
+  border-width: ${({ theme }) => theme.borderWidth.thin}px;
+  border-color: ${({ theme }) => theme.colorBorderSecondary};
+  padding-horizontal: ${({ theme }) => theme.sizing.medium}px;
+`;

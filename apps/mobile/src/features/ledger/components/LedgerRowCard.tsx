@@ -1,4 +1,5 @@
 import { memo } from 'react';
+import styled from 'styled-components/native';
 import { useMobileTheme } from '@ayphen/mobile-theme';
 import { Column, Row, Typography, formatMinorUnits } from '@ayphen/mobile-ui-components';
 import type { LedgerRow } from '../utils/ledger-row';
@@ -24,16 +25,8 @@ export const LedgerRowCard = memo(function LedgerRowCard({ row }: { row: LedgerR
   const amountColor = isCredit ? theme.colorSuccess : theme.colorError;
 
   return (
-    <Row
-      align="center"
-      justify="space-between"
-      style={{
-        paddingVertical: theme.sizing.small,
-        paddingHorizontal: theme.sizing.medium,
-        opacity: row.pending ? 0.6 : 1,
-      }}
-    >
-      <Column gap={2} style={{ flex: 1 }}>
+    <RowPad align="center" justify="space-between" $pending={row.pending}>
+      <Column gap={theme.sizing.xxSmall} flex={1}>
         <Typography.Body weight="medium">
           {REASON_LABEL[row.reason] ?? row.reason}
         </Typography.Body>
@@ -46,6 +39,12 @@ export const LedgerRowCard = memo(function LedgerRowCard({ row }: { row: LedgerR
         {isCredit ? '+' : '−'}
         {formatMinorUnits(row.amountPaise, { currency: 'INR' })}
       </Typography.Body>
-    </Row>
+    </RowPad>
   );
 });
+
+const RowPad = styled(Row)<{ $pending?: boolean }>`
+  padding-vertical: ${({ theme }) => theme.sizing.small}px;
+  padding-horizontal: ${({ theme }) => theme.sizing.medium}px;
+  opacity: ${({ $pending }) => ($pending ? 0.6 : 1)};
+`;

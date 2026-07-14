@@ -1,7 +1,6 @@
-import { Injectable, Logger, UseGuards, type OnApplicationBootstrap } from '@nestjs/common';
+import { Injectable, Logger, UseGuards, type CanActivate, type OnApplicationBootstrap } from '@nestjs/common';
 import { DiscoveryService, MetadataScanner, Reflector } from '@nestjs/core';
 import type { InstanceWrapper } from '@nestjs/core/injector/instance-wrapper.js';
-import { MobileJwtGuard } from '#auth/mobile/guards/mobile-jwt.guard.js';
 import {
   IS_PUBLIC_KEY,
   REQUIRE_PERMISSIONS_KEY,
@@ -15,6 +14,20 @@ import { PermissionsGuard } from './guards/permissions.guard.js';
 // @nestjs/common internal metadata keys (stable across v6–v11).
 const PATH_METADATA = 'path';
 const GUARDS_METADATA = '__guards__';
+
+// Name of the guard every authenticated mobile route must carry. Compared by
+// name (not by importing the real class) so this shared/common validator has
+// no upward dependency on the auth/mobile feature module.
+const MOBILE_JWT_GUARD_NAME = 'MobileJwtGuard';
+
+// Throwaway guard used only to prove GUARDS_METADATA still resolves
+// @UseGuards (see assertGuardMetadataKeyValid) — any CanActivate works for
+// that purpose, so this avoids importing the real MobileJwtGuard.
+class GuardMetadataKeyProbeGuard implements CanActivate {
+  canActivate(): boolean {
+    return true;
+  }
+}
 
 /**
  * Startup route validator (rbac.md §11, BR-RBAC-001). After controllers are
@@ -61,11 +74,11 @@ export class RouteCoverageValidator implements OnApplicationBootstrap {
    */
   private assertGuardMetadataKeyValid(): void {
     class GuardMetadataProbe {}
-    UseGuards(MobileJwtGuard)(GuardMetadataProbe);
+    UseGuards(GuardMetadataKeyProbeGuard)(GuardMetadataProbe);
     const guards = Reflect.getMetadata(GUARDS_METADATA, GuardMetadataProbe) as
       | unknown[]
       | undefined;
-    if (!guards?.includes(MobileJwtGuard)) {
+    if (!guards?.includes(GuardMetadataKeyProbeGuard)) {
       throw new Error(
         `[RBAC] Guard metadata key "${GUARDS_METADATA}" no longer resolves @UseGuards — ` +
           'the route-coverage validator would fail open. A @nestjs/common upgrade likely ' +
@@ -107,7 +120,7 @@ export class RouteCoverageValidator implements OnApplicationBootstrap {
         const isPublic =
           this.reflector.get(IS_PUBLIC_KEY, metatype!) === true ||
           this.reflector.get(IS_PUBLIC_KEY, handler) === true;
-        if (!isPublic && !guardNames.has(MobileJwtGuard.name)) {
+        if (!isPublic && !guardNames.has(MOBILE_JWT_GUARD_NAME)) {
           errors.push(
             `${className}.${methodName} is neither @Public nor guarded by MobileJwtGuard.`,
           );

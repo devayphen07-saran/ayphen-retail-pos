@@ -94,7 +94,7 @@ export class FilesController {
     const views = await this.files.commit(
       CommitFilesRequestMapper.toCommand(dto),
     );
-    return views.map((v) => FilesMapper.toFileResponse(v));
+    return FilesMapper.toFileResponseList(views);
   }
 
   /** List active files attached to a record. */
@@ -102,7 +102,7 @@ export class FilesController {
   async listByRecord(@Query() query: unknown): Promise<FileResponse[]> {
     const { entity_type, record_guuid } = parse(query, ListFilesQuerySchema);
     const views = await this.files.listByRecord(entity_type, record_guuid);
-    return views.map((v) => FilesMapper.toFileResponse(v));
+    return FilesMapper.toFileResponseList(views);
   }
 
   /**
@@ -118,12 +118,7 @@ export class FilesController {
       ListFilesBatchQuerySchema,
     );
     const grouped = await this.files.listByRecords(entity_type, record_guuids);
-    return Object.fromEntries(
-      Object.entries(grouped).map(([recordGuuid, views]) => [
-        recordGuuid,
-        views.map((v) => FilesMapper.toFileResponse(v)),
-      ]),
-    );
+    return FilesMapper.toFileResponseByRecordMap(grouped);
   }
 
   /** A single file with a fresh presigned URL. */

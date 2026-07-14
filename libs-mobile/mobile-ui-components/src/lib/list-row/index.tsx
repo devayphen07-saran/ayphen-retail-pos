@@ -51,7 +51,7 @@ export const ListRow: React.FC<ListRowProps> = ({
 
 const RowContainer = styled(Row)<{ $scale: number }>`
   padding-vertical: ${({ $scale, theme }) => theme.sizing.medium * $scale}px;
-  min-height: ${({ $scale }) => 56 * $scale}px;
+  min-height: ${({ $scale, theme }) => theme.componentSizing.btnHeightXlg * $scale}px;
 `;
 
 const IconSlot = styled(Flex)<{ $scale: number }>`

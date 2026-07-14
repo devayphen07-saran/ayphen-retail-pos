@@ -46,10 +46,11 @@ function num(value: unknown): number {
 //   (not a wrapper View) so this caveat does not apply here.
 
 export const StyledFormInput = styled.TextInput<{
-  $hasError?:   boolean;
-  $disabled?:   boolean;
-  $scale:       number;
-  $fontScale:   number;
+  $hasError?:     boolean;
+  $disabled?:     boolean;
+  $scale:         number;
+  $fontScale:     number;
+  $marginBottom?: number;
 }>`
   ${({ theme, $hasError, $scale, $fontScale }) => {
     const s = inputStyles(theme, $hasError);
@@ -66,6 +67,7 @@ export const StyledFormInput = styled.TextInput<{
   width: 100%;
   background-color: ${({ theme }) => theme.colorBgContainer};
   opacity: ${({ $disabled }) => ($disabled ? 0.6 : 1)};
+  margin-bottom: ${({ $marginBottom }) => $marginBottom ?? 0}px;
 `;
 
 // ─── StyledFormFieldFrame ─────────────────────────────────────────────────────
@@ -107,15 +109,25 @@ export const StyledFormInput = styled.TextInput<{
 //   and set the TextInput's color to theme.colorTextDisabled.
 
 export const StyledFormFieldFrame = styled.View<{
-  $hasError?: boolean;
-  $disabled?: boolean;
-  $scale:     number;
+  $hasError?:     boolean;
+  $disabled?:     boolean;
+  $scale:         number;
+  $focused?:      boolean;
+  $gap?:          number;
+  $marginBottom?: number;
 }>`
-  ${({ theme, $hasError, $scale }) => {
+  ${({ theme, $hasError, $scale, $focused }) => {
     const s = inputStyles(theme, $hasError);
+    // Error border always wins; an active focus ring is next; otherwise the
+    // frame falls back to inputStyles()'s default/error border colour.
+    const borderColor = $hasError
+      ? theme.colorError
+      : $focused
+        ? theme.colorPrimary
+        : String(s.borderColor);
     return `
       border-width:  ${num(s.borderWidth)}px;
-      border-color:  ${String(s.borderColor)};
+      border-color:  ${borderColor};
       border-radius: ${num(s.borderRadius) * $scale}px;
       padding:       ${num(s.padding) * $scale}px;
     `;
@@ -124,4 +136,6 @@ export const StyledFormFieldFrame = styled.View<{
   align-items:      center;
   background-color: ${({ theme }) => theme.colorBgContainer};
   opacity:          ${({ $disabled }) => ($disabled ? 0.6 : 1)};
+  column-gap:       ${({ $gap }) => $gap ?? 0}px;
+  margin-bottom:    ${({ $marginBottom }) => $marginBottom ?? 0}px;
 `;

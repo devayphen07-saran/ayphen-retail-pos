@@ -182,7 +182,12 @@ export function RolePermissionsScreen() {
     <AppLayout title={role?.name ?? 'Role'} onBack={() => router.back()}>
       <ScrollView
         style={{ flex: 1 }}
-        contentContainerStyle={{ padding: theme.sizing.large, flexGrow: 1, paddingBottom: 100 }}
+        contentContainerStyle={{
+          padding: theme.sizing.large,
+          flexGrow: 1,
+          // 100 has no exact token; nearest composable approximation.
+          paddingBottom: theme.sizing.xxLarge + theme.sizing.xxLarge,
+        }}
         showsVerticalScrollIndicator={false}
       >
         <ScreenStateRenderer

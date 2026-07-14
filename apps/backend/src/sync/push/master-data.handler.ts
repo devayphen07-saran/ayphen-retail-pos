@@ -5,7 +5,7 @@ import { ErrorCodes } from '#common/error-codes.js';
 import type { EntityCode } from '#common/rbac/permission-matrix.constants.js';
 import type { DbTransaction } from '#db/db.module.js';
 import { TombstoneRepository } from '../repositories/tombstone.repository.js';
-import { camelToSnake, type WireRow } from '../registry/entity-filter.js';
+import { SyncWireMapper } from '../mappers/response/sync-wire.mapper.js';
 import type { SyncEntityType } from '../sync.constants.js';
 import type {
   HandlerOutcome,
@@ -13,17 +13,6 @@ import type {
   MutationContext,
   SyncMutationHandler,
 } from './mutation.types.js';
-
-/** Serialize a row for conflict `server_row` / applied `data`. NOT the pull
- *  path — the authoritative µs `modified_at` watermark only travels via
- *  filters; here plain ISO is fine (the client re-pulls the row anyway). */
-function wireRow(row: Record<string, unknown>): WireRow {
-  const out: WireRow = {};
-  for (const [key, value] of Object.entries(row)) {
-    out[camelToSnake(key)] = value instanceof Date ? value.toISOString() : value;
-  }
-  return out;
-}
 
 /** Resolve a payload reference (usually a guuid) to the target row's id. */
 export interface FkResolver {
@@ -219,7 +208,7 @@ export abstract class MasterDataSyncHandler implements SyncMutationHandler {
     return {
       kind: 'conflict',
       entityGuuid: guuid,
-      serverRow: wireRow(current),
+      serverRow: SyncWireMapper.toAppliedRow(current),
       message: `stale row_version: expected ${expectedRowVersion}, server has ${String(current[this.columnKey(this.cfg.rowVersionColumn)])}`,
     };
   }
@@ -356,7 +345,7 @@ export abstract class MasterDataSyncHandler implements SyncMutationHandler {
       entityId: String(row[this.columnKey(this.cfg.idColumn)]),
       entityGuuid: String(row[this.columnKey(this.cfg.guuidColumn)]),
       rowVersion: Number(row[this.columnKey(this.cfg.rowVersionColumn)]),
-      data: wireRow(row),
+      data: SyncWireMapper.toAppliedRow(row),
     };
   }
 

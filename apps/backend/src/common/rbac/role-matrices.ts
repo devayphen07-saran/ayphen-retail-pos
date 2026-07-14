@@ -34,6 +34,10 @@ export const STORE_OWNER_CRUD: CrudMatrixMap = Object.freeze({
   Refund: NO_DELETE,
   Customer: FULL,
   Supplier: FULL,
+  // Same audit-history policy as Sale/Refund (F6): a vendor bill/payment is
+  // never deleted, only reversed by a new event.
+  SupplierBill: NO_DELETE,
+  SupplierPayment: NO_DELETE,
   Inventory: FULL,
   Payment: FULL,
   Shift: FULL,
@@ -106,6 +110,9 @@ export const DEFAULT_ROLE_CRUD: PartialCrudMatrixMap = Object.freeze({
   Sale: VIEW_CREATE,
   Customer: VIEW_ONLY,
   Supplier: VIEW_ONLY,
+  // A staff member can record a vendor bill as it comes in; paying it out is
+  // absent (explicit grant only) — same policy as Refund above.
+  SupplierBill: VIEW_CREATE,
   Inventory: VIEW_ONLY,
   Payment: VIEW_ONLY,
   Shift: VIEW_CREATE,

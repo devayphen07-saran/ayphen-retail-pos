@@ -152,6 +152,12 @@ export const SYNC_ENTITY_TYPES = [
   'sale_payment',
   'refund',
   'refund_line',
+  'customer_ledger_event',
+  'customer_payment',
+  'payment_allocation',
+  'supplier_bill',
+  'supplier_payment',
+  'supplier_payment_allocation',
 ] as const;
 
 export type SyncEntityType = (typeof SYNC_ENTITY_TYPES)[number];

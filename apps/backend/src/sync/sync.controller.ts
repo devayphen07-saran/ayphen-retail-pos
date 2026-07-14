@@ -28,17 +28,21 @@ import type { MobilePrincipal } from '#common/types/principal.js';
 import type { ResolvedStoreContext } from '#common/rbac/resolved-store-context.js';
 import { SkipTransform } from '#common/decorators/skip-transform.decorator.js';
 import { parse } from '#common/validation/parse.js';
-import { InitialSyncService, type InitialResult } from './pull/initial-sync.service.js';
-import { SyncChangesService, type ChangesResult } from './pull/changes.service.js';
-import { SyncDeltaService, type SyncDeltaResult } from './push/delta.service.js';
+import { InitialSyncService } from './pull/initial-sync.service.js';
+import { SyncChangesService } from './pull/changes.service.js';
+import { SyncDeltaService } from './push/delta.service.js';
 import { SyncConflictService } from './services/sync-conflict.service.js';
 import { ConflictResponseMapper } from './mappers/response/conflict.response-mapper.js';
-import type { ConflictResponse, ConflictListResponse } from './dto/response/conflict.response.js';
+import type { ConflictResponse } from './dto/response/conflict.response.js';
+import type { InitialPullResponse, ChangesPullResponse } from './dto/response/pull.response.js';
+import type { SyncDeltaResponse } from './dto/response/delta.response.js';
+import type { PaginatedResponse } from '#common/pagination/paginated-response.js';
 import {
   ChangesQuerySchema,
   ConflictListQuerySchema,
   ConflictResolveSchema,
   InitialQuerySchema,
+  SyncDeltaSchema,
   splitTypes,
 } from './dto/sync-delta.schema.js';
 
@@ -74,7 +78,7 @@ export class SyncController {
     @Param('storeId', ParseUUIDPipe) storeId: string,
     @CurrentUser() user: MobilePrincipal,
     @Query() query: Record<string, unknown>,
-  ): Promise<InitialResult> {
+  ): Promise<InitialPullResponse> {
     const q = parse(query, InitialQuerySchema);
     return this.initial.pull(user.userId, user.deviceId, storeId, {
       entityType: q.entity_type,
@@ -92,7 +96,7 @@ export class SyncController {
     @Param('storeId', ParseUUIDPipe) storeId: string,
     @CurrentUser() user: MobilePrincipal,
     @Query() query: Record<string, unknown>,
-  ): Promise<ChangesResult> {
+  ): Promise<ChangesPullResponse> {
     const q = parse(query, ChangesQuerySchema);
     return this.changes.pull(user.userId, storeId, q.cursor, splitTypes(q.supported_entity_types), user.deviceId);
   }
@@ -106,8 +110,9 @@ export class SyncController {
     @Param('storeId', ParseUUIDPipe) storeId: string,
     @CurrentUser() user: MobilePrincipal,
     @CurrentStoreContext() ctx: ResolvedStoreContext,
-    @Body() body: unknown,
-  ): Promise<SyncDeltaResult> {
+    @Body() rawBody: unknown,
+  ): Promise<SyncDeltaResponse> {
+    const body = parse(rawBody, SyncDeltaSchema);
     return this.delta.process(user, { storeId, accountId: ctx.accountId }, body);
   }
 
@@ -117,13 +122,15 @@ export class SyncController {
     @Param('storeId', ParseUUIDPipe) storeId: string,
     @CurrentUser() user: MobilePrincipal,
     @Query() query: Record<string, unknown>,
-  ): Promise<ConflictListResponse> {
+  ): Promise<PaginatedResponse<ConflictResponse>> {
     const q = parse(query, ConflictListQuerySchema);
-    const rows = await this.conflicts.list(storeId, user.userId, {
-      status: q.status,
-      conflictType: q.conflict_type,
-    });
-    return ConflictResponseMapper.toListResponse(rows);
+    const page = await this.conflicts.list(
+      storeId,
+      user.userId,
+      { status: q.status, conflictType: q.conflict_type },
+      { limit: q.limit, cursor: q.cursor },
+    );
+    return ConflictResponseMapper.toListResponse(page);
   }
 
   /** Bookkeeping only — the client rebases and resubmits under the new row_version. */

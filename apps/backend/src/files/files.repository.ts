@@ -3,6 +3,7 @@ import {
   and,
   asc,
   eq,
+  gt,
   inArray,
   isNotNull,
   isNull,
@@ -139,7 +140,7 @@ export class FilesRepository {
           eq(temporaryFiles.guuid, guuid),
           eq(temporaryFiles.uploadedBy, uploadedBy),
           isNull(temporaryFiles.claimedAt),
-          sql`${temporaryFiles.expiresAt} > ${now}`,
+          gt(temporaryFiles.expiresAt, now),
         ),
       )
       .returning();

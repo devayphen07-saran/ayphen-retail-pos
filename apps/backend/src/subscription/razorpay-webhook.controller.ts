@@ -10,6 +10,8 @@ import { ForbiddenError } from '#common/exceptions/app.exception.js';
 import { ErrorCodes } from '#common/error-codes.js';
 import { Public } from '#common/rbac/decorators/rbac.decorators.js';
 import { BillingService } from './billing.service.js';
+import { SubscriptionResponseMapper } from './subscription.mapper.js';
+import type { WebhookResponse } from './dto/checkout.response.js';
 
 /**
  * Razorpay webhook — the authoritative payment backstop (subscription §9). No
@@ -25,12 +27,13 @@ export class RazorpayWebhookController {
   @Public()
   @SkipThrottle()
   @HttpCode(200)
-  async handle(@Req() req: Request & { rawBody?: Buffer }): Promise<{ handled: boolean }> {
+  async handle(@Req() req: Request & { rawBody?: Buffer }): Promise<WebhookResponse> {
     const signature = req.headers['x-razorpay-signature'];
     const rawBody = req.rawBody;
     if (!rawBody || typeof signature !== 'string') {
       throw new ForbiddenError(ErrorCodes.WEBHOOK_SIGNATURE_INVALID, 'Webhook signature is invalid');
     }
-    return this.billing.handleWebhook(rawBody, signature);
+    await this.billing.handleWebhook(rawBody, signature);
+    return SubscriptionResponseMapper.toWebhookResponse();
   }
 }

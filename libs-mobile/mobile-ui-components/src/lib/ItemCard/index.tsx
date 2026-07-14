@@ -1,5 +1,5 @@
 import React from "react";
-import { View, StyleSheet } from "react-native";
+import { View } from "react-native";
 import type { StyleProp, ViewStyle } from "react-native";
 import styled, { useTheme } from "styled-components/native";
 import MaterialIcons from "@expo/vector-icons/MaterialIcons";
@@ -51,12 +51,10 @@ export const ItemCard: React.FC<ItemCardProps> = ({
     <CardTouchable
       $variant={variant}
       $borderless={borderless}
+      $marginBottom={marginBottom}
       onPress={onPress}
       activeOpacity={0.85}
-      style={{
-        ...StyleSheet.flatten(style),
-        marginBottom: marginBottom ? theme.padding.xxSmall : 0,
-      }}
+      style={style}
     >
       <IconWrapper>
         {iconProps && (
@@ -94,6 +92,7 @@ export const ItemCard: React.FC<ItemCardProps> = ({
 const CardTouchable = styled.TouchableOpacity<{
   $variant: ColorType;
   $borderless: boolean;
+  $marginBottom: boolean;
 }>`
   border-width: ${({ theme, $borderless }) =>
     $borderless ? 0 : theme.borderWidth.thin}px;
@@ -104,6 +103,7 @@ const CardTouchable = styled.TouchableOpacity<{
   align-items: center;
   padding: ${({ theme }) => theme.padding.regular}px;
   border-radius: ${({ theme }) => theme.borderRadius.large}px;
+  margin-bottom: ${({ theme, $marginBottom }) => ($marginBottom ? theme.padding.xxSmall : 0)}px;
 
   ${({ $borderless, theme }) => (!$borderless ? theme.shadow.sm : "")}
 `;

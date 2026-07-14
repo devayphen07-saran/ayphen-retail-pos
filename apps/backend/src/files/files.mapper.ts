@@ -35,4 +35,19 @@ export const FilesMapper = {
       created_at:        view.createdAt.toISOString(),
     };
   },
+
+  toFileResponseList(views: FileView[]): FileResponse[] {
+    return views.map((v) => FilesMapper.toFileResponse(v));
+  },
+
+  toFileResponseByRecordMap(
+    grouped: Record<string, FileView[]>,
+  ): Record<string, FileResponse[]> {
+    return Object.fromEntries(
+      Object.entries(grouped).map(([recordGuuid, views]) => [
+        recordGuuid,
+        FilesMapper.toFileResponseList(views),
+      ]),
+    );
+  },
 };

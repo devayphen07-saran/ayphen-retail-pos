@@ -293,17 +293,6 @@ function toDisplayString(value: unknown): string {
   return '';
 }
 
-// ─── Spacing constants ────────────────────────────────────────────────────────
-//
-// These match the Figma spacing scale:
-//   FIELD_BOTTOM_GAP = spacing/3 (13px) — gap below each field in a form column
-//   PREFIX_SUFFIX_GAP = spacing/2 (8px) — gap between prefix/input/suffix
-//
-// TODO: replace with theme.spacing.fieldGap and theme.spacing.inputInner
-// when the theme tokens are published (Figma component v2.1).
-const FIELD_BOTTOM_GAP = 13;
-const PREFIX_SUFFIX_GAP = 8;
-
 // ─── Component ────────────────────────────────────────────────────────────────
 
 function InputInner<T extends FieldValues>({
@@ -462,19 +451,9 @@ function InputInner<T extends FieldValues>({
               <StyledFormFieldFrame
                 $hasError={!!fieldState.error}
                 $scale={scale}
-                style={{
-                  columnGap: PREFIX_SUFFIX_GAP,
-                  marginBottom: FIELD_BOTTOM_GAP,
-                  // StyledFormFieldFrame has no $focused prop — apply the
-                  // focus ring via inline style so we don't have to modify
-                  // the shared component. Error border takes priority over
-                  // focus ring, which takes priority over default border.
-                  borderColor: fieldState.error
-                    ? theme.colorError
-                    : isFocused
-                      ? theme.colorPrimary
-                      : theme.colorBorder,
-                }}
+                $focused={isFocused}
+                $gap={theme.sizing.xSmall}
+                $marginBottom={theme.sizing.small}
               >
                 {prefix}
                 <FrameInput
@@ -490,7 +469,7 @@ function InputInner<T extends FieldValues>({
                 $hasError={!!fieldState.error}
                 $scale={scale}
                 $fontScale={fontScale}
-                style={{ marginBottom: FIELD_BOTTOM_GAP }}
+                $marginBottom={theme.sizing.small}
               />
             )}
           </FormFieldWrapper>

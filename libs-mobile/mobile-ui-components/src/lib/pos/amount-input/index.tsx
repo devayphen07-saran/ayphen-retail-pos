@@ -126,11 +126,7 @@ export function AmountInput<T extends FieldValues>(
           $hasError={!!error}
           $disabled={props.disabled}
           $scale={scale}
-          style={{
-            marginBottom: props.helperText
-              ? theme.sizing.xxSmall
-              : theme.sizing.small,
-          }}
+          $marginBottom={props.helperText ? theme.sizing.xxSmall : theme.sizing.small}
         >
           {props.symbolAsPrefix ? (
             <SymbolText accessibilityElementsHidden>{resolved.symbol}</SymbolText>

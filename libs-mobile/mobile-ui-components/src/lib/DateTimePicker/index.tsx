@@ -5,7 +5,6 @@ import {
   View,
   Button,
   TouchableOpacity,
-  type TextStyle,
 } from "react-native";
 import DateTimePicker, {
   DateTimePickerEvent,
@@ -79,43 +78,29 @@ export function DateTimeField<T extends FieldValues = FieldValues>({
   ) => (
     <Flex flex={1}>
       {label && (
-        <View
-          style={{
-            paddingBottom: theme.sizing.xxSmall,
-            marginLeft: theme.sizing.xxSmall,
-          }}
-        >
+        <LabelContainer>
           <Typography.Caption>
             {label}
             {required && (
-              <Typography.Caption
-                type="secondary"
-                style={{ color: theme.colorError }}
-              >
-                {" *"}
-              </Typography.Caption>
+              <RequiredMark type="secondary">{" *"}</RequiredMark>
             )}
           </Typography.Caption>
-        </View>
+        </LabelContainer>
       )}
 
       <SelectTouchable
         disabled={disabled}
         onPress={() => !disabled && setShow(true)}
-        style={{ opacity: disabled ? 0.6 : 1 }}
+        $disabled={disabled}
       >
         <TextRow>
-          <Typography.Body
-            type="secondary"
-            style={{ flex: 1 }}
-            numberOfLines={1}
-          >
+          <ValueText type="secondary" numberOfLines={1}>
             {val
               ? showTime
                 ? val.toLocaleString()
                 : val.toLocaleDateString()
               : placeholder}
-          </Typography.Body>
+          </ValueText>
 
           {val && !disabled && (
             <TouchableOpacity
@@ -128,11 +113,7 @@ export function DateTimeField<T extends FieldValues = FieldValues>({
         </TextRow>
       </SelectTouchable>
 
-      {errorMessage && (
-        <Typography.Caption style={{ color: theme.colorError }}>
-          {errorMessage}
-        </Typography.Caption>
-      )}
+      {errorMessage && <ErrorText>{errorMessage}</ErrorText>}
 
       {!disabled && show && (
         <Modal transparent animationType="fade">
@@ -140,9 +121,7 @@ export function DateTimeField<T extends FieldValues = FieldValues>({
           <PickerContainer>
             {mode === "date" && (
               <>
-                <Typography.Body style={{ marginBottom: theme.sizing.xSmall }}>
-                  Select Date
-                </Typography.Body>
+                <SectionLabel>Select Date</SectionLabel>
                 <DateTimePicker
                   value={tempDate || new Date()}
                   mode="date"
@@ -160,45 +139,24 @@ export function DateTimeField<T extends FieldValues = FieldValues>({
                 />
 
                 {showTime && (
-                  <TouchableOpacity
-                    style={{
-                      marginTop: theme.sizing.small,
-                      flexDirection: "row",
-                      alignItems: "center",
-                      justifyContent: "center",
-                      gap: theme.sizing.xSmall,
-                      paddingVertical: theme.sizing.xSmall,
-                    }}
-                    onPress={() => setMode("time")}
-                  >
+                  <TimeToggleButton onPress={() => setMode("time")}>
                     <Clock size={18} color={theme.colorPrimary} />
-                    <Typography.Body
-                      style={{
-                        color: theme.colorPrimary,
-                        fontWeight: theme.fontWeight[
-                          "500"
-                        ] as TextStyle["fontWeight"],
-                      }}
-                    >
-                      Select Time
-                    </Typography.Body>
-                  </TouchableOpacity>
+                    <TimeToggleLabel>Select Time</TimeToggleLabel>
+                  </TimeToggleButton>
                 )}
 
-                <View style={{ marginTop: theme.sizing.small }}>
+                <DoneButtonContainer>
                   <Button
                     title="Done"
                     onPress={() => handleConfirm(changeFn)}
                   />
-                </View>
+                </DoneButtonContainer>
               </>
             )}
 
             {mode === "time" && (
               <>
-                <Typography.Body style={{ marginBottom: theme.sizing.xSmall }}>
-                  Select Time
-                </Typography.Body>
+                <SectionLabel>Select Time</SectionLabel>
                 <DateTimePicker
                   value={tempDate || new Date()}
                   mode="time"
@@ -216,12 +174,7 @@ export function DateTimeField<T extends FieldValues = FieldValues>({
                   }}
                 />
 
-                <Row
-                  style={{
-                    marginTop: theme.sizing.small,
-                    justifyContent: "space-between",
-                  }}
-                >
+                <ConfirmRow>
                   <Button
                     title="Back to Date"
                     onPress={() => setMode("date")}
@@ -230,7 +183,7 @@ export function DateTimeField<T extends FieldValues = FieldValues>({
                     title="Confirm"
                     onPress={() => handleConfirm(changeFn)}
                   />
-                </Row>
+                </ConfirmRow>
               </>
             )}
           </PickerContainer>
@@ -261,7 +214,7 @@ export function DateTimeField<T extends FieldValues = FieldValues>({
   return renderPicker(internalDate, handleChange);
 }
 
-const SelectTouchable = styled(TouchableOpacity)`
+const SelectTouchable = styled(TouchableOpacity)<{ $disabled?: boolean }>`
   padding: ${({ theme }) =>
     Platform.OS === "ios" ? theme.padding.small : theme.padding.xSmall}px;
   background-color: ${({ theme }) => theme.colorBgContainer};
@@ -269,6 +222,7 @@ const SelectTouchable = styled(TouchableOpacity)`
   border-width: ${({ theme }) => theme.borderWidth.thin}px;
   border-color: ${({ theme }) => theme.colorBorder};
   margin-bottom: ${({ theme }) => theme.margin.small}px;
+  opacity: ${({ $disabled }) => ($disabled ? 0.6 : 1)};
 `;
 
 const TextRow = styled.View`
@@ -291,4 +245,48 @@ const PickerContainer = styled(View)`
   border-top-right-radius: ${({ theme }) =>
     theme.borderRadius.xLarge + theme.borderRadius.small}px;
   padding: ${({ theme }) => theme.sizing.medium}px;
+`;
+
+const LabelContainer = styled.View`
+  padding-bottom: ${({ theme }) => theme.sizing.xxSmall}px;
+  margin-left: ${({ theme }) => theme.sizing.xxSmall}px;
+`;
+
+const RequiredMark = styled(Typography.Caption)`
+  color: ${({ theme }) => theme.colorError};
+`;
+
+const ValueText = styled(Typography.Body)`
+  flex: 1;
+`;
+
+const ErrorText = styled(Typography.Caption)`
+  color: ${({ theme }) => theme.colorError};
+`;
+
+const SectionLabel = styled(Typography.Body)`
+  margin-bottom: ${({ theme }) => theme.sizing.xSmall}px;
+`;
+
+const TimeToggleButton = styled(TouchableOpacity)`
+  margin-top: ${({ theme }) => theme.sizing.small}px;
+  flex-direction: row;
+  align-items: center;
+  justify-content: center;
+  gap: ${({ theme }) => theme.sizing.xSmall}px;
+  padding-vertical: ${({ theme }) => theme.sizing.xSmall}px;
+`;
+
+const TimeToggleLabel = styled(Typography.Body)`
+  color: ${({ theme }) => theme.colorPrimary};
+  font-weight: ${({ theme }) => theme.fontWeight['500']};
+`;
+
+const DoneButtonContainer = styled.View`
+  margin-top: ${({ theme }) => theme.sizing.small}px;
+`;
+
+const ConfirmRow = styled(Row)`
+  margin-top: ${({ theme }) => theme.sizing.small}px;
+  justify-content: space-between;
 `;

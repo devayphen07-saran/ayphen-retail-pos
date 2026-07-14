@@ -3,6 +3,7 @@ import { MS_PER_DAY } from '#common/time.js';
 import {
   ForbiddenError,
   PaymentRequiredError,
+  ServiceUnavailableError,
 } from '#common/exceptions/app.exception.js';
 import { ErrorCodes } from '#common/error-codes.js';
 import { UnitOfWork } from '#db/db.module.js';
@@ -137,10 +138,17 @@ export class StoreService {
     }
 
     const created = await this.uow.execute(async (tx) => {
-      // Lock the account row so concurrent creates serialize, then recheck the
-      // gate inside the transaction — the pre-check above is TOCTOU-able by
-      // itself (two concurrent requests can both pass it before either inserts).
-      await this.repo.lockAccount(account.id, tx);
+      // Non-blocking claim (§11.5 F9): a concurrent create for this account
+      // (double-tap, network retry) must not proceed alongside this one and
+      // insert a second, indistinguishable store — it gets rejected outright
+      // instead of blocking-then-succeeding once this one commits.
+      const acquired = await this.repo.tryLockAccountForStoreCreate(account.id, tx);
+      if (!acquired) {
+        throw new ServiceUnavailableError(
+          ErrorCodes.STORE_CREATION_IN_PROGRESS,
+          'A store is already being created for this account; please retry shortly',
+        );
+      }
       const limit = await this.entitlements.get(account.id, 'max_stores', tx);
       const active = await this.repo.countActiveStores(account.id, tx);
       if (!this.entitlements.canCreate(limit, active)) {

@@ -77,7 +77,12 @@ export function CustomersScreen() {
   );
 
   const renderItem = useCallback(
-    ({ item }: { item: LocalCustomer }) => <CustomerCard customer={item} />,
+    ({ item }: { item: LocalCustomer }) => (
+      <CustomerCard
+        customer={item}
+        onPress={() => router.push({ pathname: '/(store)/customer-detail', params: { customerGuuid: item.guuid } })}
+      />
+    ),
     [],
   );
 
@@ -89,7 +94,7 @@ export function CustomersScreen() {
         data={filtered}
         keyExtractor={(item) => item.id}
         renderItem={renderItem}
-        isThemed
+        isThemed={false}
         listProps={{ refetch: () => undefined }}
         loaderProps={{
           isLoading: false,

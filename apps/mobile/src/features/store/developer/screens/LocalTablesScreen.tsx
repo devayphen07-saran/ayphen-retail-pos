@@ -3,6 +3,7 @@ import { RefreshControl, ScrollView } from 'react-native';
 import { router, useFocusEffect } from 'expo-router';
 import { useMobileTheme } from '@ayphen/mobile-theme';
 import { Alert, AppLayout, Typography } from '@ayphen/mobile-ui-components';
+import styled from 'styled-components/native';
 import { MenuRowList } from '@features/more';
 import { getSyncDb } from '@core/sync/db/client';
 import { listLocalTables, type LocalTableSummary } from '../utils/sqlite-introspection';
@@ -52,19 +53,17 @@ export function LocalTablesScreen() {
         }
         contentContainerStyle={{
           padding: theme.sizing.medium,
-          paddingBottom: 40,
+          // 40 has no exact token; nearest token is xxLarge (48).
+          paddingBottom: theme.sizing.xxLarge,
         }}
       >
         {tables === null ? (
           <Typography.Caption type="secondary">Loading…</Typography.Caption>
         ) : (
           <>
-            <Typography.Caption
-              type="secondary"
-              style={{ marginBottom: theme.sizing.small }}
-            >
+            <SummaryCaption type="secondary">
               {tables.length} table{tables.length === 1 ? '' : 's'} · {totalRows.toLocaleString()} rows total
-            </Typography.Caption>
+            </SummaryCaption>
             <MenuRowList
               items={tables.map((table) => ({
                 key: table.name,
@@ -85,3 +84,7 @@ export function LocalTablesScreen() {
     </AppLayout>
   );
 }
+
+const SummaryCaption = styled(Typography.Caption)`
+  margin-bottom: ${({ theme }) => theme.sizing.small}px;
+`;

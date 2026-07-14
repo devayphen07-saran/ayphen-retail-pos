@@ -1,7 +1,9 @@
 import { Inject, Injectable } from '@nestjs/common';
+import type { SQL } from 'drizzle-orm';
 import { and, desc, eq, notInArray, sql } from 'drizzle-orm';
 import { DRIZZLE, type Database, type DbExecutor } from '#db/db.module.js';
 import { syncConflicts } from '#db/schema.js';
+import { paginateByCursor, type CursorPage } from '#common/pagination/paginate.js';
 
 export type SyncConflictRow = typeof syncConflicts.$inferSelect;
 /** Derived from the DB enum column — single source of truth, can't drift. */
@@ -57,26 +59,37 @@ export class SyncConflictRepository {
       status?: ConflictStatus;
       conflictType?: ConflictType;
       // Known-but-not-viewable entity types (per the caller's RBAC `view`
-      // grants), excluded here so the `.limit(200)` cutoff below applies
-      // AFTER permission filtering, not before — otherwise a caller could see
-      // an artificially short/empty page while older, visible conflicts sit
-      // beyond the DB-side cutoff.
+      // grants), excluded here so pagination applies AFTER permission
+      // filtering, not before — otherwise a caller could see an artificially
+      // short/empty page while older, visible conflicts sit beyond the cursor.
       excludeEntityTypes?: string[];
     },
-  ): Promise<SyncConflictRow[]> {
-    return this.db
-      .select()
-      .from(syncConflicts)
-      .where(and(
-        eq(syncConflicts.storeFk, storeId),
-        filter.status ? eq(syncConflicts.status, filter.status) : undefined,
-        filter.conflictType ? eq(syncConflicts.conflictType, filter.conflictType) : undefined,
-        filter.excludeEntityTypes?.length
-          ? notInArray(syncConflicts.entityType, filter.excludeEntityTypes)
-          : undefined,
-      ))
-      .orderBy(desc(syncConflicts.createdAt))
-      .limit(200);
+    page: { limit: number; cursor?: string },
+  ): Promise<CursorPage<SyncConflictRow>> {
+    const base = and(
+      eq(syncConflicts.storeFk, storeId),
+      filter.status ? eq(syncConflicts.status, filter.status) : undefined,
+      filter.conflictType ? eq(syncConflicts.conflictType, filter.conflictType) : undefined,
+      filter.excludeEntityTypes?.length
+        ? notInArray(syncConflicts.entityType, filter.excludeEntityTypes)
+        : undefined,
+    );
+
+    return paginateByCursor<SyncConflictRow>({
+      cursor: page.cursor,
+      limit: page.limit,
+      sortColumn: syncConflicts.createdAt,
+      tieColumn: syncConflicts.id,
+      sortValue: (c) => c.createdAt.toISOString(),
+      idValue: (c) => c.id,
+      fetch: (keyset: SQL | undefined, take: number) =>
+        this.db
+          .select()
+          .from(syncConflicts)
+          .where(keyset ? and(base, keyset) : base)
+          .orderBy(desc(syncConflicts.createdAt), desc(syncConflicts.id))
+          .limit(take),
+    });
   }
 
   /** Plain read, no mutation — used to authorize before resolve() mutates. */

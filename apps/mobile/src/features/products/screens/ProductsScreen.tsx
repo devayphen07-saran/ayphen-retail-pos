@@ -14,6 +14,7 @@ import { getSyncDbForQueries } from '@core/sync/db/client';
 import { products } from '@core/sync/db/schema';
 import type { LocalProduct } from '@core/sync/repositories/product.repository';
 import { useActiveStoreStore } from '@store';
+import { useRecordRemoteImages } from '@features/attachments';
 import { useDebouncedValue } from '../../../utils/useDebouncedValue';
 import { ProductCard } from '../components/ProductCard';
 
@@ -62,6 +63,12 @@ export function ProductsScreen() {
     );
   }, [allProducts, debouncedSearch]);
 
+  // Remote images for the products currently on screen — batched, viewability-
+  // driven (see useRecordRemoteImages). Lets a non-capturing device show images
+  // another device uploaded (fetched online, then served offline from expo-image's
+  // disk cache). The capturing device already renders its local thumb regardless.
+  const { remoteByGuuid, viewabilityProps } = useRecordRemoteImages(storeId, 'Product');
+
   const addButton = useMemo(
     () =>
       canCreateProduct ? (
@@ -80,11 +87,13 @@ export function ProductsScreen() {
     [theme.colorPrimary, canCreateProduct],
   );
 
-  // Stable identity so FlashList row recycling isn't defeated by a fresh
-  // closure each render (§5).
+  // Recreated only when the remote-image map changes (so cards get their image
+  // once fetched); FlashList row recycling still holds within a stable map.
   const renderItem = useCallback(
-    ({ item }: { item: LocalProduct }) => <ProductCard product={item} />,
-    [],
+    ({ item }: { item: LocalProduct }) => (
+      <ProductCard product={item} remoteFile={remoteByGuuid.get(item.guuid) ?? null} />
+    ),
+    [remoteByGuuid],
   );
 
   return (
@@ -96,6 +105,9 @@ export function ProductsScreen() {
         keyExtractor={(item) => item.id}
         renderItem={renderItem}
         isThemed
+        // Drives the batched remote-image fetch above (forwarded to FlashList).
+        onViewableItemsChanged={viewabilityProps.onViewableItemsChanged}
+        viewabilityConfig={viewabilityProps.viewabilityConfig}
         listProps={{ refetch: () => undefined }}
         loaderProps={{
           isLoading: false,

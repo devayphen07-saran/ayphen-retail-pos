@@ -9,6 +9,8 @@ import { SessionCacheInvalidatorService } from '../../../src/auth/mobile/service
 import { EntitlementService } from '../../../src/subscription/entitlement.service';
 import { DeviceAccessRepository } from '../../../src/devices/device-access.repository';
 import { DeviceAccessService } from '../../../src/devices/device-access.service';
+import { DeviceRepository } from '../../../src/auth/mobile/repositories/device.repository';
+import { AuthSessionRepository } from '../../../src/auth/mobile/repositories/auth-session.repository';
 import { env } from '../../../src/config/env';
 import {
   accounts,
@@ -47,6 +49,8 @@ describe('DeviceAccessService.claimSlot — concurrency', () => {
       providers: [
         DeviceAccessRepository,
         DeviceAccessService,
+        DeviceRepository,
+        AuthSessionRepository,
         EntitlementService,
         AuditService,
         BlacklistCacheService,

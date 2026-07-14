@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from 'react';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { router, useLocalSearchParams } from 'expo-router';
-import { useMobileTheme } from '@ayphen/mobile-theme';
+import styled from 'styled-components/native';
 import { Alert, AppLayout, OverlayLoader } from '@ayphen/mobile-ui-components';
 import {
   useCheckoutSubscriptionMutation,
@@ -43,7 +43,6 @@ function asRazorpayOrder(res: CheckoutSubscriptionResponse): RazorpayOrderFields
  * final.
  */
 export function SubscriptionCheckoutScreen() {
-  const { theme } = useMobileTheme();
   const { planCode } = useLocalSearchParams<Params>();
   const checkout = useCheckoutSubscriptionMutation();
   const verify = useVerifySubscriptionPaymentMutation();
@@ -120,7 +119,7 @@ export function SubscriptionCheckoutScreen() {
   }
 
   return (
-    <SafeAreaView style={{ flex: 1, backgroundColor: theme.colorBgContainer }} edges={['top']}>
+    <Screen edges={['top']}>
       <RazorpayCheckoutWebView
         keyId={order.key}
         orderId={order.order_id}
@@ -140,6 +139,11 @@ export function SubscriptionCheckoutScreen() {
           timeout only swaps in an honest "taking longer than expected"
           message instead of leaving a spinner running with no explanation. */}
       <OverlayLoader visible={verify.isPending} message="Confirming payment…" timeoutMs={20_000} />
-    </SafeAreaView>
+    </Screen>
   );
 }
+
+const Screen = styled(SafeAreaView)`
+  flex: 1;
+  background-color: ${({ theme }) => theme.colorBgContainer};
+`;

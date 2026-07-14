@@ -12,6 +12,3 @@ export interface ConflictResponse {
   resolved_at: string | null;
 }
 
-export interface ConflictListResponse {
-  conflicts: ConflictResponse[];
-}

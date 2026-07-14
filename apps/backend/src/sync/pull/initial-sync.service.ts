@@ -5,7 +5,7 @@ import { BadRequestError } from '#common/exceptions/app.exception.js';
 import { ErrorCodes } from '#common/error-codes.js';
 import { SyncCursorService, type EntityWatermark } from '../cursor/sync-cursor.service.js';
 import { SyncFilterRegistry } from '../registry/sync-filter.registry.js';
-import { ZERO_UUID, type SyncPullContext, type WireRow } from '../registry/entity-filter.js';
+import { ZERO_UUID, type SyncPullContext } from '../registry/entity-filter.js';
 import {
   SyncInitProgressRepository,
   type InitProgressRow,
@@ -13,6 +13,8 @@ import {
 import { DeviceSyncHealthRepository } from '../repositories/device-sync-health.repository.js';
 import { INITIAL_PAGE_SIZE } from '../sync.constants.js';
 import { microIsoFromDate } from '../us-timestamp.js';
+import { PullResponseMapper, type InitialPullDomainResult } from '../mappers/response/pull.response-mapper.js';
+import type { InitialPullResponse } from '../dto/response/pull.response.js';
 
 export interface InitialQuery {
   entityType?: string;
@@ -21,18 +23,6 @@ export interface InitialQuery {
   supportedEntityTypes?: string[];
   /** The client's live delta cursor, if any — new-entity anchors merge into it. */
   syncCursor?: string;
-}
-
-export interface InitialResult {
-  entity_type: string | null;
-  upserts: WireRow[];
-  has_more: boolean;
-  page_cursor: string | null;
-  all_entities_complete: boolean;
-  remaining_entity_types: string[];
-  estimated_total?: number;
-  next_delta_cursor?: string;
-  server_time: string;
 }
 
 /**
@@ -61,7 +51,7 @@ export class InitialSyncService {
     deviceId: string,
     storeId: string,
     q: InitialQuery,
-  ): Promise<InitialResult> {
+  ): Promise<InitialPullResponse> {
     const now = new Date();
     await this.health.touch(deviceId, now);   // F1 — advance last_sync_at on cold start too
     const permissions = await this.rbac.getCachedPermissions(userId, storeId, false);
@@ -130,23 +120,22 @@ export class InitialSyncService {
       .filter((entity) => phases.get(entity) !== 'completed');
     const allComplete = remaining.length === 0;
 
-    return {
-      entity_type: filter.entityType,
+    const domain: InitialPullDomainResult = {
+      entityType: filter.entityType,
       upserts: page.rows,
-      has_more: page.hasMore,
-      page_cursor: page.lastId ? `${filter.entityType}:${page.lastId}` : null,
-      all_entities_complete: allComplete,
-      remaining_entity_types: remaining,
-      ...(estimatedTotal !== undefined ? { estimated_total: estimatedTotal } : {}),
-      ...(allComplete
-        ? {
-            next_delta_cursor: this.buildDeltaCursor(
-              userId, storeId, filters.map((f) => f.entityType), progressRows, q.syncCursor, now,
-            ),
-          }
-        : {}),
-      server_time: now.toISOString(),
+      hasMore: page.hasMore,
+      pageCursor: page.lastId ? `${filter.entityType}:${page.lastId}` : null,
+      allEntitiesComplete: allComplete,
+      remainingEntityTypes: remaining,
+      estimatedTotal,
+      nextDeltaCursor: allComplete
+        ? this.buildDeltaCursor(
+            userId, storeId, filters.map((f) => f.entityType), progressRows, q.syncCursor, now,
+          )
+        : undefined,
+      serverTime: now.toISOString(),
     };
+    return PullResponseMapper.toInitialResponse(domain);
   }
 
   private completedResult(
@@ -156,17 +145,17 @@ export class InitialSyncService {
     progressRows: InitProgressRow[],
     syncCursor: string | undefined,
     now: Date,
-  ): InitialResult {
-    return {
-      entity_type: null,
+  ): InitialPullResponse {
+    return PullResponseMapper.toInitialResponse({
+      entityType: null,
       upserts: [],
-      has_more: false,
-      page_cursor: null,
-      all_entities_complete: true,
-      remaining_entity_types: [],
-      next_delta_cursor: this.buildDeltaCursor(userId, storeId, entities, progressRows, syncCursor, now),
-      server_time: now.toISOString(),
-    };
+      hasMore: false,
+      pageCursor: null,
+      allEntitiesComplete: true,
+      remainingEntityTypes: [],
+      nextDeltaCursor: this.buildDeltaCursor(userId, storeId, entities, progressRows, syncCursor, now),
+      serverTime: now.toISOString(),
+    });
   }
 
   /**

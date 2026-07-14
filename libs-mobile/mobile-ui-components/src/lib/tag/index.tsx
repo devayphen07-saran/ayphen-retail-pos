@@ -132,13 +132,21 @@ const TagContainer = styled.View<{
   }}px;
 
   padding-top: ${({ $size, theme }) => {
-    // xsm=2 and sm=3 intentionally use sub-token values for the smallest tag sizes
-    const vMap = { xsm: 2, sm: 3, md: theme.sizing.xxSmall, lg: theme.sizing.xSmall };
+    const vMap = {
+      xsm: theme.componentSizing.tagPaddingVerticalXsm,
+      sm: theme.componentSizing.tagPaddingVerticalSm,
+      md: theme.sizing.xxSmall,
+      lg: theme.sizing.xSmall,
+    };
     return vMap[$size];
   }}px;
   padding-bottom: ${({ $size, theme }) => {
-    // xsm=2 and sm=3 intentionally use sub-token values for the smallest tag sizes
-    const vMap = { xsm: 2, sm: 3, md: theme.sizing.xxSmall, lg: theme.sizing.xSmall };
+    const vMap = {
+      xsm: theme.componentSizing.tagPaddingVerticalXsm,
+      sm: theme.componentSizing.tagPaddingVerticalSm,
+      md: theme.sizing.xxSmall,
+      lg: theme.sizing.xSmall,
+    };
     return vMap[$size];
   }}px;
   padding-left: ${({ $size, theme }) => {

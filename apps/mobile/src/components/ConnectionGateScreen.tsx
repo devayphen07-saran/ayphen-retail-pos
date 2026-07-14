@@ -1,17 +1,7 @@
 import { useCallback, useState } from 'react';
-import {
-  ActivityIndicator,
-  Image,
-  Pressable,
-  StyleSheet,
-  Text,
-  View,
-} from 'react-native';
-import { useMobileTheme } from '@ayphen/mobile-theme';
-
-// Matches BootstrapLoader / app.json's expo-splash-screen config so this
-// screen reads as a continuation of the splash, not a new place.
-const SPLASH_BACKGROUND_COLOR = '#ffffff';
+import { Image } from 'react-native';
+import styled from 'styled-components/native';
+import { Button, Column, Typography } from '@ayphen/mobile-ui-components';
 
 interface ConnectionGateScreenProps {
   /** Re-attempt the failed startup step (session restore or bootstrap). */
@@ -37,7 +27,6 @@ export function ConnectionGateScreen({
   title = "Can't connect",
   message = 'Check your internet connection and try again.',
 }: ConnectionGateScreenProps) {
-  const { theme } = useMobileTheme();
   const [busy, setBusy] = useState(false);
 
   const handleRetry = useCallback(async () => {
@@ -51,88 +40,50 @@ export function ConnectionGateScreen({
   }, [busy, onRetry]);
 
   return (
-    <View style={styles.container}>
-      <Image
-        source={require('../../assets/images/splash-icon.png')}
-        style={styles.logo}
-        resizeMode="contain"
-      />
-      <Text style={[styles.title, { color: theme.colorText }]}>{title}</Text>
-      <Text style={[styles.message, { color: theme.colorTextSecondary }]}>{message}</Text>
+    <Container align="center" justify="center">
+      <Logo source={require('../../assets/images/splash-icon.png')} resizeMode="contain" />
+      <Typography.H3 weight="semiBold" style={{ marginTop: 24 }}>
+        {title}
+      </Typography.H3>
+      <Typography.Body type="secondary" style={{ marginTop: 8, textAlign: 'center' }}>
+        {message}
+      </Typography.Body>
 
-      <Pressable
-        accessibilityRole="button"
-        disabled={busy}
-        onPress={handleRetry}
-        style={({ pressed }) => [
-          styles.retryButton,
-          { backgroundColor: pressed || busy ? theme.colorPrimaryActive : theme.colorPrimary },
-        ]}
-      >
-        {busy ? (
-          <ActivityIndicator color="#ffffff" />
-        ) : (
-          <Text style={styles.retryLabel}>Retry</Text>
-        )}
-      </Pressable>
-
-      {onLogout ? (
-        <Pressable
-          accessibilityRole="button"
-          disabled={busy}
-          onPress={onLogout}
-          style={styles.logoutButton}
-        >
-          <Text style={[styles.logoutLabel, { color: theme.colorTextTertiary }]}>Log out</Text>
-        </Pressable>
-      ) : null}
-    </View>
+      <ButtonStack>
+        <Button label="Retry" onPress={() => void handleRetry()} loading={busy} size="lg" />
+        {onLogout ? (
+          <Button
+            label="Log out"
+            variant="text"
+            disabled={busy}
+            onPress={() => void onLogout()}
+          />
+        ) : null}
+      </ButtonStack>
+    </Container>
   );
 }
 
-const styles = StyleSheet.create({
-  container: {
-    flex: 1,
-    backgroundColor: SPLASH_BACKGROUND_COLOR,
-    alignItems: 'center',
-    justifyContent: 'center',
-    paddingHorizontal: 32,
-  },
-  logo: {
-    width: 140,
-    height: 140,
-  },
-  title: {
-    marginTop: 24,
-    fontSize: 18,
-    fontFamily: 'Poppins-SemiBold',
-  },
-  message: {
-    marginTop: 8,
-    fontSize: 14,
-    fontFamily: 'Poppins-Regular',
-    textAlign: 'center',
-  },
-  retryButton: {
-    marginTop: 24,
-    minWidth: 160,
-    height: 48,
-    borderRadius: 12,
-    alignItems: 'center',
-    justifyContent: 'center',
-    paddingHorizontal: 24,
-  },
-  retryLabel: {
-    color: '#ffffff',
-    fontSize: 15,
-    fontFamily: 'Poppins-Medium',
-  },
-  logoutButton: {
-    marginTop: 20,
-    padding: 8,
-  },
-  logoutLabel: {
-    fontSize: 13,
-    fontFamily: 'Poppins-Regular',
-  },
-});
+// ─── Styles ───
+
+// Matches BootstrapLoader / app.json's expo-splash-screen config so this
+// screen reads as a continuation of the splash, not a new place.
+const Container = styled(Column)`
+  flex: 1;
+  background-color: ${({ theme }) => theme.colorBgContainer};
+  padding-left: ${({ theme }) => theme.sizing.xLarge}px;
+  padding-right: ${({ theme }) => theme.sizing.xLarge}px;
+`;
+
+// No theme.componentSizing token matches this splash-logo asset dimension —
+// it's a fixed design-asset size, not a semantic spacing/sizing value.
+const Logo = styled(Image)`
+  width: 140px;
+  height: 140px;
+`;
+
+const ButtonStack = styled(Column)`
+  align-self: stretch;
+  margin-top: ${({ theme }) => theme.sizing.large}px;
+  gap: ${({ theme }) => theme.sizing.small}px;
+`;

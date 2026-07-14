@@ -268,6 +268,158 @@ export const accountTransactions = sqliteTable('account_transactions', {
   modifiedAt: text('modified_at').notNull(),
 });
 
+// ─── A4. Sales & Refunds (docs/prd/accounts-and-ledger.md F2/F3) ────────────
+// `sales`/`refunds` are the only client-writable entities here — each is
+// pushed as ONE composite mutation (header + lines/payments together), so the
+// local write path (enqueue-create-sale.ts) upserts all four tables in one
+// transaction. `sale_lines`/`sale_payments`/`refund_lines` never get their own
+// push — they're written locally as part of that same composite create, and
+// overwritten with the authoritative rows on the next pull, exactly like
+// account_transactions.
+
+export const sales = sqliteTable('sales', {
+  id: text('id').primaryKey(),
+  storeId: text('store_id').notNull(),
+  guuid: text('guuid').notNull(),
+  customerFk: text('customer_fk'), // set when any tender is on_credit (Phase 3 F5)
+  totalPaise: integer('total_paise').notNull(),
+  status: text('status'), // completed | partially_refunded | refunded
+  invoiceNo: text('invoice_no'),
+  soldAt: text('sold_at'),
+  rowVersion: integer('row_version').notNull(),
+  modifiedAt: text('modified_at').notNull(),
+});
+
+export const saleLines = sqliteTable('sale_lines', {
+  id: text('id').primaryKey(),
+  storeId: text('store_id').notNull(),
+  guuid: text('guuid').notNull(),
+  saleFk: text('sale_fk').notNull(),
+  productFk: text('product_fk').notNull(),
+  qty: text('qty').notNull(), // up to 3dp (payload-helpers.ts `quantity`)
+  unitPricePaise: integer('unit_price_paise').notNull(),
+  discountPaise: integer('discount_paise').notNull(),
+  lineTotalPaise: integer('line_total_paise').notNull(),
+  rowVersion: integer('row_version').notNull(),
+  modifiedAt: text('modified_at').notNull(),
+});
+
+export const salePayments = sqliteTable('sale_payments', {
+  id: text('id').primaryKey(),
+  storeId: text('store_id').notNull(),
+  guuid: text('guuid').notNull(),
+  saleFk: text('sale_fk').notNull(),
+  accountFk: text('account_fk'), // null when onCredit is true
+  tender: text('tender'), // cash | card | upi | wallet | other
+  amountPaise: integer('amount_paise').notNull(),
+  onCredit: bool('on_credit'),
+  rowVersion: integer('row_version').notNull(),
+  modifiedAt: text('modified_at').notNull(),
+});
+
+export const refunds = sqliteTable('refunds', {
+  id: text('id').primaryKey(),
+  storeId: text('store_id').notNull(),
+  guuid: text('guuid').notNull(),
+  saleFk: text('sale_fk').notNull(),
+  accountFk: text('account_fk').notNull(),
+  amountPaise: integer('amount_paise').notNull(),
+  reason: text('reason'),
+  refundedAt: text('refunded_at'),
+  rowVersion: integer('row_version').notNull(),
+  modifiedAt: text('modified_at').notNull(),
+});
+
+export const refundLines = sqliteTable('refund_lines', {
+  id: text('id').primaryKey(),
+  storeId: text('store_id').notNull(),
+  guuid: text('guuid').notNull(),
+  refundFk: text('refund_fk').notNull(),
+  saleLineFk: text('sale_line_fk').notNull(),
+  qty: text('qty').notNull(),
+  amountPaise: integer('amount_paise').notNull(),
+  rowVersion: integer('row_version').notNull(),
+  modifiedAt: text('modified_at').notNull(),
+});
+
+// ─── A5. Customer credit & settlement (docs/prd/accounts-and-ledger.md F5) ──
+// `customer_payments` is the only client-writable entity here (pushed as a
+// composite mutation, header + allocations together — same shape as
+// sale/refund); `customer_ledger_events`/`payment_allocations` are pull-only,
+// written solely by the server (a credit sale's posting, and this handler).
+
+export const customerLedgerEvents = sqliteTable('customer_ledger_events', {
+  id: text('id').primaryKey(),
+  storeId: text('store_id').notNull(),
+  guuid: text('guuid').notNull(),
+  customerFk: text('customer_fk').notNull(),
+  kind: text('kind'), // credit_sale | payment | adjustment | credit_note
+  amountPaise: integer('amount_paise').notNull(),
+  sourceType: text('source_type'), // sale | customer_payment | refund
+  sourceFk: text('source_fk'),
+  flagged: bool('flagged'),
+  rowVersion: integer('row_version').notNull(),
+  modifiedAt: text('modified_at').notNull(),
+});
+
+export const customerPayments = sqliteTable('customer_payments', {
+  id: text('id').primaryKey(),
+  storeId: text('store_id').notNull(),
+  guuid: text('guuid').notNull(),
+  customerFk: text('customer_fk').notNull(),
+  accountFk: text('account_fk').notNull(),
+  amountPaise: integer('amount_paise').notNull(),
+  paidAt: text('paid_at'),
+  rowVersion: integer('row_version').notNull(),
+  modifiedAt: text('modified_at').notNull(),
+});
+
+export const paymentAllocations = sqliteTable('payment_allocations', {
+  id: text('id').primaryKey(),
+  storeId: text('store_id').notNull(),
+  guuid: text('guuid').notNull(),
+  paymentFk: text('payment_fk').notNull(),
+  targetType: text('target_type'), // sale | bill
+  targetFk: text('target_fk').notNull(),
+  appliedPaise: integer('applied_paise').notNull(),
+  rowVersion: integer('row_version').notNull(),
+  modifiedAt: text('modified_at').notNull(),
+});
+
+// ─── A6. Vendor bills & payments (docs/prd/accounts-and-ledger.md F6) ───────
+// `supplier_bills`/`supplier_payments` are both client-writable (the latter
+// pushed as a composite mutation, header + allocations — same shape as
+// customer_payments). The signature image is a plain files/attachment row
+// keyed by the payment's guuid, not a column here (see entity-catalogue.ts's
+// `SupplierPayment` entry on the backend).
+
+export const supplierBills = sqliteTable('supplier_bills', {
+  id: text('id').primaryKey(),
+  storeId: text('store_id').notNull(),
+  guuid: text('guuid').notNull(),
+  supplierFk: text('supplier_fk').notNull(),
+  billNo: text('bill_no'),
+  amountPaise: integer('amount_paise').notNull(),
+  billDate: text('bill_date'),
+  dueDate: text('due_date'),
+  status: text('status'), // open | partially_paid | paid
+  notes: text('notes'),
+  rowVersion: integer('row_version').notNull(),
+  modifiedAt: text('modified_at').notNull(),
+});
+
+export const supplierPayments = sqliteTable('supplier_payments', {
+  id: text('id').primaryKey(),
+  storeId: text('store_id').notNull(),
+  guuid: text('guuid').notNull(),
+  supplierFk: text('supplier_fk').notNull(),
+  accountFk: text('account_fk').notNull(),
+  amountPaise: integer('amount_paise').notNull(),
+  paidAt: text('paid_at'),
+  rowVersion: integer('row_version').notNull(),
+  modifiedAt: text('modified_at').notNull(),
+});
+
 // ─── B. Client-only bookkeeping (NOT server tables) ─────────────────────────
 
 /** One opaque HMAC-signed delta cursor per store_fk. Stored verbatim — the

@@ -15,6 +15,11 @@ export const ITEM_ROUTES: Partial<Record<string, string>> = {
   'local-tables': '/(store)/local-tables',
   'payment-accounts': '/(store)/payment-accounts',
   suppliers: '/(store)/suppliers',
+  // Refunds have no standalone screen — a refund is always against a specific
+  // sale (refund-create requires saleId/saleGuuid) — so this opens Sales
+  // history instead, the same entry point PosScreen's receipt icon uses;
+  // "Refund" itself is offered from there via SaleDetailScreen.
+  refunds: '/(store)/sales',
 };
 
 export function resolveMenuColor(theme: MobileTheme, token: MenuColorToken): string {

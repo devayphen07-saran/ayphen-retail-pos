@@ -7,6 +7,8 @@ import { EntitlementService } from '../subscription/entitlement.service.js';
 import { AuditService } from '#common/audit/audit.service.js';
 import { BlacklistCacheService } from '#auth/mobile/services/blacklist-cache.service.js';
 import { SessionCacheInvalidatorService } from '#auth/mobile/services/session-cache-invalidator.service.js';
+import { DeviceRepository } from '#auth/mobile/repositories/device.repository.js';
+import { AuthSessionRepository } from '#auth/mobile/repositories/auth-session.repository.js';
 import { DeviceAccessRepository, type StoreDeviceRow } from './device-access.repository.js';
 
 export interface SlotClaimResult {
@@ -38,6 +40,8 @@ export class DeviceAccessService {
 
   constructor(
     private readonly repo: DeviceAccessRepository,
+    private readonly devices: DeviceRepository,
+    private readonly sessions: AuthSessionRepository,
     private readonly entitlements: EntitlementService,
     private readonly audit: AuditService,
     private readonly uow: UnitOfWork,
@@ -191,7 +195,7 @@ export class DeviceAccessService {
     const { slotRevoked, sessions } = await this.uow.execute(async (tx) => {
       const n = await this.repo.revokeSlot(storeId, targetDeviceId, actorId, 'owner_removed', tx);
       const sessions = n > 0
-        ? await this.repo.revokeDeviceSessions(targetDeviceId, 'store_device_removed', tx)
+        ? await this.sessions.revokeAllForDevice(targetDeviceId, 'store_device_removed', tx)
         : [];
       if (n > 0) {
         await this.audit.logInTransaction({
@@ -216,12 +220,12 @@ export class DeviceAccessService {
 
   /** Block a stolen/lost device — global kill across all stores (F8). Owner of the device only. */
   async blockDevice(userId: string, targetDeviceId: string): Promise<void> {
-    const device = await this.repo.findOwnedDevice(targetDeviceId, userId);
+    const device = await this.devices.findOwnedByUser(targetDeviceId, userId);
     if (!device) throw new NotFoundError(ErrorCodes.DEVICE_NOT_FOUND, 'Device not found');
 
     const sessions = await this.uow.execute(async (tx) => {
-      await this.repo.setBlocked(targetDeviceId, true, tx);
-      const sessions = await this.repo.revokeDeviceSessions(targetDeviceId, 'device_blocked_stolen', tx);
+      await this.devices.setBlocked(targetDeviceId, true, tx);
+      const sessions = await this.sessions.revokeAllForDevice(targetDeviceId, 'device_blocked_stolen', tx);
       await this.repo.revokeAllSlotsForDevice(targetDeviceId, userId, 'stolen', tx);
       await this.audit.logInTransaction({
         event: 'DEVICE_BLOCKED', activityType: 'DEVICE_BLOCKED',
@@ -239,9 +243,9 @@ export class DeviceAccessService {
 
   /** Unblock a recovered device (F9). Slots/sessions stay revoked — device is "fresh". */
   async unblockDevice(userId: string, targetDeviceId: string): Promise<void> {
-    const device = await this.repo.findOwnedDevice(targetDeviceId, userId);
+    const device = await this.devices.findOwnedByUser(targetDeviceId, userId);
     if (!device) throw new NotFoundError(ErrorCodes.DEVICE_NOT_FOUND, 'Device not found');
-    await this.repo.setBlocked(targetDeviceId, false);
+    await this.devices.setBlocked(targetDeviceId, false);
     // Single-statement write, no transaction to commit the audit row with —
     // best-effort only, must never fail an already-applied unblock.
     try {
@@ -257,9 +261,9 @@ export class DeviceAccessService {
 
   /** My Devices — all devices for the user, with the stores each currently accesses (F7). */
   async listMyDevices(userId: string): Promise<MyDevice[]> {
-    const devices = await this.repo.listUserDevices(userId);
-    const storesByDevice = await this.repo.activeStoresForDevices(devices.map((d) => d.id));
-    return devices.map((d) => ({
+    const deviceRows = await this.devices.listByUser(userId);
+    const storesByDevice = await this.repo.activeStoresForDevices(deviceRows.map((d) => d.id));
+    return deviceRows.map((d) => ({
       id:         d.id,
       model:      d.model,
       platform:   d.platform,

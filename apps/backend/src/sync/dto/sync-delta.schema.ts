@@ -1,5 +1,6 @@
 import { z } from 'zod';
 import { MAX_MUTATIONS_PER_BATCH } from '../sync.constants.js';
+import { clampLimit } from '#common/pagination/paginated-response.js';
 
 /** Client ULID idempotency key (Crockford base32, 26 chars). */
 const ULID_RE = /^[0-9A-HJKMNP-TV-Z]{26}$/i;
@@ -56,6 +57,8 @@ export const InitialQuerySchema = z.object({
 export const ConflictListQuerySchema = z.object({
   status: z.enum(['open', 'resolved', 'discarded']).optional(),
   conflict_type: z.enum(['MASTER_DATA', 'VALIDATION', 'BUSINESS_RULE']).optional(),
+  limit: z.string().optional().transform((raw) => clampLimit(raw)),
+  cursor: z.string().max(512).optional(),
 });
 
 export const ConflictResolveSchema = z.object({

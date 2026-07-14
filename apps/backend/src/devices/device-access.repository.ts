@@ -7,13 +7,11 @@ import * as schema from '#db/schema.js';
 import {
   storeDeviceAccess,
   devices,
-  deviceSessions,
   users,
   stores,
 } from '#db/schema.js';
 
 export type StoreDeviceAccess = typeof storeDeviceAccess.$inferSelect;
-export type DeviceRow = typeof devices.$inferSelect;
 
 export interface StoreDeviceRow {
   id:             string;
@@ -380,67 +378,11 @@ export class DeviceAccessRepository {
     return rows.map((r) => r.id);
   }
 
-  // ─── Device identity (owned by the user) ───────────────────────────────────
-
-  /** A device owned by this user, or null (ownership guard for block/unblock). */
-  async findOwnedDevice(
-    deviceId: string,
-    userId: string,
-    tx?: DbExecutor,
-  ): Promise<typeof devices.$inferSelect | null> {
-    const [row] = await this.client(tx)
-      .select()
-      .from(devices)
-      .where(and(eq(devices.id, deviceId), eq(devices.userFk, userId)));
-    return row ?? null;
-  }
-
-  /** All devices registered to a user (My Devices, F7). */
-  async listUserDevices(userId: string, tx?: DbExecutor): Promise<DeviceRow[]> {
-    return this.client(tx)
-      .select()
-      .from(devices)
-      .where(eq(devices.userFk, userId))
-      .orderBy(desc(devices.lastSeenAt));
-  }
-
-  async setBlocked(
-    deviceId: string,
-    blocked: boolean,
-    tx?: DbExecutor,
-  ): Promise<void> {
-    await this.client(tx)
-      .update(devices)
-      .set({
-        isBlocked: blocked,
-        isTrusted: blocked ? false : undefined,       // block clears trust
-        blockedAt: blocked ? new Date() : null,
-        pushToken: blocked ? null : undefined,         // null push token on block (F8/BR-DEV-014)
-      })
-      .where(eq(devices.id, deviceId));
-  }
-
-  /**
-   * Revoke all active sessions for a device (block, F8; owner removal, F5).
-   * Returns each revoked session's current access-JWT identity so the caller
-   * can blacklist it — revoking the DB row alone doesn't invalidate a token
-   * that's still unexpired and cached in MobileJwtGuard's session cache.
-   */
-  async revokeDeviceSessions(
-    deviceId: string,
-    reason: string,
-    tx?: DbExecutor,
-  ): Promise<{ id: string; currentJti: string | null; currentJtiExp: Date | null }[]> {
-    return this.client(tx)
-      .update(deviceSessions)
-      .set({ revokedAt: new Date(), revokedReason: reason })
-      .where(and(eq(deviceSessions.deviceFk, deviceId), sql`${deviceSessions.revokedAt} IS NULL`))
-      .returning({
-        id: deviceSessions.id,
-        currentJti: deviceSessions.currentJti,
-        currentJtiExp: deviceSessions.currentJtiExp,
-      });
-  }
+  // ─── Device identity ────────────────────────────────────────────────────────
+  // Ownership lookups, blocking, and session revocation for the `devices`/
+  // `deviceSessions` aggregates live on their owning repositories —
+  // `DeviceRepository` and `AuthSessionRepository` (auth/mobile) — not here,
+  // so there's exactly one write path per table (layered-architecture §3.6).
 
   /** Stores where each of these devices currently holds an active slot (for
    *  My Devices) — one query grouped by device instead of one per device. */

@@ -101,7 +101,8 @@ export function MoreScreen() {
           contentContainerStyle={{
             paddingHorizontal: theme.sizing.medium,
             paddingTop: theme.sizing.small,
-            paddingBottom: 40,
+            // 40 has no exact token; nearest token is xxLarge (48).
+            paddingBottom: theme.sizing.xxLarge,
           }}
         >
           <StoreCardOuter>
@@ -110,15 +111,7 @@ export function MoreScreen() {
               start={{ x: 0, y: 0 }}
               end={{ x: 1, y: 1 }}
             >
-              <Row
-                align="center"
-                gap="small"
-                style={{
-                  paddingHorizontal: theme.sizing.medium,
-                  paddingTop: theme.sizing.medium,
-                  paddingBottom: theme.sizing.small,
-                }}
-              >
+              <StoreHeaderRow align="center" gap="small">
                 <Avatar
                   iconName="Store"
                   size={48}
@@ -135,7 +128,7 @@ export function MoreScreen() {
                     {storeName}
                   </Typography.Subtitle>
                 </Column>
-              </Row>
+              </StoreHeaderRow>
 
               <GradientDivider />
               <TouchableOpacity
@@ -144,14 +137,7 @@ export function MoreScreen() {
                 accessibilityRole="button"
                 accessibilityLabel="Switch to a different store"
               >
-                <Row
-                  align="center"
-                  gap="xSmall"
-                  style={{
-                    paddingVertical: theme.sizing.small,
-                    paddingHorizontal: theme.sizing.medium,
-                  }}
-                >
+                <SwitchStoreRow align="center" gap="xSmall">
                   <LucideIcon
                     name="ArrowLeftRight"
                     size={14}
@@ -169,7 +155,7 @@ export function MoreScreen() {
                     size={14}
                     color={theme.overlay.onDark35}
                   />
-                </Row>
+                </SwitchStoreRow>
               </TouchableOpacity>
             </StoreCardGradient>
           </StoreCardOuter>
@@ -199,17 +185,8 @@ export function MoreScreen() {
               accessibilityRole="button"
               accessibilityLabel="Log out"
             >
-              <Row
-                align="center"
-                gap="small"
-                style={{
-                  paddingVertical: 14,
-                  paddingHorizontal: theme.sizing.medium,
-                }}
-              >
-                <LogoutIconContainer
-                  style={{ backgroundColor: theme.color.danger.bg }}
-                >
+              <LogoutRow align="center" gap="small">
+                <LogoutIconContainer $danger>
                   <LucideIcon name="LogOut" size={20} color={theme.colorError} />
                 </LogoutIconContainer>
                 <Typography.Body
@@ -219,7 +196,7 @@ export function MoreScreen() {
                 >
                   Log out
                 </Typography.Body>
-              </Row>
+              </LogoutRow>
             </TouchableOpacity>
           </LogoutCard>
         </ScrollView>
@@ -250,14 +227,39 @@ const GradientDivider = styled(View)`
   margin-right: ${({ theme }) => theme.sizing.medium}px;
 `;
 
+/** Store card header row (avatar + name) — needs asymmetric padding that
+ *  Row's symmetric gap/padding props can't express. */
+const StoreHeaderRow = styled(Row)`
+  padding-horizontal: ${({ theme }) => theme.sizing.medium}px;
+  padding-top: ${({ theme }) => theme.sizing.medium}px;
+  padding-bottom: ${({ theme }) => theme.sizing.small}px;
+`;
+
+/** "Switch Store" touchable row — same asymmetric-padding need as above. */
+const SwitchStoreRow = styled(Row)`
+  padding-vertical: ${({ theme }) => theme.sizing.small}px;
+  padding-horizontal: ${({ theme }) => theme.sizing.medium}px;
+`;
+
+/** "Log out" touchable row — same asymmetric-padding need as above. */
+const LogoutRow = styled(Row)`
+  /* 14 has no exact token; nearest token is small (12). */
+  padding-vertical: ${({ theme }) => theme.sizing.small}px;
+  padding-horizontal: ${({ theme }) => theme.sizing.medium}px;
+`;
+
 /** Icon chip for the logout row — the one row on this screen that isn't
- *  rendered through MenuRowList (it's a one-off, error-colored action). */
-const LogoutIconContainer = styled(View)`
+ *  rendered through MenuRowList (it's a one-off, error-colored action).
+ *  $danger interpolates the danger background instead of taking it via an
+ *  ad-hoc `style` override. */
+const LogoutIconContainer = styled(View)<{ $danger?: boolean }>`
+  /* 40px is an un-tokenized icon-container size — no matching theme.componentSizing entry. */
   width: 40px;
   height: 40px;
   border-radius: ${({ theme }) => theme.borderRadius.large}px;
   align-items: center;
   justify-content: center;
+  background-color: ${({ theme, $danger }) => ($danger ? theme.color.danger.bg : 'transparent')};
 `;
 
 const LogoutCard = styled(View)`

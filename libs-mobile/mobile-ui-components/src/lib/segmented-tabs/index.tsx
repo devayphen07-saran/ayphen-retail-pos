@@ -2,7 +2,7 @@ import React from "react";
 import { ViewStyle } from "react-native";
 import styled from "styled-components/native";
 import { Typography } from "../typography";
-import { useBreakpoint } from "@ayphen/mobile-theme";
+import { useBreakpoint, useMobileTheme } from "@ayphen/mobile-theme";
 
 export type SegmentedTabItem = {
   key: string;
@@ -11,22 +11,17 @@ export type SegmentedTabItem = {
   disabled?: boolean;
 };
 
+export type SegmentedTabSize = "xSmall" | "small" | "medium" | "large";
+
 export type SegmentedTabsProps = {
   items: SegmentedTabItem[];
   selectedKey?: string;
   onChange: (key: string) => void;
   style?: ViewStyle;
-  size?: "xSmall" | "small" | "medium" | "large";
+  size?: SegmentedTabSize;
   disabled?: boolean;
   fullWidth?: boolean;
   showBottomLine?: boolean;
-};
-
-const sizeConfig = {
-  xSmall: { padding: 2, fontSize: 12 },
-  small: { padding: 6, fontSize: 12 },
-  medium: { padding: 10, fontSize: 14 },
-  large: { padding: 12, fontSize: 16 },
 };
 
 export function SegmentedTabs({
@@ -40,6 +35,13 @@ export function SegmentedTabs({
   showBottomLine = false,
 }: SegmentedTabsProps) {
   const { scale, fontScale } = useBreakpoint();
+  const { theme } = useMobileTheme();
+  const fontSizeMap: Record<SegmentedTabSize, number> = {
+    xSmall: theme.fontSize.xSmall,
+    small: theme.fontSize.xSmall,
+    medium: theme.fontSize.small,
+    large: theme.fontSize.regular,
+  };
   return (
     <Container
       style={style}
@@ -77,7 +79,7 @@ export function SegmentedTabs({
               <TabLabel
                 weight="semiBold"
                 $opacity={isDisabled ? 0.5 : 1}
-                $fontSize={sizeConfig[size].fontSize * fontScale}
+                $fontSize={fontSizeMap[size] * fontScale}
               >
                 {item.label}
               </TabLabel>
@@ -122,9 +124,16 @@ const TabButton = styled.TouchableOpacity<{
   border-radius: ${({ theme }) => theme.borderRadius.medium}px;
 `;
 
+const paddingMap = (theme: import("styled-components/native").DefaultTheme) => ({
+  xSmall: theme.componentSizing.segmentedTabsPaddingXSmall,
+  small: theme.componentSizing.segmentedTabsPaddingSmall,
+  medium: theme.componentSizing.segmentedTabsPaddingMedium,
+  large: theme.sizing.small,
+});
+
 const Inner = styled.View<{
   $selected: boolean;
-  $size: keyof typeof sizeConfig;
+  $size: SegmentedTabSize;
   $scale: number;
   $disabled?: boolean;
   $showBottomLine?: boolean;
@@ -132,10 +141,14 @@ const Inner = styled.View<{
   flex-direction: row;
   align-items: center;
   justify-content: center;
-  padding-top: ${({ $size, $scale }) => sizeConfig[$size].padding * $scale}px;
-  padding-bottom: ${({ $size, $scale }) => sizeConfig[$size].padding * $scale}px;
-  padding-left: ${({ $size, $scale }) => (sizeConfig[$size].padding + 2) * $scale}px;
-  padding-right: ${({ $size, $scale }) => (sizeConfig[$size].padding + 2) * $scale}px;
+  padding-top: ${({ $size, $scale, theme }) => paddingMap(theme)[$size] * $scale}px;
+  padding-bottom: ${({ $size, $scale, theme }) => paddingMap(theme)[$size] * $scale}px;
+  padding-left: ${({ $size, $scale, theme }) =>
+    (paddingMap(theme)[$size] + theme.componentSizing.segmentedTabsPaddingHorizontalOffset) *
+    $scale}px;
+  padding-right: ${({ $size, $scale, theme }) =>
+    (paddingMap(theme)[$size] + theme.componentSizing.segmentedTabsPaddingHorizontalOffset) *
+    $scale}px;
   border-radius: ${({ theme, $showBottomLine }) =>
     $showBottomLine ? 0 : theme.borderRadius.medium}px;
   overflow: hidden;

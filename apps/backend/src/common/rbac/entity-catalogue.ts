@@ -57,6 +57,21 @@ export const ENTITIES = [
     supportsAttachments: true,
   },
   {
+    code: 'SupplierBill',
+    label: 'Vendor Bills',
+    isOfflineSafe: true,
+    supportsAttachments: false,
+  },
+  {
+    code: 'SupplierPayment',
+    label: 'Vendor Payments',
+    isOfflineSafe: true,
+    // The signature-of-receipt image (F6, docs/prd/accounts-and-ledger.md) —
+    // a plain files/attachments entity keyed by this payment's guuid, not a
+    // direct FK column (see RecordExistenceService.RECORD_TABLES).
+    supportsAttachments: true,
+  },
+  {
     code: 'Inventory',
     label: 'Inventory',
     isOfflineSafe: true,

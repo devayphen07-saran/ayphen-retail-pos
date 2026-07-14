@@ -1,5 +1,7 @@
+import type { CursorPage } from '#common/pagination/paginate.js';
+import type { PaginatedResponse } from '#common/pagination/paginated-response.js';
 import type { SyncConflictRow } from '../../repositories/sync-conflict.repository.js';
-import type { ConflictResponse, ConflictListResponse } from '../../dto/response/conflict.response.js';
+import type { ConflictResponse } from '../../dto/response/conflict.response.js';
 
 export const ConflictResponseMapper = {
   toResponse(row: SyncConflictRow): ConflictResponse {
@@ -18,7 +20,11 @@ export const ConflictResponseMapper = {
     };
   },
 
-  toListResponse(rows: SyncConflictRow[]): ConflictListResponse {
-    return { conflicts: rows.map((row) => ConflictResponseMapper.toResponse(row)) };
+  toListResponse(page: CursorPage<SyncConflictRow>): PaginatedResponse<ConflictResponse> {
+    return {
+      data: page.items.map((row) => ConflictResponseMapper.toResponse(row)),
+      next_cursor: page.nextCursor,
+      has_more: page.hasMore,
+    };
   },
 };

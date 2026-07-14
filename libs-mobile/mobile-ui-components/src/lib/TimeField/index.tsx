@@ -72,39 +72,25 @@ export function TimeField<T extends FieldValues = FieldValues>({
   ) => (
     <Flex flex={1}>
       {label && (
-        <View
-          style={{
-            paddingBottom: theme.sizing.xxSmall,
-            marginLeft: theme.sizing.xxSmall,
-          }}
-        >
+        <LabelContainer>
           <Typography.Caption>
             {label}
             {required && (
-              <Typography.Caption
-                type="secondary"
-                style={{ color: theme.colorError }}
-              >
-                {" *"}
-              </Typography.Caption>
+              <RequiredMark type="secondary">{" *"}</RequiredMark>
             )}
           </Typography.Caption>
-        </View>
+        </LabelContainer>
       )}
 
       <SelectTouchable
         disabled={disabled}
         onPress={() => !disabled && setShow(true)}
-        style={{ opacity: disabled ? 0.6 : 1 }}
+        $disabled={disabled}
       >
         <TextRow>
-          <Typography.Body
-            type="secondary"
-            style={{ flex: 1 }}
-            numberOfLines={1}
-          >
+          <ValueText type="secondary" numberOfLines={1}>
             {formatTime(val)}
-          </Typography.Body>
+          </ValueText>
 
           {val && !disabled && (
             <TouchableOpacity
@@ -117,19 +103,13 @@ export function TimeField<T extends FieldValues = FieldValues>({
         </TextRow>
       </SelectTouchable>
 
-      {errorMessage && (
-        <Typography.Caption style={{ color: theme.colorError }}>
-          {errorMessage}
-        </Typography.Caption>
-      )}
+      {errorMessage && <ErrorText>{errorMessage}</ErrorText>}
 
       {!disabled && show && (
         <Modal transparent animationType="fade">
           <Backdrop onPress={() => setShow(false)} />
           <PickerContainer>
-            <Typography.Body style={{ marginBottom: theme.sizing.xSmall }}>
-              Select Time
-            </Typography.Body>
+            <SectionLabel>Select Time</SectionLabel>
             <DateTimePicker
               value={tempDate || new Date()}
               mode="time"
@@ -141,12 +121,12 @@ export function TimeField<T extends FieldValues = FieldValues>({
               }}
             />
 
-            <View style={{ marginTop: theme.sizing.small }}>
+            <DoneButtonContainer>
               <Button
                 title="Done"
                 onPress={() => handleConfirm(changeFn)}
               />
-            </View>
+            </DoneButtonContainer>
           </PickerContainer>
         </Modal>
       )}
@@ -175,7 +155,7 @@ export function TimeField<T extends FieldValues = FieldValues>({
   return renderPicker(internalDate, handleChange);
 }
 
-const SelectTouchable = styled(TouchableOpacity)`
+const SelectTouchable = styled(TouchableOpacity)<{ $disabled?: boolean }>`
   padding: ${({ theme }) =>
     Platform.OS === "ios" ? theme.padding.small : theme.padding.xSmall}px;
   background-color: ${({ theme }) => theme.colorBgContainer};
@@ -183,6 +163,7 @@ const SelectTouchable = styled(TouchableOpacity)`
   border-width: ${({ theme }) => theme.borderWidth.thin}px;
   border-color: ${({ theme }) => theme.colorBorder};
   margin-bottom: ${({ theme }) => theme.margin.small}px;
+  opacity: ${({ $disabled }) => ($disabled ? 0.6 : 1)};
 `;
 
 const TextRow = styled.View`
@@ -205,4 +186,29 @@ const PickerContainer = styled(View)`
   border-top-right-radius: ${({ theme }) =>
     theme.borderRadius.xLarge + theme.borderRadius.small}px;
   padding: ${({ theme }) => theme.sizing.medium}px;
+`;
+
+const LabelContainer = styled.View`
+  padding-bottom: ${({ theme }) => theme.sizing.xxSmall}px;
+  margin-left: ${({ theme }) => theme.sizing.xxSmall}px;
+`;
+
+const RequiredMark = styled(Typography.Caption)`
+  color: ${({ theme }) => theme.colorError};
+`;
+
+const ValueText = styled(Typography.Body)`
+  flex: 1;
+`;
+
+const ErrorText = styled(Typography.Caption)`
+  color: ${({ theme }) => theme.colorError};
+`;
+
+const SectionLabel = styled(Typography.Body)`
+  margin-bottom: ${({ theme }) => theme.sizing.xSmall}px;
+`;
+
+const DoneButtonContainer = styled.View`
+  margin-top: ${({ theme }) => theme.sizing.small}px;
 `;

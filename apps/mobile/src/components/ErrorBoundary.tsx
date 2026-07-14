@@ -2,6 +2,7 @@ import React, { type ReactNode, type ErrorInfo } from 'react';
 import { View, Text, TouchableOpacity, StyleSheet } from 'react-native';
 import * as SplashScreen from 'expo-splash-screen';
 import { Alert } from '@ayphen/mobile-ui-components';
+import { lightTheme } from '@ayphen/mobile-theme';
 import { useAuthStore, useActiveStoreStore } from '@store';
 import { clearTokens } from '@core/auth/token-store';
 import { resetSubscriptionFreshness } from '@core/network/subscription-freshness';
@@ -86,46 +87,52 @@ export class ErrorBoundary extends React.Component<Props, State> {
   }
 }
 
+// Mounted ABOVE MobileThemeProvider (see app/_layout.tsx) so it also catches a
+// crash in the theme provider itself — `useMobileTheme()`/`Typography`/`Button`
+// all need that provider's context and would throw if used here. `lightTheme`
+// is the one theme export that's a plain object, not a hook/context, so it's
+// the only safe way to still pull every value from the real design-system
+// token set instead of hardcoding a second, drifting copy of the palette.
 const styles = StyleSheet.create({
   container: {
     flex: 1,
     justifyContent: 'center',
     alignItems: 'center',
-    padding: 24,
-    backgroundColor: '#fff',
+    padding: lightTheme.sizing.large,
+    backgroundColor: lightTheme.colorBgContainer,
   },
   title: {
-    fontSize: 18,
-    fontFamily: 'Poppins-SemiBold',
-    color: '#111',
-    marginBottom: 8,
+    fontSize: lightTheme.fontSize.large,
+    fontFamily: lightTheme.fontFamily.poppinsSemiBold,
+    color: lightTheme.colorText,
+    marginBottom: lightTheme.sizing.xSmall,
   },
   message: {
-    fontSize: 13,
-    fontFamily: 'Poppins-Regular',
-    color: '#666',
+    fontSize: lightTheme.fontSize.small,
+    fontFamily: lightTheme.fontFamily.poppinsRegular,
+    color: lightTheme.colorTextSecondary,
     textAlign: 'center',
-    marginBottom: 24,
+    marginBottom: lightTheme.sizing.large,
   },
   button: {
-    paddingHorizontal: 24,
-    paddingVertical: 12,
-    backgroundColor: '#111',
-    borderRadius: 8,
+    paddingHorizontal: lightTheme.sizing.large,
+    paddingVertical: lightTheme.sizing.small,
+    backgroundColor: lightTheme.colorText,
+    borderRadius: lightTheme.borderRadius.regular,
   },
   buttonText: {
-    fontFamily: 'Poppins-Medium',
-    fontSize: 14,
-    color: '#fff',
+    fontFamily: lightTheme.fontFamily.poppinsMedium,
+    fontSize: lightTheme.fontSize.regular,
+    color: lightTheme.colorWhite,
   },
   secondaryButton: {
-    marginTop: 12,
-    paddingHorizontal: 24,
-    paddingVertical: 12,
+    marginTop: lightTheme.sizing.small,
+    paddingHorizontal: lightTheme.sizing.large,
+    paddingVertical: lightTheme.sizing.small,
   },
   secondaryButtonText: {
-    fontFamily: 'Poppins-Medium',
-    fontSize: 14,
-    color: '#b3283d',
+    fontFamily: lightTheme.fontFamily.poppinsMedium,
+    fontSize: lightTheme.fontSize.regular,
+    color: lightTheme.colorError,
   },
 });

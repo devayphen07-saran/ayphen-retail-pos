@@ -9,6 +9,7 @@ import { switchMap } from 'rxjs/operators';
 import type { Request, Response } from 'express';
 import { RequestContextService } from '#common/request-context/request-context.service.js';
 import { SnapshotService } from '../services/snapshot.service.js';
+import { SnapshotEnvelopeMapper } from '../mappers/snapshot-envelope.mapper.js';
 import type { MobilePrincipal } from '#common/types/principal.js';
 
 @Injectable()
@@ -62,18 +63,9 @@ export class SnapshotRefreshInterceptor implements NestInterceptor {
 
     if (!isPlainObject) return data;
 
-    if (snapshotResult) {
-      return {
-        ...(data as Record<string, unknown>),
-        snapshot: snapshotResult.snapshot,
-        snapshot_signature: snapshotResult.signature,
-        snapshot_changed: true,
-      };
-    }
-
     return {
       ...(data as Record<string, unknown>),
-      snapshot_changed: false,
+      ...SnapshotEnvelopeMapper.toEnvelope(snapshotResult),
     };
   }
 }

@@ -224,10 +224,15 @@ export function disposeSyncListeners(): void {
 
 /**
  * Fire a push+pull cycle immediately, e.g. right after enqueueing a local write.
- * Best effort: UI should not depend on this succeeding because the periodic
- * heartbeat remains the durable fallback.
+ * Best effort: most callers should not depend on this succeeding because the
+ * periodic heartbeat remains the durable fallback — `runExclusive` inside the
+ * scheduler already catches and logs any cycle failure, so the promise this
+ * returns resolves even when the cycle itself failed. It's still returned
+ * (rather than fire-and-forget `void`) so a manual "sync now" UI affordance
+ * (e.g. SyncStatusIcon) can await it purely to know when to stop showing its
+ * own in-progress state.
  */
-export function requestImmediateSync(): void {
+export function requestImmediateSync(): Promise<void> {
   // Wake the image uploader BOTH now and again once the sync cycle finishes.
   // The immediate wake covers images whose parent was already synced; the
   // post-cycle wake is what lets a just-created record's image commit promptly:
@@ -236,6 +241,9 @@ export function requestImmediateSync(): void {
   // uploader defers — without re-waking after the push lands, the image would
   // sit deferred until the next unrelated wake (foreground / next mutation).
   // Optional chaining short-circuits the whole chain when no store is bound.
-  void current?.scheduler.onNetworkRestored().then(() => requestImageUpload());
+  const cycle = (current?.scheduler.onNetworkRestored() ?? Promise.resolve()).then(() => {
+    requestImageUpload();
+  });
   requestImageUpload();
+  return cycle;
 }

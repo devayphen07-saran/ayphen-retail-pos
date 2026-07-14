@@ -141,9 +141,8 @@ export function DowngradeResolveScreen() {
 
   return (
     <AppLayout title="Resolve your plan" onBack={() => router.back()}>
-      <ScrollView
-        style={{ flex: 1 }}
-        contentContainerStyle={{ padding: theme.sizing.large, flexGrow: 1, paddingBottom: 100 }}
+      <Scroll
+        contentContainerStyle={{ padding: theme.sizing.large, flexGrow: 1, paddingBottom: theme.sizing.xxLarge }}
         showsVerticalScrollIndicator={false}
       >
         <ScreenStateRenderer<ReconciliationResponse>
@@ -249,7 +248,7 @@ export function DowngradeResolveScreen() {
             );
           }}
         </ScreenStateRenderer>
-      </ScrollView>
+      </Scroll>
       {!isLoading && !isError && !!ctx && (
         <FooterBar>
           <Button label="Save" variant="primary" loading={submitting} onPress={onSubmit} />
@@ -258,6 +257,10 @@ export function DowngradeResolveScreen() {
     </AppLayout>
   );
 }
+
+const Scroll = styled(ScrollView)`
+  flex: 1;
+`;
 
 const Section = styled(View)`
   gap: ${({ theme }) => theme.sizing.medium}px;

@@ -17,3 +17,8 @@ export interface CheckoutResponse {
 export interface VerifyPaymentResponse {
   activated: boolean;
 }
+
+/** POST /webhooks/razorpay response. */
+export interface WebhookResponse {
+  handled: boolean;
+}

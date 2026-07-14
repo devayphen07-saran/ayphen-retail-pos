@@ -333,28 +333,23 @@ export function CreateStoreScreen() {
     ]);
   };
 
+  const scrollContentStyle = {
+    paddingHorizontal: theme.sizing.large,
+    paddingTop: theme.sizing.large,
+    paddingBottom: theme.sizing.xxLarge + theme.sizing.xLarge,
+  };
+
   return (
     <Root edges={['top', 'bottom']}>
-      <KeyboardAvoidingView
-        style={{ flex: 1 }}
-        behavior={Platform.OS === 'ios' ? 'padding' : undefined}
-      >
-        <Row
-          align="center"
-          justify="space-between"
-          style={{
-            paddingLeft: theme.sizing.large,
-            paddingRight: theme.sizing.regular,
-            paddingTop: theme.sizing.xSmall,
-          }}
-        >
+      <FlexKAV behavior={Platform.OS === 'ios' ? 'padding' : undefined}>
+        <HeaderRow align="center" justify="space-between">
           <Typography.Caption weight="semiBold" color={theme.colorTextSecondary}>
             Set up your store
           </Typography.Caption>
           <CloseButton onPress={handleClose} disabled={isSubmitting} activeOpacity={0.7}>
             <LucideIcon name="X" size={15} color={theme.colorTextSecondary} />
           </CloseButton>
-        </Row>
+        </HeaderRow>
 
         <ProgressTrack>
           {STEP_META.map((_, i) => (
@@ -363,35 +358,27 @@ export function CreateStoreScreen() {
         </ProgressTrack>
 
         <ScrollView
-          contentContainerStyle={{
-            paddingHorizontal: theme.sizing.large,
-            paddingTop: theme.sizing.large,
-            paddingBottom: 80,
-          }}
+          contentContainerStyle={scrollContentStyle}
           keyboardShouldPersistTaps="handled"
           keyboardDismissMode="interactive"
           showsVerticalScrollIndicator={false}
         >
-          <Typography.Caption
-            weight={700}
-            color={theme.colorPrimary}
-            style={{ letterSpacing: 1.2, textTransform: 'uppercase', marginBottom: 14 }}
-          >
+          <StepLabelText weight={700} color={theme.colorPrimary}>
             Step {step} of {STEP_META.length}
-          </Typography.Caption>
-          <Typography.H1 color={theme.colorText} style={{ marginBottom: 8 }}>
+          </StepLabelText>
+          <HeadlineH1 color={theme.colorText}>
             {STEP_META[step - 1].question}
-          </Typography.H1>
-          <Typography.Body color={theme.colorTextSecondary} style={{ marginBottom: 28 }}>
+          </HeadlineH1>
+          <SubtitleBody color={theme.colorTextSecondary}>
             {STEP_META[step - 1].subtitle}
-          </Typography.Body>
+          </SubtitleBody>
 
           {validationBanner ? (
             <ValidationBanner>
               <LucideIcon name="AlertCircle" size={16} color={theme.colorWarning} />
-              <Typography.Caption color={theme.colorWarning} style={{ flex: 1 }}>
+              <FlexCaption color={theme.colorWarning}>
                 {validationBanner}
-              </Typography.Caption>
+              </FlexCaption>
             </ValidationBanner>
           ) : null}
 
@@ -643,11 +630,7 @@ export function CreateStoreScreen() {
 
               {sameHoursEveryDay ? (
                 <>
-                  <Row
-                    gap={theme.sizing.xSmall}
-                    flex={1}
-                    style={{ marginHorizontal: theme.sizing.xSmall }}
-                  >
+                  <TimeFieldRow gap={theme.sizing.xSmall} flex={1}>
                     <TimeField<CreateStoreForm>
                       name="openingHours.0.openTime"
                       control={control}
@@ -660,7 +643,7 @@ export function CreateStoreScreen() {
                       placeholder="Close"
                       disabled={isSubmitting}
                     />
-                  </Row>
+                  </TimeFieldRow>
 
                   <Typography.Caption color={theme.colorTextSecondary}>
                     Open on
@@ -700,16 +683,12 @@ export function CreateStoreScreen() {
                     name={`openingHours.${index}.isClosed`}
                     render={({ field: { value: isClosed, onChange } }) => (
                       <DayRow>
-                        <Typography.Body weight={600} style={{ width: 90 }}>
+                        <DayNameText weight={600}>
                           {DAY_NAMES[field.dayOfWeek]}
-                        </Typography.Body>
+                        </DayNameText>
 
                         {!isClosed ? (
-                          <Row
-                            gap={theme.sizing.xSmall}
-                            flex={1}
-                            style={{ marginHorizontal: theme.sizing.xSmall }}
-                          >
+                          <TimeFieldRow gap={theme.sizing.xSmall} flex={1}>
                             <TimeField<CreateStoreForm>
                               name={`openingHours.${index}.openTime`}
                               control={control}
@@ -722,14 +701,11 @@ export function CreateStoreScreen() {
                               placeholder="Close"
                               disabled={isSubmitting}
                             />
-                          </Row>
+                          </TimeFieldRow>
                         ) : (
-                          <Typography.Caption
-                            color={theme.colorTextSecondary}
-                            style={{ flex: 1, marginHorizontal: theme.sizing.xSmall }}
-                          >
+                          <ClosedCaptionText color={theme.colorTextSecondary}>
                             Closed
-                          </Typography.Caption>
+                          </ClosedCaptionText>
                         )}
 
                         <Switch
@@ -763,30 +739,22 @@ export function CreateStoreScreen() {
               <ActivityIndicator size="small" color={theme.colorBgContainer} />
             ) : isLastStep ? (
               <>
-                <Typography.Body
-                  weight={600}
-                  color={theme.colorBgContainer}
-                  style={{ letterSpacing: 0.2 }}
-                >
+                <NavLabelText weight={600} color={theme.colorBgContainer}>
                   Create Store
-                </Typography.Body>
+                </NavLabelText>
                 <LucideIcon name="Check" size={15} color={theme.colorBgContainer} />
               </>
             ) : (
               <>
-                <Typography.Body
-                  weight={600}
-                  color={theme.colorBgContainer}
-                  style={{ letterSpacing: 0.2 }}
-                >
+                <NavLabelText weight={600} color={theme.colorBgContainer}>
                   Next
-                </Typography.Body>
+                </NavLabelText>
                 <LucideIcon name="ArrowRight" size={15} color={theme.colorBgContainer} />
               </>
             )}
           </NextPill>
         </NavBar>
-      </KeyboardAvoidingView>
+      </FlexKAV>
     </Root>
   );
 }
@@ -796,6 +764,51 @@ export function CreateStoreScreen() {
 const Root = styled(SafeAreaView)`
   flex: 1;
   background-color: ${({ theme }) => theme.colorBgContainer};
+`;
+
+const FlexKAV = styled(KeyboardAvoidingView)`
+  flex: 1;
+`;
+
+const HeaderRow = styled(Row)`
+  padding-left: ${({ theme }) => theme.sizing.large}px;
+  padding-right: ${({ theme }) => theme.sizing.regular}px;
+  padding-top: ${({ theme }) => theme.sizing.xSmall}px;
+`;
+
+const StepLabelText = styled(Typography.Caption)`
+  letter-spacing: 1.2px;
+  text-transform: uppercase;
+  margin-bottom: ${({ theme }) => theme.sizing.small}px;
+`;
+
+const HeadlineH1 = styled(Typography.H1)`
+  margin-bottom: ${({ theme }) => theme.sizing.xSmall}px;
+`;
+
+const SubtitleBody = styled(Typography.Body)`
+  margin-bottom: ${({ theme }) => theme.sizing.large + theme.sizing.xxSmall}px;
+`;
+
+const FlexCaption = styled(Typography.Caption)`
+  flex: 1;
+`;
+
+const TimeFieldRow = styled(Row)`
+  margin-horizontal: ${({ theme }) => theme.sizing.xSmall}px;
+`;
+
+const DayNameText = styled(Typography.Body)`
+  width: ${({ theme }) => theme.sizing.xxLarge * 2}px;
+`;
+
+const ClosedCaptionText = styled(Typography.Caption)`
+  flex: 1;
+  margin-horizontal: ${({ theme }) => theme.sizing.xSmall}px;
+`;
+
+const NavLabelText = styled(Typography.Body)`
+  letter-spacing: 0.2px;
 `;
 
 const CloseButton = styled(TouchableOpacity)`
@@ -818,7 +831,7 @@ const ValidationBanner = styled(Row)`
 
 const ProgressTrack = styled(View)`
   flex-direction: row;
-  gap: 5px;
+  gap: ${({ theme }) => theme.sizing.xxSmall}px;
   padding-left: ${({ theme }) => theme.sizing.large}px;
   padding-right: ${({ theme }) => theme.sizing.large}px;
   padding-top: ${({ theme }) => theme.sizing.small}px;
@@ -837,7 +850,7 @@ const NavBar = styled(View)`
   justify-content: space-between;
   padding-left: ${({ theme }) => theme.sizing.large}px;
   padding-right: ${({ theme }) => theme.sizing.large}px;
-  padding-top: 14px;
+  padding-top: ${({ theme }) => theme.sizing.small}px;
   padding-bottom: ${({ theme }) => theme.sizing.large}px;
   background-color: ${({ theme }) => theme.colorBgContainer};
   border-top-width: ${({ theme }) => theme.borderWidth.thin}px;
@@ -859,13 +872,13 @@ const NextPill = styled(TouchableOpacity)`
   flex-direction: row;
   align-items: center;
   justify-content: center;
-  gap: 6px;
+  gap: ${({ theme }) => theme.sizing.xxSmall}px;
   background-color: ${({ theme }) => theme.colorPrimary};
-  border-radius: 100px;
-  padding-left: 22px;
-  padding-right: 18px;
-  padding-top: 14px;
-  padding-bottom: 14px;
+  border-radius: ${({ theme }) => theme.borderRadius.full}px;
+  padding-left: ${({ theme }) => theme.sizing.large}px;
+  padding-right: ${({ theme }) => theme.sizing.regular}px;
+  padding-top: ${({ theme }) => theme.sizing.small}px;
+  padding-bottom: ${({ theme }) => theme.sizing.small}px;
   min-width: 110px;
 `;
 
@@ -893,7 +906,7 @@ const DayRow = styled(View)`
 const DayChip = styled(TouchableOpacity)<{ $active: boolean }>`
   width: 44px;
   height: 44px;
-  border-radius: 22px;
+  border-radius: ${({ theme }) => theme.borderRadius.full}px;
   align-items: center;
   justify-content: center;
   background-color: ${({ $active, theme }) => ($active ? theme.color.primary.bg : theme.colorBgLayout)};

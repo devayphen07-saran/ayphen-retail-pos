@@ -176,11 +176,7 @@ export function SubscriptionPlansScreen() {
                 return (
                   <PlanCard key={plan.plan_name} $highlight={plan.is_recommended}>
                     {plan.is_recommended && (
-                      <Row
-                        align="center"
-                        justify="space-between"
-                        style={{ marginBottom: theme.sizing.small }}
-                      >
+                      <RecommendedRow align="center" justify="space-between">
                         <Row align="center" gap={6}>
                           <LucideIcon name="Star" size={14} color={theme.color.primary.main} />
                           <Typography.Overline color={theme.color.primary.main} weight="bold">
@@ -192,7 +188,7 @@ export function SubscriptionPlansScreen() {
                             Best value
                           </Typography.Caption>
                         </RecommendedPill>
-                      </Row>
+                      </RecommendedRow>
                     )}
 
                     <Row align="center" justify="space-between">
@@ -219,24 +215,24 @@ export function SubscriptionPlansScreen() {
                     )}
 
                     {!!plan.short_description && (
-                      <Typography.Caption type="secondary" style={{ marginTop: 2 }}>
+                      <ShortDescription type="secondary">
                         {plan.short_description}
-                      </Typography.Caption>
+                      </ShortDescription>
                     )}
 
                     {plan.feature_highlights.length > 0 && (
-                      <Row wrap="wrap" gap={8} style={{ marginTop: theme.sizing.medium }}>
+                      <HighlightsRow wrap="wrap" gap={8}>
                         {plan.feature_highlights.map((highlight) => (
                           <Row key={highlight} align="center" gap={6} width="47%">
                             <LucideIcon name="Check" size={14} color={theme.color.success?.main} />
-                            <Typography.Caption style={{ flexShrink: 1 }}>{highlight}</Typography.Caption>
+                            <ShrinkCaption>{highlight}</ShrinkCaption>
                           </Row>
                         ))}
-                      </Row>
+                      </HighlightsRow>
                     )}
 
                     {cta.kind !== 'none' && (
-                      <View style={{ marginTop: theme.sizing.medium }}>
+                      <CtaBlock>
                         {cta.kind === 'current' ? (
                           <CurrentPlanBar align="center" justify="center" gap={6}>
                             <LucideIcon name="Check" size={14} color={theme.color.primary.main} />
@@ -258,7 +254,7 @@ export function SubscriptionPlansScreen() {
                             </Typography.Body>
                           </DowngradeButton>
                         )}
-                      </View>
+                      </CtaBlock>
                     )}
                   </PlanCard>
                 );
@@ -317,17 +313,16 @@ export function SubscriptionPlansScreen() {
               </Column>
             )}
 
-            <Row
+            <TrustRow
               align="center"
               justify="center"
               gap={16}
               wrap="wrap"
-              style={{ paddingTop: theme.sizing.small }}
             >
               <TrustItem iconName="RefreshCw" label="Cancel anytime" />
               <TrustItem iconName="ShieldCheck" label="Secure payments" />
               <TrustItem iconName="Receipt" label="GST invoice" />
-            </Row>
+            </TrustRow>
           </Column>
           )}
         </ScreenStateRenderer>
@@ -360,15 +355,19 @@ const CycleTab = styled.TouchableOpacity<{ $selected: boolean }>`
 const SavingsBadge = styled(View)<{ $selected: boolean }>`
   background-color: ${({ theme, $selected }) => ($selected ? theme.overlay.onDark20 : theme.color.success.bg)};
   border-radius: ${({ theme }) => theme.borderRadius.small}px;
-  padding: 2px 6px;
+  padding: ${({ theme }) => theme.sizing.xxSmall}px ${({ theme }) => theme.sizing.xSmall}px;
 `;
 
 // ─── Recommended badge ──────────────────────────────────────────────────────
 
+const RecommendedRow = styled(Row)`
+  margin-bottom: ${({ theme }) => theme.sizing.small}px;
+`;
+
 const RecommendedPill = styled(View)`
   background-color: ${({ theme }) => theme.color.primary.bg};
   border-radius: ${({ theme }) => theme.borderRadius.full}px;
-  padding: 5px 12px;
+  padding: ${({ theme }) => theme.sizing.xSmall}px ${({ theme }) => theme.sizing.small}px;
 `;
 
 // ─── Plan cards ─────────────────────────────────────────────────────────────
@@ -376,9 +375,25 @@ const RecommendedPill = styled(View)`
 const PlanCard = styled(View)<{ $highlight?: boolean }>`
   background-color: ${({ theme }) => theme.colorBgContainer};
   border-radius: ${({ theme }) => theme.borderRadius.large}px;
-  border-width: ${({ theme, $highlight }) => ($highlight ? 1.5 : theme.borderWidth.thin)}px;
+  border-width: ${({ theme, $highlight }) => ($highlight ? theme.borderWidth.light : theme.borderWidth.thin)}px;
   border-color: ${({ theme, $highlight }) => ($highlight ? theme.color.primary.main : theme.colorBorder)};
   padding: ${({ theme }) => theme.sizing.medium}px;
+`;
+
+const ShortDescription = styled(Typography.Caption)`
+  margin-top: ${({ theme }) => theme.sizing.xxSmall}px;
+`;
+
+const HighlightsRow = styled(Row)`
+  margin-top: ${({ theme }) => theme.sizing.medium}px;
+`;
+
+const ShrinkCaption = styled(Typography.Caption)`
+  flex-shrink: 1;
+`;
+
+const CtaBlock = styled(View)`
+  margin-top: ${({ theme }) => theme.sizing.medium}px;
 `;
 
 const CurrentPlanBar = styled(Row)`
@@ -391,22 +406,22 @@ const UpgradeButton = styled.TouchableOpacity`
   flex-direction: row;
   align-items: center;
   justify-content: center;
-  gap: 6px;
+  gap: ${({ theme }) => theme.sizing.xSmall}px;
   background-color: ${({ theme }) => theme.color.primary.main};
   border-radius: ${({ theme }) => theme.borderRadius.medium}px;
-  padding: 13px;
+  padding: ${({ theme }) => theme.sizing.small}px;
 `;
 
 const DowngradeButton = styled.TouchableOpacity`
   flex-direction: row;
   align-items: center;
   justify-content: center;
-  gap: 6px;
+  gap: ${({ theme }) => theme.sizing.xSmall}px;
   background-color: ${({ theme }) => theme.colorBgContainer};
   border-width: ${({ theme }) => theme.borderWidth.thin}px;
   border-color: ${({ theme }) => theme.color.primary.border};
   border-radius: ${({ theme }) => theme.borderRadius.medium}px;
-  padding: 13px;
+  padding: ${({ theme }) => theme.sizing.small}px;
 `;
 
 // ─── Compare limits table ───────────────────────────────────────────────────
@@ -436,4 +451,10 @@ const ComparisonCell = styled(View)`
   padding: ${({ theme }) => theme.sizing.small}px ${({ theme }) => theme.sizing.medium}px;
   align-items: center;
   justify-content: center;
+`;
+
+// ─── Trust strip ────────────────────────────────────────────────────────────
+
+const TrustRow = styled(Row)`
+  padding-top: ${({ theme }) => theme.sizing.small}px;
 `;

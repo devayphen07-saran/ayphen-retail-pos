@@ -20,6 +20,14 @@ export function createPgClient(url: string, opts: CreatePgClientOptions = {}): S
   const statementTimeoutMs = opts.statementTimeoutMs ?? 10_000;
   return postgres(url, {
     max:             opts.max,
+    // Disable named prepared statements: this connects through Supabase's
+    // Supavisor pooler (…pooler.supabase.com), which multiplexes/recycles server
+    // connections. A prepared statement created on one backend may not exist on
+    // the next, surfacing as intermittent "Failed query" errors (the SQL itself
+    // is valid — it succeeds in isolation). postgres-js's simple protocol is
+    // pooler-safe. No code relies on drizzle `.prepare()`, so this is a pure
+    // robustness win. (Supabase's documented recommendation for poolers.)
+    prepare:         false,
     // 'verify-full' authenticates the server certificate (CA + hostname) rather
     // than 'require', which encrypts but does not verify — closes a MITM window.
     ssl:             process.env.NODE_ENV === 'production' ? 'verify-full' : undefined,

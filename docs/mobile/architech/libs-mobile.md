@@ -62,7 +62,7 @@ ayphen-retail-pos/
     │       │   └── styled.d.ts    ← Augments styled-components DefaultTheme with NKSTheme
     │       ├── ThemeProvider.tsx  ← MobileThemeProvider, useMobileTheme, useColorVariant
     │       ├── useBreakpoint.ts   ← Responsive hooks (useBreakpoint, useScaledSize, …)
-    │       └── index.ts           ← Public API
+    │       └── index.ts           ← Public API (exports the `MobileTheme` type)
     └── mobile-ui-components/       ← @nks/mobile-ui-components
         └── src/
             ├── lib/               ← One folder per component
@@ -93,7 +93,7 @@ tokens/
 └── index.ts          ← Assembles lightTheme / darkTheme + exports NKSTheme type
 ```
 
-The assembled result is a strongly-typed `NKSTheme` object accessible in every styled-component via `props.theme`.
+The assembled result is a strongly-typed `MobileTheme` object accessible in every styled-component via `props.theme`.
 
 ### 3.2 Color Tokens
 
@@ -448,12 +448,20 @@ generated from the actual barrel (`src/index.ts`) and `src/lib/` folders.
 | `BottomSheetModal` | Bottom sheet with handle           |
 | `ModalHeader`      | Header for bottom sheets / modals  |
 | `Alert`            | Alert dialog (`alert`)             |
+| `BottomSheetProvider` / `useBottomSheet` | Imperative bottom-sheet host + hook to open/update/close it (`BottomSheet`) |
+| `BottomSheetShell` | Chooses single- vs multi-snap-point shell for the active sheet config (`BottomSheet`) |
+| `SingleSnapShell` / `MultiSnapShell` | Fixed vs. draggable multi-snap-point sheet shells (`BottomSheet`) |
+| `SheetSkeleton`    | Loading placeholder for sheet content (`BottomSheet`) |
+| `SheetError`       | Error state with retry for sheet content (`BottomSheet`) |
+| `SheetListItem`    | Selectable row inside a sheet list (`BottomSheet`) |
+| `SheetSearchBar`   | Search input inside a sheet (`BottomSheet`) |
+| `SheetConfirmActions` | Confirm/cancel action row for a sheet (`BottomSheet`) |
 
 **Lists & scaffolds**
 
 | Component          | Description                                  |
 | ------------------ | -------------------------------------------- |
-| `ListPageScaffold` | Full list page with header and search        |
+| `ListScaffold`     | Full list page with header and search        |
 | `FlatListScaffold` | FlatList with pull-to-refresh & empty state  |
 | `ThemedFlatList`   | FlatList with theme background               |
 | `FlatListLoading`  | Loading shimmer for lists                    |
@@ -479,7 +487,7 @@ generated from the actual barrel (`src/index.ts`) and `src/lib/` folders.
 | `useScanFeedback`  | Barcode-scan feedback hook (`use-scan-feedback`)  |
 
 > **Casing note**: most component folders are kebab-case, but a few are PascalCase in the source
-> (`DateTimePicker`, `ItemCard`, `Select`, `SkeletonLoader`, `TimeField`). New components should
+> (`BottomSheet`, `DateTimePicker`, `ItemCard`, `Select`, `SkeletonLoader`, `TimeField`). New components should
 > follow the kebab-case rule in §6; the PascalCase folders predate it.
 
 ### 4.2 Typography Component

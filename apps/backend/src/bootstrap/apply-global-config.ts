@@ -37,7 +37,7 @@ export function applyGlobalConfig(app: NestExpressApplication): void {
   // 0b. 30-second hard request timeout
   app.use((req: import('express').Request, res: import('express').Response, next: import('express').NextFunction) => {
     req.setTimeout(30_000, () => {
-      res.status(408).json({ success: false, statusCode: 408, message: 'Request timeout', errorCode: 'REQUEST_TIMEOUT' });
+      res.status(408).json({ success: false, statusCode: 408, message: 'Request timeout', errorCode: ErrorCodes.REQUEST_TIMEOUT });
     });
     next();
   });

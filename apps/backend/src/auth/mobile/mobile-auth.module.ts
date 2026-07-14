@@ -78,6 +78,10 @@ import { MeController } from './me.controller.js';
     ReplayProtectionService,
     SnapshotRefreshInterceptor,
     AuthSessionRepository,
+    // Device block/remove (DevicesModule) owns the `devices` table's slot
+    // model but delegates identity lookups/updates (findOwnedByUser,
+    // setBlocked) to this repository instead of re-querying `devices` itself.
+    DeviceRepository,
     // Mutations that change permissions (store create, invitation accept)
     // must invalidate the cached bootstrap snapshot, or the client keeps
     // seeing stale data until SNAPSHOT_CACHE_TTL_SECONDS expires.

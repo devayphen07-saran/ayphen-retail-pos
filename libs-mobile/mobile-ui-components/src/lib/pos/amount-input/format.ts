@@ -1,6 +1,8 @@
 /**
- * Currency formatting helpers backed by Intl.NumberFormat (available on Hermes
- * via the Intl polyfill that Expo ships with).
+ * Currency formatting helpers backed by Intl.NumberFormat. Some RN JS engines
+ * ship an Intl.NumberFormat that implements `format`/`resolvedOptions` but not
+ * `formatToParts` (e.g. a minimal ICU build) — separator/symbol detection
+ * falls back to parsing formatted output when `formatToParts` is missing.
  *
  * Amounts are passed around as **integer minor units** (e.g. cents, paise) so
  * we never round-trip through floats. JPY-style currencies with zero decimals
@@ -37,6 +39,44 @@ function detectSymbol(format: Intl.NumberFormat): string {
   return parts.find((p) => p.type === "currency")?.value ?? "";
 }
 
+/**
+ * Engines without `formatToParts` still implement plain `format`, so we infer
+ * separators by formatting known values with the currency symbol stripped
+ * out (plain "decimal" style never includes one) and reading off the
+ * punctuation next to known digit positions.
+ */
+function detectSeparatorsFallback(locale: string): { group: string; decimal: string } {
+  const decimalSample = new Intl.NumberFormat(locale, {
+    useGrouping: false,
+    minimumFractionDigits: 1,
+    maximumFractionDigits: 1,
+  }).format(1.5);
+  const decimal = decimalSample.match(/1(.)5/)?.[1] ?? ".";
+
+  const groupSample = new Intl.NumberFormat(locale, {
+    useGrouping: true,
+    maximumFractionDigits: 0,
+  }).format(1000);
+  const group = groupSample.match(/1(.)000/)?.[1] ?? (decimal === "," ? "." : ",");
+
+  return { group, decimal };
+}
+
+function escapeForCharClass(value: string): string {
+  return value.replace(/[.*+?^${}()|[\]\\-]/g, "\\$&");
+}
+
+/** Strips digits, whitespace, and the already-detected separators from a
+ * one-unit formatted sample, leaving just the currency symbol/code. */
+function detectSymbolFallback(format: Intl.NumberFormat, group: string, decimal: string): string {
+  const sample = format.format(1);
+  const stripPattern = new RegExp(
+    `[0-9\\s${escapeForCharClass(group)}${escapeForCharClass(decimal)}]`,
+    "gu",
+  );
+  return sample.replace(stripPattern, "").trim();
+}
+
 export function resolveFormat({
   currency,
   locale = "en-US",
@@ -58,13 +98,16 @@ export function resolveFormat({
   const resolved = format.resolvedOptions();
   const fractionDigits = minorUnitsOverride ?? resolved.maximumFractionDigits ?? 2;
   const divisor = Math.pow(10, fractionDigits);
-  const { group, decimal } = detectSeparators(format);
+  const supportsFormatToParts = typeof format.formatToParts === "function";
+  const { group, decimal } = supportsFormatToParts
+    ? detectSeparators(format)
+    : detectSeparatorsFallback(locale);
 
   const out: ResolvedFormat = {
     format,
     fractionDigits,
     divisor,
-    symbol: detectSymbol(format),
+    symbol: supportsFormatToParts ? detectSymbol(format) : detectSymbolFallback(format, group, decimal),
     groupSeparator: group,
     decimalSeparator: decimal,
   };

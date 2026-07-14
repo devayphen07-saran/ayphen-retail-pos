@@ -1,5 +1,5 @@
 import { Injectable } from '@nestjs/common';
-import { accountTransactions, openingBalances } from '#db/schema.js';
+import { accountTransactions, openingBalances, customerLedgerEvents } from '#db/schema.js';
 import type { DbTransaction } from '#db/db.module.js';
 import type { MutationContext } from '../sync/push/mutation.types.js';
 
@@ -104,7 +104,12 @@ export class AccountPostingService {
     });
   }
 
-  /** F3 — a refund posts one debit to the account it was refunded from. */
+  /**
+   * F3 — a refund posts one debit to the account it was refunded from. Only
+   * for the CASH portion of a refund — see postRefundCreditNote for the
+   * portion that was originally sold on credit (no real account moves for
+   * that part, so refund.handler.ts never calls this with that share).
+   */
   async postRefund(
     tx: DbTransaction,
     params: { storeFk: string; accountFk: string; amountPaise: number; refundId: string },
@@ -118,6 +123,109 @@ export class AccountPostingService {
       reason: 'refund',
       sourceType: 'refund',
       sourceFk: params.refundId,
+      createdBy: ctx.userId,
+      deviceFk: ctx.deviceId,
+    });
+  }
+
+  /**
+   * F3 — the portion of a refund that reverses money the customer never
+   * actually paid (it was on credit): reduces what they owe instead of
+   * moving a real account. No account_transactions row, same reasoning as
+   * postCreditSale. Called from refund.handler.ts alongside postRefund when
+   * a refund spans both a credit and a cash portion of the original sale.
+   */
+  async postRefundCreditNote(
+    tx: DbTransaction,
+    params: { storeFk: string; customerFk: string; amountPaise: number; refundId: string },
+    ctx: MutationContext,
+  ): Promise<void> {
+    await tx.insert(customerLedgerEvents).values({
+      storeFk: params.storeFk,
+      customerFk: params.customerFk,
+      kind: 'credit_note',
+      amountPaise: params.amountPaise,
+      sourceType: 'refund',
+      sourceFk: params.refundId,
+      createdBy: ctx.userId,
+    });
+  }
+
+  /**
+   * F5 (docs/prd/accounts-and-ledger.md) — a credit sale posts NO account
+   * posting; it moves only the customer's book. Called from
+   * sale.handler.ts for the on-credit portion of a sale.
+   */
+  async postCreditSale(
+    tx: DbTransaction,
+    params: { storeFk: string; customerFk: string; amountPaise: number; saleId: string; flagged: boolean },
+    ctx: MutationContext,
+  ): Promise<void> {
+    await tx.insert(customerLedgerEvents).values({
+      storeFk: params.storeFk,
+      customerFk: params.customerFk,
+      kind: 'credit_sale',
+      amountPaise: params.amountPaise,
+      sourceType: 'sale',
+      sourceFk: params.saleId,
+      flagged: params.flagged,
+      createdBy: ctx.userId,
+    });
+  }
+
+  /**
+   * F5 settlement — the double-entry moment: the customer's book moves down
+   * (credit_sale reversed) AND the account book moves up (cash/bank in), in
+   * the same transaction as customer-payment.handler.ts's allocation writes.
+   */
+  async postCustomerPayment(
+    tx: DbTransaction,
+    params: { storeFk: string; customerFk: string; accountFk: string; amountPaise: number; customerPaymentId: string },
+    ctx: MutationContext,
+  ): Promise<void> {
+    await tx.insert(customerLedgerEvents).values({
+      storeFk: params.storeFk,
+      customerFk: params.customerFk,
+      kind: 'payment',
+      amountPaise: params.amountPaise,
+      sourceType: 'customer_payment',
+      sourceFk: params.customerPaymentId,
+      createdBy: ctx.userId,
+    });
+
+    await tx.insert(accountTransactions).values({
+      storeFk: params.storeFk,
+      accountFk: params.accountFk,
+      direction: 'credit',
+      amountPaise: params.amountPaise,
+      reason: 'credit_payment',
+      sourceType: 'customer_payment',
+      sourceFk: params.customerPaymentId,
+      createdBy: ctx.userId,
+      deviceFk: ctx.deviceId,
+    });
+  }
+
+  /**
+   * F6 (docs/prd/accounts-and-ledger.md) — paying a vendor. Unlike a customer
+   * settlement there is no separate "book" event to post first: the vendor's
+   * payable is `supplier_bills` itself (its status is derived from
+   * allocations, see supplier-payment.handler.ts), so this posts only the
+   * cash-out side.
+   */
+  async postSupplierPayment(
+    tx: DbTransaction,
+    params: { storeFk: string; accountFk: string; amountPaise: number; supplierPaymentId: string },
+    ctx: MutationContext,
+  ): Promise<void> {
+    await tx.insert(accountTransactions).values({
+      storeFk: params.storeFk,
+      accountFk: params.accountFk,
+      direction: 'debit',
+      amountPaise: params.amountPaise,
+      reason: 'vendor_payment',
+      sourceType: 'supplier_payment',
+      sourceFk: params.supplierPaymentId,
       createdBy: ctx.userId,
       deviceFk: ctx.deviceId,
     });

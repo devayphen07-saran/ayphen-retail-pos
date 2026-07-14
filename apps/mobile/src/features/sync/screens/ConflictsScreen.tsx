@@ -3,7 +3,7 @@ import { View } from 'react-native';
 import { and, eq, inArray } from 'drizzle-orm';
 import { useLiveQuery } from 'drizzle-orm/expo-sqlite/query';
 import { FlashList, type ListRenderItemInfo } from '@shopify/flash-list';
-import { useMobileTheme } from '@ayphen/mobile-theme';
+import { sizing, useMobileTheme } from '@ayphen/mobile-theme';
 import {
   Alert,
   AppLayout,
@@ -39,9 +39,9 @@ type Row_ =
   | { kind: 'rejected'; key: string; row: MutationQueueRow; gap: number }
   | { kind: 'failed'; key: string; row: FailedApplyRow; gap: number };
 
-const GAP_WITHIN_SECTION = 8;
-const GAP_AFTER_HEADER = 10;
-const GAP_BETWEEN_SECTIONS = 24;
+const GAP_WITHIN_SECTION = sizing.xSmall;
+const GAP_AFTER_HEADER = sizing.small;
+const GAP_BETWEEN_SECTIONS = sizing.large;
 
 /**
  * Sync Issues screen (mobile-11 §11) — surfaces the three things the
@@ -316,7 +316,7 @@ export function ConflictsScreen() {
         data={rows}
         keyExtractor={(item) => item.key}
         renderItem={renderItem}
-        contentContainerStyle={{ padding: theme.sizing.large, paddingBottom: 40 }}
+        contentContainerStyle={{ padding: theme.sizing.large, paddingBottom: theme.sizing.xxLarge }}
         showsVerticalScrollIndicator={false}
       />
     </AppLayout>

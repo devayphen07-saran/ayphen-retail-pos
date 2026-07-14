@@ -4,7 +4,7 @@ import type { PgColumn, PgTable } from 'drizzle-orm/pg-core';
 import type { PostgresJsDatabase } from 'drizzle-orm/postgres-js';
 import { DRIZZLE, type DbExecutor } from '#db/db.module.js';
 import * as schema from '#db/schema.js';
-import { products, files } from '#db/schema.js';
+import { products, files, supplierPayments } from '#db/schema.js';
 
 /**
  * A store-scoped, soft-deletable, synced parent table an attachment can point at.
@@ -32,6 +32,15 @@ const RECORD_TABLES: Record<string, RecordTable> = {
     guuid: products.guuid,
     storeFk: products.storeFk,
     deletedAt: products.deletedAt,
+  },
+  // Signature-of-receipt image (F6, docs/prd/accounts-and-ledger.md) — the
+  // parent is the payment itself, not the supplier. `deleted_at` is always
+  // null (append-only; see schema.ts's comment on the column).
+  SupplierPayment: {
+    table: supplierPayments,
+    guuid: supplierPayments.guuid,
+    storeFk: supplierPayments.storeFk,
+    deletedAt: supplierPayments.deletedAt,
   },
 };
 

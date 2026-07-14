@@ -21,6 +21,7 @@ export const inputStylesCss = ({ $hasError, theme, $scale = 1 }: InputStylesArgs
 interface SelectTouchableProps extends React.ComponentProps<typeof TouchableOpacity> {
   $hasError?: boolean;
   $scale?: number;
+  $disabled?: boolean;
 }
 
 export const SelectGenericContainer = styled.View`
@@ -52,4 +53,5 @@ export const SelectTouchable = styled(TouchableOpacity)<SelectTouchableProps>`
     $hasError ? theme.colorError : theme.colorBorder};
   border-radius: ${({ theme, $scale = 1 }) =>
     (theme.borderRadius?.medium ?? 8) * $scale}px;
+  opacity: ${({ $disabled }) => ($disabled ? 0.6 : 1)};
 `;

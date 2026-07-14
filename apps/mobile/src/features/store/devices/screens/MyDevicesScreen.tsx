@@ -94,12 +94,13 @@ export function MyDevicesScreen() {
   return (
     <AppLayout title="My Devices" onBack={() => router.back()}>
       <ScrollView
-        contentContainerStyle={{ padding: theme.sizing.large, flexGrow: 1 }}
+        contentContainerStyle={{ flexGrow: 1 }}
         showsVerticalScrollIndicator={false}
         refreshControl={
           <RefreshControl refreshing={isRefetching && !isLoading} onRefresh={refetch} />
         }
       >
+        <Column padding={theme.sizing.large}>
         <ScreenStateRenderer
           isLoading={isLoading}
           isError={isError}
@@ -115,7 +116,7 @@ export function MyDevicesScreen() {
             <Column gap={10}>
               <SectionHeader
                 title={`Active Devices (${active.length})`}
-                containerStyle={{ paddingHorizontal: 0 }}
+                containerStyle={{ paddingHorizontal: theme.sizing.zero }}
               />
               {active.map((device) => (
                 <DeviceCard
@@ -166,7 +167,7 @@ export function MyDevicesScreen() {
               <Column gap={10}>
                 <SectionHeader
                   title={`Blocked Devices (${blocked.length})`}
-                  containerStyle={{ paddingHorizontal: 0 }}
+                  containerStyle={{ paddingHorizontal: theme.sizing.zero }}
                 />
                 {blocked.map((device) => (
                   <DeviceCard
@@ -203,6 +204,7 @@ export function MyDevicesScreen() {
           </Column>
           )}
         </ScreenStateRenderer>
+        </Column>
       </ScrollView>
     </AppLayout>
   );
@@ -217,8 +219,9 @@ const DeviceCard = styled.TouchableOpacity<{ $accent?: CardAccent; $busy?: boole
   border-width: ${({ theme }) => theme.borderWidth.thin}px;
   border-color: ${({ theme, $accent }) =>
     $accent === 'danger' ? theme.color.danger.border : theme.colorBorder};
-  border-left-width: 3px;
+  border-left-width: ${({ theme }) => theme.borderWidth.medium}px;
   border-left-color: ${({ theme, $accent }) =>
+    // 'transparent' is a CSS keyword, not a design value — no theme token needed.
     $accent === 'primary'
       ? theme.color.primary.main
       : $accent === 'danger'
@@ -230,6 +233,7 @@ const DeviceCard = styled.TouchableOpacity<{ $accent?: CardAccent; $busy?: boole
 `;
 
 const IconSlot = styled(View)<{ $accent?: CardAccent | 'neutral' }>`
+  /* 44px is an un-tokenized icon-slot size — no matching theme.componentSizing entry. */
   width: 44px;
   height: 44px;
   border-radius: ${({ theme }) => theme.borderRadius.large}px;
@@ -244,6 +248,7 @@ const IconSlot = styled(View)<{ $accent?: CardAccent | 'neutral' }>`
 `;
 
 const ChevronSlot = styled(View)`
+  /* 28px is an un-tokenized chevron-slot size — no matching theme.componentSizing entry. */
   width: 28px;
   height: 28px;
   border-radius: ${({ theme }) => theme.borderRadius.full}px;

@@ -62,19 +62,23 @@ export const OverlayLoader: React.FC<OverlayLoaderProps> = ({
           {timedOut ? (
             <>
               <LucideIcon name="Clock" size={28} color={theme.colorTextSecondary} />
-              <Typography.Body weight="semiBold" style={{ textAlign: 'center' }}>
+              <CenteredBody weight="semiBold">
                 This is taking longer than expected
-              </Typography.Body>
-              <Typography.Caption color={theme.colorTextSecondary} style={{ textAlign: 'center' }}>
+              </CenteredBody>
+              <CenteredCaption color={theme.colorTextSecondary}>
                 Check your connection and try again.
-              </Typography.Caption>
+              </CenteredCaption>
               {(onCancel || onRetry) && (
                 <ActionRow>
                   {onCancel && (
-                    <Button label="Cancel" variant="default" onPress={onCancel} style={{ flex: 1 }} />
+                    <ActionButtonSlot>
+                      <Button label="Cancel" variant="default" onPress={onCancel} />
+                    </ActionButtonSlot>
                   )}
                   {onRetry && (
-                    <Button label="Retry" variant="primary" onPress={onRetry} style={{ flex: 1 }} />
+                    <ActionButtonSlot>
+                      <Button label="Retry" variant="primary" onPress={onRetry} />
+                    </ActionButtonSlot>
                   )}
                 </ActionRow>
               )}
@@ -85,7 +89,7 @@ export const OverlayLoader: React.FC<OverlayLoaderProps> = ({
               <Typography.Body weight="semiBold">{message}</Typography.Body>
               {progress !== undefined && (
                 <ProgressBarContainer>
-                  <ProgressBarFill style={{ width: `${Math.min(progress, 100)}%` }} />
+                  <ProgressBarFill $percent={Math.min(progress, 100)} />
                 </ProgressBarContainer>
               )}
               <Typography.Caption color={theme.colorTextSecondary}>
@@ -123,6 +127,10 @@ const ActionRow = styled(View)`
   width: 100%;
 `;
 
+const ActionButtonSlot = styled(View)`
+  flex: 1;
+`;
+
 const ProgressBarContainer = styled(View)`
   width: 100%;
   height: ${({ theme }) => theme.sizing.xSmall}px;
@@ -131,8 +139,17 @@ const ProgressBarContainer = styled(View)`
   overflow: hidden;
 `;
 
-const ProgressBarFill = styled(View)`
+const ProgressBarFill = styled(View)<{ $percent: number }>`
   height: 100%;
+  width: ${({ $percent }) => $percent}%;
   border-radius: ${({ theme }) => theme.borderRadius.small}px;
   background-color: ${({ theme }) => theme.color.primary.main};
+`;
+
+const CenteredBody = styled(Typography.Body)`
+  text-align: center;
+`;
+
+const CenteredCaption = styled(Typography.Caption)`
+  text-align: center;
 `;

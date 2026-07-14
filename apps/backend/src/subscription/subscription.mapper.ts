@@ -13,7 +13,7 @@ import type {
   ReconciliationApplyResponse,
   PlanCatalogEntry,
 } from './dto/subscription.response.js';
-import type { CheckoutResponse, VerifyPaymentResponse } from './dto/checkout.response.js';
+import type { CheckoutResponse, VerifyPaymentResponse, WebhookResponse } from './dto/checkout.response.js';
 
 /** Pure domain → snake_case contract mapper (layered-architecture §3.7). */
 export const SubscriptionResponseMapper = {
@@ -99,6 +99,10 @@ export const SubscriptionResponseMapper = {
 
   toVerifyResponse(r: VerifyResult): VerifyPaymentResponse {
     return { activated: r.activated };
+  },
+
+  toWebhookResponse(): WebhookResponse {
+    return { handled: true };
   },
 
   toAppliedResponse(): ReconciliationApplyResponse {

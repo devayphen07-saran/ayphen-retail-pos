@@ -1,6 +1,6 @@
 import { useEffect } from 'react';
-import { View } from 'react-native';
 import { router } from 'expo-router';
+import styled from 'styled-components/native';
 import { useMobileTheme } from '@ayphen/mobile-theme';
 import { Button, Column, LucideIcon, Typography } from '@ayphen/mobile-ui-components';
 import { logger } from '../utils/logger';
@@ -29,25 +29,33 @@ export function RouteErrorBoundary({ error, retry }: RouteErrorBoundaryProps) {
   }, [error]);
 
   return (
-    <View
-      style={{
-        flex: 1,
-        alignItems: 'center',
-        justifyContent: 'center',
-        padding: theme.sizing.large,
-        gap: theme.sizing.medium,
-        backgroundColor: theme.colorBgContainer,
-      }}
+    <Column
+      flex={1}
+      align="center"
+      justify="center"
+      padding={theme.sizing.large}
+      gap={theme.sizing.medium}
+      bg={theme.colorBgContainer}
     >
       <LucideIcon name="TriangleAlert" size={40} color={theme.colorError} />
       <Typography.H3 weight="bold">Something went wrong</Typography.H3>
-      <Typography.Body type="secondary" style={{ textAlign: 'center' }}>
+      <CenteredBody type="secondary">
         This screen ran into a problem. You can try again, or head back to Home and return later.
-      </Typography.Body>
-      <Column gap={theme.sizing.small} style={{ alignSelf: 'stretch', marginTop: theme.sizing.small }}>
+      </CenteredBody>
+      <ButtonStack gap={theme.sizing.small}>
         <Button label="Try again" onPress={() => void retry()} />
         <Button variant="text" label="Go to Home" onPress={() => router.replace('/(app)')} />
-      </Column>
-    </View>
+      </ButtonStack>
+    </Column>
   );
 }
+
+// ─── Styles ───
+
+const CenteredBody = styled(Typography.Body)`
+  text-align: center;
+`;
+
+const ButtonStack = styled(Column)`
+  align-self: stretch;
+`;
